@@ -1,0 +1,19 @@
+# OS
+.DS_Store
+
+# Dependencies / build output
+node_modules/
+dist/
+build/
+
+# Env / secrets
+.env
+.env.*
+
+# Local reference clones — NOT part of ypuf.
+# tab-out lives here so we can lift files from it deliberately (with attribution
+# preserved per NOTICE.md). We do not commit it wholesale.
+reference/
+
+# Logs
+*.log
