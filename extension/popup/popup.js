@@ -39,7 +39,10 @@
       meta.className = 'meta';
       const host = T.friendlyDomain ? T.friendlyDomain(it.host || '') : (it.host || '');
       const ago = T.timeAgo ? T.timeAgo(it.timestamp) : '';
-      meta.textContent = [host, ago].filter(Boolean).join('  ·  ');
+      // Auto-closed items carry a quiet marker so the undo shelf doubles as a
+      // discovery surface when the ambient indicator was missed (R13).
+      const tag = it.autoClosed ? 'let go for you' : '';
+      meta.textContent = [host, ago, tag].filter(Boolean).join('  ·  ');
       li.append(title, meta);
       li.addEventListener('click', () => {
         chrome.runtime.sendMessage({ type: 'recall-open', recordId: it.id });
@@ -53,6 +56,63 @@
     if (chrome.runtime.lastError) return;
     render(resp && resp.items);
   });
+
+  // --- auto-let-go: ambient status, activation, relief, badge (U8) --------
+  const autoStatus = document.getElementById('auto-status');
+  const autoNote = document.getElementById('auto-note');
+  const relief = document.getElementById('relief');
+
+  function setNote(text) {
+    if (!autoNote) return;
+    autoNote.textContent = text || '';
+    autoNote.hidden = !text;
+  }
+
+  function renderAuto(s) {
+    if (!autoStatus || !s) return;
+    autoStatus.hidden = false;
+    if (s.enabled && s.granted) {
+      const week = s.week || 0;
+      autoStatus.textContent = week
+        ? `auto-let-go: on · ${week} let go this week`
+        : 'auto-let-go: on · watching for quiet tabs';
+      autoStatus.classList.remove('off');
+      autoStatus.disabled = true;          // on-state is informational, not a trap
+      setNote('');
+    } else {
+      autoStatus.textContent = 'Auto-let-go: off — turn on';
+      autoStatus.classList.add('off');
+      autoStatus.disabled = false;
+    }
+  }
+
+  // The grant must be requested directly inside the click handler (the gesture).
+  function enableAuto() {
+    chrome.permissions.request({ origins: ['<all_urls>'] }, (granted) => {
+      if (chrome.runtime.lastError || !granted) {
+        setNote('ypuf needs access to your pages to let tabs go for you.');
+        return;
+      }
+      chrome.runtime.sendMessage({ type: 'auto-enable' }, (resp) => {
+        if (!chrome.runtime.lastError && resp) renderAuto(resp);
+      });
+    });
+  }
+  autoStatus?.addEventListener('click', () => { if (!autoStatus.disabled) enableAuto(); });
+
+  chrome.runtime.sendMessage({ type: 'auto-summary' }, (resp) => {
+    if (!chrome.runtime.lastError) renderAuto(resp);
+  });
+
+  // Relief moment (R15): once per day, only when there's something to relieve.
+  chrome.runtime.sendMessage({ type: 'relief-claim' }, (resp) => {
+    if (chrome.runtime.lastError || !resp || !resp.show) return;
+    relief.textContent = `${resp.count} let go today — all in your recall list.`;
+    relief.hidden = false;
+  });
+
+  // Opening the popup is the deliberate reading surface — clear the badge.
+  chrome.runtime.sendMessage({ type: 'seen-badge' }, () => void chrome.runtime.lastError);
 
   // What's-indexed view + forget + block (U8).
   const shelf = document.getElementById('shelf');
@@ -119,6 +179,42 @@
 
   document.getElementById('open-indexed')?.addEventListener('click', showIndexed);
   document.getElementById('indexed-back')?.addEventListener('click', () => { panel.hidden = true; shelf.hidden = false; });
+
+  // Protected-sites view (U8/R14): what ypuf has learned to keep, correctable.
+  const protectedPanel = document.getElementById('protected-panel');
+  const protectedListEl = document.getElementById('protected-list');
+  const protectedEmpty = document.getElementById('protected-empty');
+
+  function showProtected() {
+    shelf.hidden = true; protectedPanel.hidden = false;
+    chrome.runtime.sendMessage({ type: 'protected-list' }, (resp) => {
+      if (!chrome.runtime.lastError) renderProtected(resp && resp.items);
+    });
+  }
+
+  function renderProtected(hosts) {
+    protectedListEl.textContent = '';
+    if (!hosts || !hosts.length) { protectedEmpty.hidden = false; return; }
+    protectedEmpty.hidden = true;
+    for (const host of hosts) {
+      const li = document.createElement('li');
+      li.className = 'recent-item';
+      const title = document.createElement('div'); title.className = 'title';
+      title.textContent = T.friendlyDomain ? T.friendlyDomain(host) : host;
+      const actions = document.createElement('div'); actions.className = 'actions';
+      const remove = mkBtn('Un-protect', () => {
+        chrome.runtime.sendMessage({ type: 'protect-remove', host }, () => {
+          if (!chrome.runtime.lastError) showProtected();
+        });
+      });
+      actions.appendChild(remove);
+      li.append(title, actions);
+      protectedListEl.appendChild(li);
+    }
+  }
+
+  document.getElementById('open-protected')?.addEventListener('click', showProtected);
+  document.getElementById('protected-back')?.addEventListener('click', () => { protectedPanel.hidden = true; shelf.hidden = false; });
 
   // Surface the current recall binding (U7 fleshes this out).
   const hint = document.getElementById('hotkey-hint');

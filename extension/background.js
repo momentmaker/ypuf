@@ -604,6 +604,44 @@ async function reopenRecord(recordId) {
   }
 }
 
+// --- discoverability / relief summaries (U8) -----------------------------
+
+const RELIEF_KEY = 'reliefShownDate';
+
+function startOfTodayMs() { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
+
+async function autoClosedRecords() {
+  return (await store.getAll()).filter((r) => r.autoClosed);
+}
+
+// Ambient surface (R16): the rolling-7-day count is derived from record
+// timestamps, so it's always correct after a forget/purge — no separate counter.
+async function autoSummary() {
+  const { enabled, granted } = await autoState();
+  const weekAgo = Date.now() - 7 * 86400000;
+  const week = (await autoClosedRecords()).filter((r) => (r.timestamp || 0) >= weekAgo).length;
+  return { enabled, granted, week };
+}
+
+// Relief moment (R15): once per calendar day, and only when there's something
+// to relieve. The claim is idempotent within a day (persisted date stamp).
+async function reliefClaim() {
+  const today = startOfTodayMs();
+  const count = (await autoClosedRecords()).filter((r) => (r.timestamp || 0) >= today).length;
+  if (count === 0) return { show: false, count: 0 };
+  if ((await local.get(RELIEF_KEY)) === today) return { show: false, count };
+  await local.set(RELIEF_KEY, today);
+  return { show: true, count };
+}
+
+// The badge is the between-opens signal; opening the popup is the deliberate
+// reading surface, so clear it on open.
+async function seenBadge() {
+  await session.set(BADGE_KEY, 0);
+  chrome.action.setBadgeText({ text: '' }).catch(() => {});
+  return { ok: true };
+}
+
 async function protectedList() {
   return { items: protection.list(await loadProtection()).sort() };
 }
@@ -673,6 +711,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'auto-disable') return respond(autoDisable());
   if (msg.type === 'protected-list') return respond(protectedList());
   if (msg.type === 'protect-remove' && msg.host) return respond(protectRemove(msg.host));
+  if (msg.type === 'auto-summary') return respond(autoSummary());
+  if (msg.type === 'relief-claim') return respond(reliefClaim());
+  if (msg.type === 'seen-badge') return respond(seenBadge());
 });
 
 // Auto-let-go grant lifecycle (U2). If the user revokes host access from

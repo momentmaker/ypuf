@@ -110,7 +110,31 @@ body.popup { width: 340px; max-height: 560px; overflow-y: auto; }
 }
 .hotkey { font-size: 11px; color: var(--muted); }
 
-/* ---- What's-indexed panel (U8) ---- */
+/* ---- What's-indexed / protected panels (U8) ---- */
 .indexed { padding: 14px; }
 .actions { display: flex; gap: 12px; margin-top: 6px; flex-wrap: wrap; align-items: center; }
 .recent-item.struck .title { text-decoration: line-through; color: var(--muted); }
+
+/* ---- Auto-let-go surfaces (U8) ---- */
+.auto-status {
+  font: inherit;
+  font-size: 12px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--accent-sage);
+  cursor: default;
+  padding: 0 0 8px;
+}
+.auto-status.off { color: var(--accent-amber); cursor: pointer; }
+.auto-note { font-size: 11px; margin: 0 0 8px; }
+.relief {
+  background: var(--card-bg);
+  border: 1px solid var(--warm-gray);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--accent-sage);
+  margin-bottom: 10px;
+}
