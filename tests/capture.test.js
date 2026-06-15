@@ -113,6 +113,20 @@ test('recordExtra also rides the floor record (discarded auto-close)', async () 
   assert.equal(res.record.autoClosed, true);
 });
 
+test('AE5: a blocklisted tab snoozed stores title+URL only and carries the schedule', async () => {
+  const { deps } = makeDeps();
+  const res = await capture.letGo(
+    { id: 3, url: 'https://www.chase.com/x?id=9', title: 'Chase', incognito: false },
+    deps,
+    { snoozed: true, snoozeState: 'snoozed', returnAt: 5000 },
+  );
+  assert.equal(res.kind, 'metadata-only');
+  assert.equal(res.record.contentLess, true);       // no page content captured
+  assert.equal(res.record.url, 'https://www.chase.com/x'); // query stripped
+  assert.equal(res.record.snoozed, true);
+  assert.equal(res.record.returnAt, 5000);
+});
+
 test('recordExtra on a never-index tab still persists NOTHING (R10 assert-record backstop)', async () => {
   const { deps, ctx } = makeDeps();
   const res = await capture.letGo({ id: 9, url: 'https://secret.com', title: 'x', incognito: true }, deps, { autoClosed: true });

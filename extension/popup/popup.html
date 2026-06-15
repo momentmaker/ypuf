@@ -13,6 +13,22 @@
       <button class="btn-letgo" id="letgo" type="button">Let go of this tab</button>
     </header>
 
+    <div class="snooze-bar">
+      <button class="link" id="snooze-btn" type="button">Snooze this tab…</button>
+    </div>
+    <div class="snooze-panel" id="snooze-panel" hidden>
+      <button class="link snooze-opt" type="button" data-preset="later-today">Later today</button>
+      <button class="link snooze-opt" type="button" data-preset="this-evening">This evening</button>
+      <button class="link snooze-opt" type="button" data-preset="tomorrow-morning">Tomorrow morning</button>
+      <button class="link snooze-opt" type="button" data-preset="this-weekend">This weekend</button>
+      <button class="link snooze-opt" type="button" data-preset="next-week">Next week</button>
+      <button class="link snooze-opt" type="button" data-preset="when-im-back">When I'm back</button>
+      <div class="snooze-custom">
+        <button class="link" id="snooze-custom-btn" type="button">Custom…</button>
+        <input class="snooze-custom-input" id="snooze-custom-input" type="datetime-local" hidden />
+      </div>
+    </div>
+
     <button class="auto-status" id="auto-status" type="button" hidden></button>
     <p class="auto-note muted" id="auto-note" hidden></p>
     <div class="relief" id="relief" hidden></div>

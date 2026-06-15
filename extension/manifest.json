@@ -25,6 +25,10 @@
     "let-go": {
       "suggested_key": { "default": "Ctrl+Shift+L", "mac": "Command+Shift+L" },
       "description": "Let go of the current tab"
+    },
+    "snooze": {
+      "suggested_key": { "default": "Ctrl+Shift+S", "mac": "Command+Shift+S" },
+      "description": "Snooze the current tab"
     }
   }
 }

@@ -159,6 +159,39 @@ async function handleLetGo() {
   }
 }
 
+// --- snooze (U2 / flow F1) ------------------------------------------------
+// The voluntary twin of let-go: capture the active tab via the same pipeline,
+// stamping the snooze schedule into the single pre-close store.put, then arm a
+// per-item alarm for the return (clock schedules only — "when I'm back" is an
+// untilStartup flag caught by the startup path).
+
+async function handleSnooze(preset, custom) {
+  await initIndex();
+  const tab = await getActiveTab();
+  if (!tab) return;
+  const schedule = snooze.resolve(preset, Date.now(), custom);
+  const res = await capture.letGo(
+    { id: tab.id, url: tab.url, title: tab.title, incognito: tab.incognito, discarded: tab.discarded, frozen: tab.frozen },
+    await buildDeps(),
+    Object.assign({ snoozed: true, snoozeState: 'snoozed' }, schedule),
+  );
+  if (res && res.record) {
+    await persistSnapshot();
+    if (typeof res.record.returnAt === 'number') {
+      chrome.alarms.create('snooze:' + res.record.id, { when: res.record.returnAt });
+    }
+    maybePrune();
+  }
+}
+
+// The snooze command opens the popup straight to the picker (the user always
+// picks a time — never a silent default). The popup reads SNOOZE_INTENT_KEY.
+const SNOOZE_INTENT_KEY = 'snoozeIntent';
+async function openSnoozePicker() {
+  await session.set(SNOOZE_INTENT_KEY, true);
+  try { await chrome.action.openPopup(); } catch { /* unsupported Chrome — popup button still works */ }
+}
+
 // Retention (R21): age + LRU + byte-budget, triggered when storage crosses
 // ~75% of quota. After eviction the index is rebuilt from the (smaller) store.
 const RETENTION_MAX_AGE_MS = 180 * 86400000; // 180 days
@@ -699,12 +732,14 @@ chrome.runtime.onStartup.addListener(() => {
 chrome.commands.onCommand.addListener((command) => {
   if (command === 'let-go') handleLetGo().catch(logErr);
   if (command === 'recall') handleRecall().catch(logErr);
+  if (command === 'snooze') openSnoozePicker().catch(logErr);
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!sender || sender.id !== chrome.runtime.id) return; // SW-as-broker: trust only our own contexts
   if (!msg) return;
   if (msg.type === 'let-go') { handleLetGo().catch(logErr); return; }
+  if (msg.type === 'snooze' && msg.preset) { handleSnooze(msg.preset, msg.custom).catch(logErr); return; }
   if (msg.type === 'undo' && msg.recordId) { handleUndo(msg.recordId).catch(logErr); return; }
   // Dirty-state report from the U3 content script: trust sender.tab, never a
   // body-supplied id (SW-as-broker). Boolean only — no page content crosses.

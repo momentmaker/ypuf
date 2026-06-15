@@ -20,6 +20,35 @@
     });
   }
 
+  // Snooze trigger + duration picker (U2): the user always picks a time; the
+  // SW captures the tab and schedules the return.
+  const snoozeBtn = document.getElementById('snooze-btn');
+  const snoozePanel = document.getElementById('snooze-panel');
+  const snoozeCustomBtn = document.getElementById('snooze-custom-btn');
+  const snoozeCustomInput = document.getElementById('snooze-custom-input');
+
+  function doSnooze(preset, custom) {
+    chrome.runtime.sendMessage({ type: 'snooze', preset, custom });
+    window.close();
+  }
+  snoozeBtn?.addEventListener('click', () => { snoozePanel.hidden = !snoozePanel.hidden; });
+  for (const opt of document.querySelectorAll('.snooze-opt')) {
+    opt.addEventListener('click', () => doSnooze(opt.dataset.preset));
+  }
+  snoozeCustomBtn?.addEventListener('click', () => { snoozeCustomInput.hidden = false; snoozeCustomInput.focus(); });
+  snoozeCustomInput?.addEventListener('change', () => {
+    const ts = snoozeCustomInput.value ? new Date(snoozeCustomInput.value).getTime() : NaN;
+    if (!Number.isNaN(ts)) doSnooze('custom', ts);
+  });
+
+  // Opened via the snooze hotkey → reveal the picker straight away, then clear.
+  chrome.storage.session.get('snoozeIntent').then((o) => {
+    if (o && o.snoozeIntent) {
+      if (snoozePanel) snoozePanel.hidden = false;
+      chrome.storage.session.remove('snoozeIntent');
+    }
+  }).catch(() => {});
+
   // Shelf list (U7): the SW owns the store; the popup renders what it returns.
   // Every page-derived string goes through textContent — never innerHTML.
   const T = (window.ypuf && window.ypuf.titles) || {};
