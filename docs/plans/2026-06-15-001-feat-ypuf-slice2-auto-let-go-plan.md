@@ -1,7 +1,7 @@
 ---
 title: "feat: ypuf slice 2 — auto-let-go (the hero)"
 type: feat
-status: active
+status: completed
 date: 2026-06-15
 deepened: 2026-06-15
 origin: docs/brainstorms/2026-06-15-ypuf-slice2-auto-let-go-requirements.md
