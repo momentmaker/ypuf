@@ -16,6 +16,7 @@ importScripts(
   'lib/attribution.js',
   'lib/exclusion.js',
   'lib/store.js',
+  'lib/search.js',
 );
 
 // --- top-level synchronous listener registration -------------------------
