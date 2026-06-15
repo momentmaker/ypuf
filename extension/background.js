@@ -263,6 +263,45 @@ async function purgeTab(tabId) {
   await saveTabstate(s);
 }
 
+// --- auto-let-go enablement (U2) -----------------------------------------
+// Auto-let-go is OFF until the user grants broad host access via an in-context
+// gesture (the popup calls chrome.permissions.request — see U8). The blocklist
+// gate still runs in code regardless of the grant. The persisted enabled flag
+// is cleared if the host permission is ever revoked, so the ambient surface
+// never claims "on" while the sweep is actually dead.
+
+const AUTO_KEY = 'autoEnabled';
+const ALARM_NAME = 'auto-sweep';
+const SWEEP_PERIOD_MIN = 5;
+const HOST_ACCESS = { origins: ['<all_urls>'] };
+
+const isAutoEnabled = async () => (await local.get(AUTO_KEY)) === true;
+const hasHostAccess = () => chrome.permissions.contains(HOST_ACCESS).catch(() => false);
+
+function ensureAutoAlarm() {
+  chrome.alarms.create(ALARM_NAME, { periodInMinutes: SWEEP_PERIOD_MIN });
+}
+const clearAutoAlarm = () => chrome.alarms.clear(ALARM_NAME).catch(() => {});
+
+async function autoState() {
+  return { enabled: await isAutoEnabled(), granted: await hasHostAccess() };
+}
+
+// The popup obtained the grant in its own click handler; here we persist intent
+// and arm the sweep. Refuse to enable without the grant (defensive).
+async function autoEnable() {
+  if (!(await hasHostAccess())) return { ok: false, ...(await autoState()) };
+  await local.set(AUTO_KEY, true);
+  ensureAutoAlarm();
+  return { ok: true, ...(await autoState()) };
+}
+
+async function autoDisable() {
+  await local.set(AUTO_KEY, false);
+  await clearAutoAlarm();
+  return { ok: true, ...(await autoState()) };
+}
+
 // --- privacy controls (U8) ----------------------------------------------
 
 const privacyDeps = (durable) => ({ store, search, signal, durable });
@@ -376,12 +415,19 @@ async function handleRecall() {
 
 // --- top-level synchronous listener registration -------------------------
 
-chrome.runtime.onInstalled.addListener(() => { initIndex(); });
+// Re-arm the sweep alarm on every wake: persistAcrossSessions is unreliable, so
+// re-create it whenever auto-let-go is enabled (U2/U5).
+async function rearmAutoAlarm() {
+  if (await isAutoEnabled()) ensureAutoAlarm();
+}
+
+chrome.runtime.onInstalled.addListener(() => { initIndex(); rearmAutoAlarm().catch(() => {}); });
 chrome.runtime.onStartup.addListener(() => {
   // Stamp startup so tabs created in the next grace window are flagged as a
   // restored-session burst (U1/R3) and excluded from auto-close.
   session.set(STARTUP_KEY, Date.now()).catch(() => {});
   initIndex();
+  rearmAutoAlarm().catch(() => {});
 });
 
 chrome.commands.onCommand.addListener((command) => {
@@ -405,6 +451,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'forget-page-undo' && msg.recordId) return respond(forgetPageUndo(msg.recordId));
   if (msg.type === 'forget-domain' && msg.host) return respond(forgetDomain(msg.host));
   if (msg.type === 'blocklist-add' && msg.host) return respond(blocklistAdd(msg.host));
+  if (msg.type === 'auto-state') return respond(autoState());
+  if (msg.type === 'auto-enable') return respond(autoEnable());
+  if (msg.type === 'auto-disable') return respond(autoDisable());
+});
+
+// Auto-let-go grant lifecycle (U2). If the user revokes host access from
+// chrome://extensions, disable the sweep and clear the persisted "on" flag so
+// the ambient surface tells the truth.
+chrome.permissions.onRemoved.addListener((perms) => {
+  if (perms && perms.origins && perms.origins.length) autoDisable().catch(logErr);
 });
 
 chrome.notifications.onButtonClicked.addListener((notifId, btnIndex) => {
