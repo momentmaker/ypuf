@@ -120,3 +120,21 @@ test('mark(record, null) clears the snooze fields (reopen → normal tab)', () =
   assert.equal('untilStartup' in r, false);
   assert.equal(r.title, 'X');
 });
+
+// The re-snooze composition (background.js): clear the old schedule via mark(…,null),
+// then layer the new state + schedule. Switching kind must not leave a stale field.
+test('re-snooze from a clock time to when-im-back strips returnAt', () => {
+  const rec = { id: 'a', snoozeState: 'snoozed', returnAt: 5, title: 'X' };
+  const updated = Object.assign(snooze.mark(rec, null), { snoozeState: 'snoozed' }, snooze.resolve('when-im-back', NOW));
+  assert.equal(updated.snoozeState, 'snoozed');
+  assert.equal(updated.untilStartup, true);
+  assert.equal('returnAt' in updated, false);
+});
+
+test('re-snooze from "when I\'m back" to a clock time strips untilStartup', () => {
+  const rec = { id: 'a', snoozeState: 'snoozed', untilStartup: true, title: 'X' };
+  const updated = Object.assign(snooze.mark(rec, null), { snoozeState: 'snoozed' }, snooze.resolve('tomorrow-morning', NOW));
+  assert.equal(updated.snoozeState, 'snoozed');
+  assert.equal('untilStartup' in updated, false);
+  assert.equal(typeof updated.returnAt, 'number');
+});

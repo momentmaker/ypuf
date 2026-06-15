@@ -41,6 +41,7 @@
   });
 
   // Opened via the snooze hotkey → reveal the picker straight away, then clear.
+  // Key mirrors SNOOZE_INTENT_KEY in background.js (the popup can't import the SW).
   chrome.storage.session.get('snoozeIntent').then((o) => {
     if (o && o.snoozeIntent) {
       if (snoozePanel) snoozePanel.hidden = false;
@@ -95,6 +96,8 @@
 
   // Snooze groups (U4): "Back now" (click-to-open) and "Snoozed" (wake / later).
   const snoozeGroups = document.getElementById('snooze-groups');
+  // Same preset keys as the popup.html picker; labels are intentionally shorter
+  // here because they render inline inside a shelf row, not the full panel.
   const RESNOOZE_PRESETS = [
     ['later-today', 'Later today'], ['this-evening', 'This evening'], ['tomorrow-morning', 'Tomorrow'],
     ['this-weekend', 'Weekend'], ['next-week', 'Next week'], ['when-im-back', 'When back'],

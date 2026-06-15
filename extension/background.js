@@ -886,7 +886,10 @@ chrome.permissions.onRemoved.addListener((perms) => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) runAutoSweep().catch(logErr);
-  else if (alarm.name.startsWith(SNOOZE_ALARM_PREFIX)) flipBackNow([alarm.name.slice(SNOOZE_ALARM_PREFIX.length)]).catch(logErr);
+  // A snooze alarm is just a precise wake — sweep due records rather than flip by
+  // id, so an alarm already enqueued before a re-snooze-to-later can't flip the
+  // freshly-rescheduled record early (it's no longer due).
+  else if (alarm.name.startsWith(SNOOZE_ALARM_PREFIX)) expireSnoozes(Date.now()).catch(logErr);
 });
 
 chrome.notifications.onButtonClicked.addListener((notifId, btnIndex) => {
