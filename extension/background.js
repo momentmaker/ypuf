@@ -158,6 +158,18 @@ async function handleUndo(recordId) {
   await persistSnapshot();
 }
 
+// --- shelf (U7) ----------------------------------------------------------
+
+async function listRecent(limit) {
+  const recs = await store.listRecent(limit);
+  return {
+    items: recs.map((r) => ({
+      id: r.id, title: r.title, url: r.url, host: r.host,
+      timestamp: r.timestamp, contentLess: r.contentLess,
+    })),
+  };
+}
+
 // --- recall (U6 / flow F2) -----------------------------------------------
 
 async function getRecallResults(q) {
@@ -215,6 +227,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg) return;
   if (msg.type === 'let-go') { handleLetGo(); return; }
   if (msg.type === 'undo' && msg.recordId) { handleUndo(msg.recordId); return; }
+  if (msg.type === 'list-recent') { listRecent(msg.limit || 15).then(sendResponse); return true; }
   if (msg.type === 'recall-search') { getRecallResults(msg.q).then(sendResponse); return true; }
   if (msg.type === 'recall-open' && msg.recordId) { reopenRecord(msg.recordId).then(() => sendResponse({ ok: true })); return true; }
 });

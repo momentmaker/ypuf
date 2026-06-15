@@ -40,6 +40,19 @@ math) is covered by `node --test`. The behavior below depends on real
 - [ ] Press let-go **twice quickly** on the same tab → exactly one entry, one
       close (in-flight guard).
 
+## Popup shelf (U7)
+
+- [ ] After letting go of a few tabs, the popup lists them **most-recent
+      first**, each with a friendly domain + relative time.
+- [ ] Clicking a row reopens that page (focuses it if still open).
+- [ ] First run (nothing let go) shows the invitational empty state, and the
+      "Let go of this tab" button is still present.
+- [ ] The footer shows the current recall hotkey binding (remapping it at
+      `chrome://extensions/shortcuts` is reflected on reopen).
+- [ ] A blocklisted/title-only entry shows a "title only" badge in its row.
+- [ ] A let-go page whose `<title>` contains markup renders as inert text in
+      its row (no script runs).
+
 ## Recall command bar (U6 / F2)
 
 - [ ] Press the recall hotkey (default `Ctrl/Cmd+Shift+K`) on a normal page →
