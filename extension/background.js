@@ -263,6 +263,26 @@ async function purgeTab(tabId) {
   await saveTabstate(s);
 }
 
+async function writeDirty(tabId, dirty) {
+  const s = await loadTabstate();
+  tabstate.setDirty(s, tabId, dirty);
+  await saveTabstate(s);
+}
+
+// Inject the dirty-tracker (U3) while the tab is alive so we know its unsaved-
+// input state even after it's discarded. Gate-before-injection (R11): the
+// content script never lands on an incognito/blocklisted/restricted page. Only
+// runs when auto-let-go is enabled (host access granted).
+async function maybeInjectDirty(tab) {
+  if (!tab || tab.id == null || !tab.url) return;
+  if (!(await isAutoEnabled())) return;
+  const cls = exclusion.classify({ url: tab.url, incognito: tab.incognito }, await getUserBlocklist());
+  if (cls.kind !== 'extractable') return;
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content/dirty-tracker.js'] });
+  } catch { /* host not granted / page refused — leave the tab 'unknown' (fail safe) */ }
+}
+
 // --- auto-let-go enablement (U2) -----------------------------------------
 // Auto-let-go is OFF until the user grants broad host access via an in-context
 // gesture (the popup calls chrome.permissions.request — see U8). The blocklist
@@ -440,6 +460,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg) return;
   if (msg.type === 'let-go') { handleLetGo().catch(logErr); return; }
   if (msg.type === 'undo' && msg.recordId) { handleUndo(msg.recordId).catch(logErr); return; }
+  // Dirty-state report from the U3 content script: trust sender.tab, never a
+  // body-supplied id (SW-as-broker). Boolean only — no page content crosses.
+  if (msg.type === 'dirty' && sender.tab) { writeDirty(sender.tab.id, !!msg.dirty).catch(logErr); return; }
   // Async branches: always answer the caller — a rejection that never calls
   // sendResponse would hang the overlay/popup until Chrome times out the channel.
   const respond = (p) => { p.then(sendResponse).catch((e) => sendResponse({ error: String(e) })); return true; };
@@ -478,7 +501,10 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url && tab && tab.active) applyForeground(tab);
-  if (changeInfo.status === 'complete' && tab && tab.url) stampHost(tabId, tab.url).catch(() => {});
+  if (changeInfo.status === 'complete' && tab && tab.url) {
+    stampHost(tabId, tab.url).catch(() => {});
+    maybeInjectDirty(tab).catch(() => {});
+  }
 });
 chrome.tabs.onRemoved.addListener((tabId) => { purgeTab(tabId).catch(() => {}); });
 chrome.windows.onFocusChanged.addListener((windowId) => {
