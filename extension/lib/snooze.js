@@ -51,7 +51,9 @@
       case 'tomorrow-morning': return { returnAt: dayAtHour(now, 1, MORNING_HOUR) };
       case 'this-weekend': return { returnAt: nextDow(now, SATURDAY, MORNING_HOUR, 0) };
       case 'next-week': return { returnAt: nextDow(now, MONDAY, MORNING_HOUR, 1) };
-      case 'custom': return { returnAt: custom };
+      case 'custom':
+        if (typeof custom !== 'number' || !Number.isFinite(custom)) throw new Error('snooze custom requires a finite timestamp');
+        return { returnAt: custom };
       case 'when-im-back': return { untilStartup: true };
       default: throw new Error('unknown snooze preset: ' + preset);
     }
@@ -76,7 +78,7 @@
     return records.filter((r) => isSnoozed(r) && r.untilStartup === true);
   }
 
-  // Set the snooze state. `null` clears it entirely (reopen → a normal tab).
+  // `null` clears the snooze entirely (reopen → a normal tab).
   function mark(record, state) {
     const r = Object.assign({}, record, { snoozeState: state });
     if (state === null) { delete r.returnAt; delete r.untilStartup; }

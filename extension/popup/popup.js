@@ -28,8 +28,7 @@
   const snoozeCustomInput = document.getElementById('snooze-custom-input');
 
   function doSnooze(preset, custom) {
-    chrome.runtime.sendMessage({ type: 'snooze', preset, custom });
-    window.close();
+    chrome.runtime.sendMessage({ type: 'snooze', preset, custom }, () => window.close());
   }
   snoozeBtn?.addEventListener('click', () => { snoozePanel.hidden = !snoozePanel.hidden; });
   for (const opt of document.querySelectorAll('.snooze-opt')) {

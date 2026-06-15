@@ -29,12 +29,18 @@ test('tomorrow-morning resolves to 9am the next day', () => {
   assert.equal(d.getDate(), new Date(NOW).getDate() + 1);
 });
 
-test('this-weekend resolves to a Saturday 9am in the future', () => {
+test('this-weekend resolves to the next Saturday 9am (within a week)', () => {
   const { returnAt } = snooze.resolve('this-weekend', NOW);
   const d = new Date(returnAt);
   assert.equal(d.getDay(), 6); // Saturday
   assert.equal(d.getHours(), 9);
   assert.ok(returnAt > NOW);
+  assert.ok(returnAt - NOW < 7 * 86400000); // the coming Saturday, not the one after
+});
+
+test('custom requires a finite timestamp (a stranded never-returning record is prevented)', () => {
+  assert.throws(() => snooze.resolve('custom', NOW, undefined));
+  assert.throws(() => snooze.resolve('custom', NOW, NaN));
 });
 
 test('next-week resolves to a future Monday 9am at least a few days out', () => {
@@ -108,7 +114,7 @@ test('mark sets snoozeState without touching other fields', () => {
 });
 
 test('mark(record, null) clears the snooze fields (reopen → normal tab)', () => {
-  const r = snooze.mark({ id: 'a', snoozeState: 'snoozed', returnAt: 5, untilStartup: undefined, title: 'X' }, null);
+  const r = snooze.mark({ id: 'a', snoozeState: 'snoozed', returnAt: 5, untilStartup: true, title: 'X' }, null);
   assert.equal(r.snoozeState, null);
   assert.equal('returnAt' in r, false);
   assert.equal('untilStartup' in r, false);

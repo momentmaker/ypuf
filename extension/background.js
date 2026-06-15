@@ -68,7 +68,9 @@ function initIndex() {
     if (reconciled) await persistSnapshot();
     await capture.expirePending(session, Date.now());
     await sweepPendingForget(Date.now());
-    await expireSnoozes(Date.now()); // surface overdue clock snoozes on every wake
+    // The overdue sweep must not be load-bearing for the index load — degrade it,
+    // don't abort initIndex (which would clear the memo and retry forever).
+    try { await expireSnoozes(Date.now()); } catch (e) { logErr(e); }
   })();
   // Don't memoize a rejection — clear so the next caller retries instead of
   // permanently failing every flow for this SW lifetime.
@@ -174,13 +176,11 @@ async function handleSnooze(preset, custom) {
   const res = await capture.letGo(
     { id: tab.id, url: tab.url, title: tab.title, incognito: tab.incognito, discarded: tab.discarded, frozen: tab.frozen },
     await buildDeps(),
-    Object.assign({ snoozed: true, snoozeState: 'snoozed' }, schedule),
+    Object.assign({ snoozeState: 'snoozed' }, schedule),
   );
   if (res && res.record) {
     await persistSnapshot();
-    if (typeof res.record.returnAt === 'number') {
-      chrome.alarms.create('snooze:' + res.record.id, { when: res.record.returnAt });
-    }
+    if (typeof res.record.returnAt === 'number') createSnoozeAlarm(res.record.id, res.record.returnAt);
     maybePrune();
   }
 }
@@ -190,7 +190,10 @@ async function handleSnooze(preset, custom) {
 const SNOOZE_INTENT_KEY = 'snoozeIntent';
 async function openSnoozePicker() {
   await session.set(SNOOZE_INTENT_KEY, true);
-  try { await chrome.action.openPopup(); } catch { /* unsupported Chrome — popup button still works */ }
+  // Clear the intent if the popup can't open, so it doesn't auto-show the picker
+  // on a later unrelated popup open.
+  try { await chrome.action.openPopup(); }
+  catch { chrome.storage.session.remove(SNOOZE_INTENT_KEY).catch(() => {}); }
 }
 
 // --- snooze return lifecycle (U3 / flow F2, R9) --------------------------
@@ -199,29 +202,37 @@ async function openSnoozePicker() {
 // chain owns the flip + badge, so a coincident alarm and sweep targeting the
 // same record flip it once (idempotent — an already-back-now record is skipped).
 
+const SNOOZE_ALARM_PREFIX = 'snooze:';
+const createSnoozeAlarm = (id, when) => Promise.resolve(chrome.alarms.create(SNOOZE_ALARM_PREFIX + id, { when })).catch(logErr);
+const clearSnoozeAlarm = (id) => chrome.alarms.clear(SNOOZE_ALARM_PREFIX + id).catch(() => {});
+
+// Every write to a record's snooze state (flip, re-snooze, reopen-clear) runs
+// through this one chain, so a flip can't clobber a record the user just
+// reopened or re-snoozed, and a coincident alarm + sweep flip exactly once.
 let _snoozeChain = Promise.resolve();
+function mutateSnooze(fn) {
+  _snoozeChain = _snoozeChain.then(fn).catch(logErr);
+  return _snoozeChain;
+}
+
 function flipBackNow(ids) {
-  _snoozeChain = _snoozeChain.then(async () => {
+  return mutateSnooze(async () => {
     let flipped = 0;
     for (const id of ids) {
       const rec = await store.get(id);
       if (rec && rec.snoozeState === 'snoozed') { await store.put(snooze.mark(rec, 'back-now')); flipped += 1; }
     }
     if (flipped) { await persistSnapshot(); await bumpBadge(flipped); }
-  }).catch(logErr);
-  return _snoozeChain;
+  });
 }
 
-// Overdue clock snoozes only (numeric returnAt <= now). untilStartup records are
-// never swept here — they resolve only on startup.
+// Overdue clock snoozes only; untilStartup records resolve only on startup.
 const expireSnoozes = async (now) => flipBackNow(snooze.dueSnoozes(await store.getAll(), now).map((r) => r.id));
 
 async function snoozeStartup() {
-  await initIndex(); // index loaded before any persistSnapshot from a flip
-  const all = await store.getAll();
-  for (const r of snooze.pendingClock(all)) {
-    chrome.alarms.create('snooze:' + r.id, { when: r.returnAt }); // re-arm (persistAcrossSessions unreliable)
-  }
+  try { await initIndex(); } catch (e) { logErr(e); } // re-arm + resolve must not hinge on a clean index load
+  const all = await store.getAll().catch(() => []);
+  for (const r of snooze.pendingClock(all)) createSnoozeAlarm(r.id, r.returnAt); // re-arm (persistAcrossSessions unreliable)
   await flipBackNow(snooze.pendingStartup(all).map((r) => r.id)); // resolve "when I'm back"
 }
 
@@ -590,7 +601,7 @@ async function forgetPage(recordId) {
   const durable = await loadDurable();
   const bundle = await privacy.forgetPage(recordId, privacyDeps(durable));
   await saveDurable(durable);
-  chrome.alarms.clear('snooze:' + recordId).catch(() => {}); // cancel any pending return
+  await clearSnoozeAlarm(recordId); // cancel any pending return
   await persistSnapshot();
   if (bundle) {
     const pending = (await session.get('pendingForget')) || [];
@@ -631,7 +642,7 @@ async function forgetDomain(host) {
   const n = await privacy.forgetDomain(host, privacyDeps(durable));
   await saveDurable(durable);
   await purgeDomainStores(host);
-  for (const id of ids) chrome.alarms.clear('snooze:' + id).catch(() => {});
+  for (const id of ids) clearSnoozeAlarm(id);
   await persistSnapshot();
   return { count: n };
 }
@@ -679,20 +690,22 @@ async function snoozeList() {
 }
 
 async function snoozeWake(recordId) {
-  chrome.alarms.clear('snooze:' + recordId).catch(() => {});
-  await flipBackNow([recordId]); // guarded: snoozed → back-now (no-op if already back-now)
+  await clearSnoozeAlarm(recordId);
+  await flipBackNow([recordId]); // guarded + serialized: snoozed → back-now (no-op if already back-now)
   return { ok: true };
 }
 
 async function snoozeResnooze(recordId, preset, custom) {
-  const rec = await store.get(recordId);
-  if (!rec) return { ok: false };
-  chrome.alarms.clear('snooze:' + recordId).catch(() => {});
-  const schedule = snooze.resolve(preset, Date.now(), custom);
-  const updated = Object.assign(snooze.mark(rec, null), { snoozeState: 'snoozed' }, schedule);
-  await store.put(updated);
-  await persistSnapshot();
-  if (typeof updated.returnAt === 'number') chrome.alarms.create('snooze:' + recordId, { when: updated.returnAt });
+  const schedule = snooze.resolve(preset, Date.now(), custom); // may throw on a bad custom — outside the chain
+  await clearSnoozeAlarm(recordId);
+  await mutateSnooze(async () => {
+    const rec = await store.get(recordId);
+    if (!rec) return;
+    const updated = Object.assign(snooze.mark(rec, null), { snoozeState: 'snoozed' }, schedule);
+    await store.put(updated);
+    await persistSnapshot();
+    if (typeof updated.returnAt === 'number') createSnoozeAlarm(recordId, updated.returnAt);
+  });
   return { ok: true };
 }
 
@@ -731,9 +744,11 @@ async function reopenRecord(recordId) {
   await store.touch(recordId);
   // Reopening a snoozed/back-now record ends the snooze — it's a normal tab now.
   if (rec.snoozeState) {
-    chrome.alarms.clear('snooze:' + recordId).catch(() => {});
-    const fresh = await store.get(recordId);
-    if (fresh) { await store.put(snooze.mark(fresh, null)); await persistSnapshot(); }
+    await clearSnoozeAlarm(recordId);
+    await mutateSnooze(async () => {
+      const fresh = await store.get(recordId);
+      if (fresh) { await store.put(snooze.mark(fresh, null)); await persistSnapshot(); }
+    });
   }
   // The v1 learning (R14/F2): reopening a tab ypuf auto-let-go is the strongest
   // "I wanted that" signal — protect its domain. Only auto-closed records count
@@ -833,7 +848,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!sender || sender.id !== chrome.runtime.id) return; // SW-as-broker: trust only our own contexts
   if (!msg) return;
   if (msg.type === 'let-go') { handleLetGo().catch(logErr); return; }
-  if (msg.type === 'snooze' && msg.preset) { handleSnooze(msg.preset, msg.custom).catch(logErr); return; }
   if (msg.type === 'undo' && msg.recordId) { handleUndo(msg.recordId).catch(logErr); return; }
   // Dirty-state report from the U3 content script: trust sender.tab, never a
   // body-supplied id (SW-as-broker). Boolean only — no page content crosses.
@@ -857,6 +871,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'auto-summary') return respond(autoSummary());
   if (msg.type === 'relief-claim') return respond(reliefClaim());
   if (msg.type === 'seen-badge') return respond(seenBadge());
+  if (msg.type === 'snooze' && msg.preset) return respond(handleSnooze(msg.preset, msg.custom).then(() => ({ ok: true })));
   if (msg.type === 'snooze-list') return respond(snoozeList());
   if (msg.type === 'snooze-wake' && msg.recordId) return respond(snoozeWake(msg.recordId));
   if (msg.type === 'snooze-resnooze' && msg.recordId && msg.preset) return respond(snoozeResnooze(msg.recordId, msg.preset, msg.custom));
@@ -871,7 +886,7 @@ chrome.permissions.onRemoved.addListener((perms) => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) runAutoSweep().catch(logErr);
-  else if (alarm.name.startsWith('snooze:')) flipBackNow([alarm.name.slice('snooze:'.length)]).catch(logErr);
+  else if (alarm.name.startsWith(SNOOZE_ALARM_PREFIX)) flipBackNow([alarm.name.slice(SNOOZE_ALARM_PREFIX.length)]).catch(logErr);
 });
 
 chrome.notifications.onButtonClicked.addListener((notifId, btnIndex) => {
