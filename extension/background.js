@@ -135,7 +135,21 @@ async function handleLetGo() {
   if (res && res.record) {
     await persistSnapshot();
     showUndoNotification(res.record);
+    maybePrune();
   }
+}
+
+// Retention (R21): age + LRU + byte-budget, triggered when storage crosses
+// ~75% of quota. After eviction the index is rebuilt from the (smaller) store.
+const RETENTION_MAX_AGE_MS = 180 * 86400000; // 180 days
+async function maybePrune() {
+  try {
+    if (!(await store.shouldPrune({ threshold: 0.75 }))) return;
+    const { quota = 0 } = (await navigator.storage.estimate()) || {};
+    const maxBytes = quota ? Math.floor(quota * 0.6) : undefined;
+    const removed = await store.prune({ maxAgeMs: RETENTION_MAX_AGE_MS, maxBytes });
+    if (removed) { search.buildFrom(await store.getAll()); await persistSnapshot(); }
+  } catch { /* best-effort; never blocks a let-go */ }
 }
 
 function showUndoNotification(record) {
