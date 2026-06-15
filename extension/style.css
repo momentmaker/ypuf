@@ -1,0 +1,116 @@
+/*
+ * ypuf — styles.
+ *
+ * The :root design tokens (the warm-paper "calm" palette) are lifted from
+ * tab-out (https://github.com/zarazhangrui/tab-out):
+ *   Copyright (c) Zara Zhang — MIT License
+ *   Copyright (c) momentmaker (ypuf) — MIT License
+ * Component styles below are ypuf's. See NOTICE.md.
+ *
+ * Fonts are self-hosted / system (no external CDN — nothing leaves the machine).
+ */
+
+:root {
+  --ink: #1a1613;
+  --paper: #f8f5f0;
+  --warm-gray: #e8e2da;
+  --muted: #9a918a;
+  --accent-amber: #c8713a;
+  --accent-sage: #5a7a62;
+  --accent-slate: #5a6b7a;
+  --accent-rose: #b35a5a;
+  --card-bg: #fffdf9;
+  --shadow: rgba(26, 22, 19, 0.06);
+  --radius: 10px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font);
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Popup shell ---- */
+body.popup { width: 340px; max-height: 560px; overflow-y: auto; }
+
+.shelf { padding: 14px 14px 10px; }
+
+.shelf-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.wordmark {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent-amber);
+}
+
+.btn-letgo {
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--warm-gray);
+  background: var(--card-bg);
+  color: var(--ink);
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.btn-letgo:hover { border-color: var(--accent-amber); }
+
+.recent { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+
+.recent-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.recent-item:hover { background: var(--warm-gray); }
+.recent-item .title { font-size: 13px; line-height: 1.3; }
+.recent-item .meta { font-size: 11px; color: var(--muted); }
+.recent-item.content-less .title::after {
+  content: "title only";
+  font-size: 10px;
+  color: var(--muted);
+  border: 1px solid var(--warm-gray);
+  border-radius: 6px;
+  padding: 0 4px;
+  margin-left: 6px;
+}
+
+.empty { padding: 24px 8px; text-align: center; }
+.empty .muted { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.muted { color: var(--muted); }
+
+.shelf-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--warm-gray);
+}
+.link {
+  font: inherit;
+  font-size: 12px;
+  background: none;
+  border: none;
+  color: var(--accent-slate);
+  cursor: pointer;
+  padding: 0;
+}
+.hotkey { font-size: 11px; color: var(--muted); }
+
+/* ---- What's-indexed panel (U8) ---- */
+.indexed { padding: 14px; }
+.actions { display: flex; gap: 12px; margin-top: 6px; flex-wrap: wrap; align-items: center; }
+.recent-item.struck .title { text-decoration: line-through; color: var(--muted); }

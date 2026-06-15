@@ -5,6 +5,10 @@ ypuf is an early-stage Chrome (Manifest V3) extension. **Read
 product and technical decision from the ideation session and is the starting
 point for speccing, brainstorming, or building.
 
+Past learnings live in `docs/solutions/` — documented solutions (bugs, architecture
+patterns, conventions) organized by category with YAML frontmatter (`module`,
+`tags`, `problem_type`). Relevant when implementing or debugging in a documented area.
+
 ## Fast facts
 
 - **Name:** ypuf = "Your Pages, Unburdened & Findable" (domain ypuf.com). The
