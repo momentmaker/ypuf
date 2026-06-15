@@ -19,9 +19,10 @@ importScripts(
   'lib/store.js',
   'lib/search.js',
   'lib/capture.js',
+  'lib/signal.js',
 );
 
-const { store, search, capture, exclusion } = self.ypuf;
+const { store, search, capture, exclusion, signal } = self.ypuf;
 
 const SNAPSHOT_KEY = 'searchSnapshot';
 const BLOCKLIST_KEY = 'userBlocklist';
@@ -158,6 +159,31 @@ async function handleUndo(recordId) {
   await persistSnapshot();
 }
 
+// --- passive dwell/revisit signal (U9) -----------------------------------
+// Consumed by nothing in slice 1; banks data for slice 2. Gate-before-write.
+
+const SIGNAL_KEY = 'signal';
+
+async function applyForeground(tab) {
+  if (!tab) return;
+  const durable = (await local.get(SIGNAL_KEY)) || signal.emptyState();
+  const active = await session.get('signalActive');
+  const next = signal.activate(
+    { url: tab.url, incognito: tab.incognito }, Date.now(),
+    { classify: exclusion.classify, userBlocklist: await getUserBlocklist(), active, durable },
+  );
+  await local.set(SIGNAL_KEY, next.durable);
+  await session.set('signalActive', next.active);
+}
+
+async function applyBlur() {
+  const durable = (await local.get(SIGNAL_KEY)) || signal.emptyState();
+  const active = await session.get('signalActive');
+  const next = signal.blur(Date.now(), { active, durable });
+  await local.set(SIGNAL_KEY, next.durable);
+  await session.set('signalActive', next.active);
+}
+
 // --- shelf (U7) ----------------------------------------------------------
 
 async function listRecent(limit) {
@@ -237,4 +263,17 @@ chrome.notifications.onButtonClicked.addListener((notifId, btnIndex) => {
     handleUndo(notifId.slice('ypuf-undo:'.length));
     chrome.notifications.clear(notifId);
   }
+});
+
+// Dwell/revisit signal (U9) — listeners MUST be registered synchronously here
+// so a terminated worker still wakes for them.
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  chrome.tabs.get(tabId).then(applyForeground).catch(() => {});
+});
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.url && tab && tab.active) applyForeground(tab);
+});
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) { applyBlur(); return; }
+  chrome.tabs.query({ active: true, windowId }).then(([tab]) => applyForeground(tab)).catch(() => {});
 });

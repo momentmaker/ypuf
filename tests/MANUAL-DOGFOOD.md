@@ -69,6 +69,18 @@ math) is covered by `node --test`. The behavior below depends on real
 - [ ] A result whose title contains `<img src=x onerror=alert(1)>` renders as
       inert text — no script runs (textContent rendering).
 
+## Passive dwell/revisit signal (U9 — invisible)
+
+No UI in slice 1. In the SW console, after browsing a few normal pages:
+
+- [ ] `chrome.storage.local.get('signal')` shows accumulating `dwell` (ms) and
+      `revisits` (counts) keyed by URL.
+- [ ] After sitting on **`chrome://`** or a **blocklisted** page, no key for it
+      appears in `signal`. Visiting in a way that involves incognito leaves no
+      trace (extension is `not_allowed` there anyway).
+- [ ] Switching away from a tab and back increments its revisit count; dwell
+      only grows while the tab is the focused foreground tab.
+
 ## Crash-consistency (U3/U4/U5)
 
 - [ ] Let go of a page, then in the SW console run `chrome.runtime.reload()` (or
