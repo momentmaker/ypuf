@@ -414,8 +414,13 @@ async function autoCloseOne(id, deps) {
   autoInFlight.add(id);
   try {
     const res = await capture.letGo(projectTab(live), deps, { autoClosed: true });
-    if (res && res.record) { await releaseClose(id); return true; } // close confirmed → claim done
-    await releaseClose(id);               // nothing persisted → allow a later retry
+    if (!res || !res.record) { await releaseClose(id); return false; } // nothing persisted → retry later
+    // letGo's closeTab swallows errors (so a capture stays reversible even if the
+    // close throws). Confirm the tab is actually gone before counting it: on a
+    // real chrome.tabs.remove failure the page is captured but still open, so we
+    // keep the claim (no re-capture churn), skip the badge/puff, and leave it open.
+    const gone = await chrome.tabs.get(id).then(() => false).catch(() => true);
+    if (gone) { await releaseClose(id); return true; }
     return false;
   } catch (e) {
     await releaseClose(id);
