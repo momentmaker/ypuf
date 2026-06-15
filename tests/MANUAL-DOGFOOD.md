@@ -69,6 +69,21 @@ math) is covered by `node --test`. The behavior below depends on real
 - [ ] A result whose title contains `<img src=x onerror=alert(1)>` renders as
       inert text — no script runs (textContent rendering).
 
+## Privacy controls — what's-indexed / forget / block (U8)
+
+- [ ] The popup's "What's indexed" opens a list of everything stored, rendered
+      as inert text.
+- [ ] **Forget** on a row strikes it through with an **Undo** for ~6s; Undo
+      restores it (and its dwell signal); after ~6s it's gone for good.
+- [ ] **Block site → Forget all** removes every entry for that domain (AE6).
+- [ ] **Block site → Block, keep titles** downgrades existing entries for that
+      domain to title-only (search its old body text → no match) and excludes
+      future let-gos of that domain (verify: let go of a page there afterwards →
+      title+URL only).
+- [ ] After a domain forget/block, `chrome.storage.local.get('signal')` shows
+      that domain's dwell/revisit keys are gone too (cross-store purge).
+- [ ] A confirm uses inline buttons (no blocked `window.confirm` dialog).
+
 ## Passive dwell/revisit signal (U9 — invisible)
 
 No UI in slice 1. In the SW console, after browsing a few normal pages:

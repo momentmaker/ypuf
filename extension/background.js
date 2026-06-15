@@ -20,9 +20,10 @@ importScripts(
   'lib/search.js',
   'lib/capture.js',
   'lib/signal.js',
+  'lib/blocklist.js',
 );
 
-const { store, search, capture, exclusion, signal } = self.ypuf;
+const { store, search, capture, exclusion, signal, privacy } = self.ypuf;
 
 const SNAPSHOT_KEY = 'searchSnapshot';
 const BLOCKLIST_KEY = 'userBlocklist';
@@ -164,24 +165,79 @@ async function handleUndo(recordId) {
 
 const SIGNAL_KEY = 'signal';
 
+const loadDurable = async () => (await local.get(SIGNAL_KEY)) || signal.emptyState();
+const saveDurable = (durable) => local.set(SIGNAL_KEY, durable);
+
 async function applyForeground(tab) {
   if (!tab) return;
-  const durable = (await local.get(SIGNAL_KEY)) || signal.emptyState();
+  const durable = await loadDurable();
   const active = await session.get('signalActive');
   const next = signal.activate(
     { url: tab.url, incognito: tab.incognito }, Date.now(),
     { classify: exclusion.classify, userBlocklist: await getUserBlocklist(), active, durable },
   );
-  await local.set(SIGNAL_KEY, next.durable);
+  await saveDurable(next.durable);
   await session.set('signalActive', next.active);
 }
 
 async function applyBlur() {
-  const durable = (await local.get(SIGNAL_KEY)) || signal.emptyState();
+  const durable = await loadDurable();
   const active = await session.get('signalActive');
   const next = signal.blur(Date.now(), { active, durable });
-  await local.set(SIGNAL_KEY, next.durable);
+  await saveDurable(next.durable);
   await session.set('signalActive', next.active);
+}
+
+// --- privacy controls (U8) ----------------------------------------------
+
+const privacyDeps = (durable) => ({ store, search, signal, durable });
+
+async function whatsIndexed() {
+  const recs = await store.listRecent(Infinity);
+  return { items: recs.map((r) => ({ id: r.id, title: r.title, url: r.url, host: r.host, contentLess: r.contentLess, timestamp: r.timestamp })) };
+}
+
+async function forgetPage(recordId) {
+  const durable = await loadDurable();
+  const bundle = await privacy.forgetPage(recordId, privacyDeps(durable));
+  await saveDurable(durable);
+  await persistSnapshot();
+  if (bundle) {
+    const pending = (await session.get('pendingForget')) || [];
+    pending.push({ recordId, bundle, expiry: Date.now() + capture.UNDO_MS });
+    await session.set('pendingForget', pending);
+  }
+  return { ok: !!bundle };
+}
+
+async function forgetPageUndo(recordId) {
+  const pending = (await session.get('pendingForget')) || [];
+  const entry = pending.find((p) => p.recordId === recordId);
+  if (!entry || entry.expiry <= Date.now()) return { ok: false };
+  const durable = await loadDurable();
+  await privacy.restorePage(entry.bundle, privacyDeps(durable));
+  await saveDurable(durable);
+  await persistSnapshot();
+  await session.set('pendingForget', pending.filter((p) => p.recordId !== recordId));
+  return { ok: true };
+}
+
+async function forgetDomain(host) {
+  const durable = await loadDurable();
+  const n = await privacy.forgetDomain(host, privacyDeps(durable));
+  await saveDurable(durable);
+  await persistSnapshot();
+  return { count: n };
+}
+
+async function blocklistAdd(host) {
+  const list = await getUserBlocklist();
+  if (!list.includes(host)) { list.push(host); await local.set(BLOCKLIST_KEY, list); }
+  const durable = await loadDurable();
+  const n = await privacy.retroactivePurge(host, privacyDeps(durable));
+  await saveDurable(durable);
+  await persistSnapshot();
+  return { count: n };
 }
 
 // --- shelf (U7) ----------------------------------------------------------
@@ -256,6 +312,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'list-recent') { listRecent(msg.limit || 15).then(sendResponse); return true; }
   if (msg.type === 'recall-search') { getRecallResults(msg.q).then(sendResponse); return true; }
   if (msg.type === 'recall-open' && msg.recordId) { reopenRecord(msg.recordId).then(() => sendResponse({ ok: true })); return true; }
+  if (msg.type === 'whats-indexed') { whatsIndexed().then(sendResponse); return true; }
+  if (msg.type === 'forget-page' && msg.recordId) { forgetPage(msg.recordId).then(sendResponse); return true; }
+  if (msg.type === 'forget-page-undo' && msg.recordId) { forgetPageUndo(msg.recordId).then(sendResponse); return true; }
+  if (msg.type === 'forget-domain' && msg.host) { forgetDomain(msg.host).then(sendResponse); return true; }
+  if (msg.type === 'blocklist-add' && msg.host) { blocklistAdd(msg.host).then(sendResponse); return true; }
 });
 
 chrome.notifications.onButtonClicked.addListener((notifId, btnIndex) => {
@@ -270,7 +331,7 @@ chrome.notifications.onButtonClicked.addListener((notifId, btnIndex) => {
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   chrome.tabs.get(tabId).then(applyForeground).catch(() => {});
 });
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
   if (changeInfo.url && tab && tab.active) applyForeground(tab);
 });
 chrome.windows.onFocusChanged.addListener((windowId) => {
