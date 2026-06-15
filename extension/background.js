@@ -454,8 +454,31 @@ async function reconcileIfDiverged() {
   } catch (e) { logErr(e); }
 }
 
-// Placeholder until U6 lands the offscreen puff.
-function puff() {}
+// The puff (U6/R12). A service worker has no audio, so a single offscreen
+// document plays the close-sound. Creation is serialized behind one promise
+// (getContexts detect-before-create has a TOCTOU window under bursting closes),
+// and the whole thing is catch-decoupled: an audio failure must never abort a
+// sweep or block a close — the sound is cosmetic, the close is not.
+let _offscreenReady = null;
+
+async function ensureOffscreen() {
+  const existing = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] }).catch(() => []);
+  if (existing && existing.length) return;
+  if (!_offscreenReady) {
+    _offscreenReady = chrome.offscreen.createDocument({
+      url: 'offscreen/offscreen.html',
+      reasons: ['AUDIO_PLAYBACK'],
+      justification: 'Play the brief close-sound when a tab is let go.',
+    }).catch(() => {}).finally(() => { _offscreenReady = null; });
+  }
+  await _offscreenReady;
+}
+
+function puff() {
+  ensureOffscreen()
+    .then(() => chrome.runtime.sendMessage({ target: 'offscreen', play: 'puff' }))
+    .catch(() => {});
+}
 
 // --- privacy controls (U8) ----------------------------------------------
 
