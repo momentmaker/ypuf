@@ -17,7 +17,8 @@ applies_when:
   - Running a periodic background op (alarms) that destructively changes tabs
   - Playing audio or using a DOM API from a service worker (offscreen document)
   - Feeding a per-URL signal into a per-tab decision
-tags: [chrome-mv3, service-worker, indexeddb, content-script, privacy, message-passing, no-build, minisearch, alarms, offscreen, concurrency, background-mutation]
+  - Scheduling a return/resurfacing at a chosen time that must survive SW termination
+tags: [chrome-mv3, service-worker, indexeddb, content-script, privacy, message-passing, no-build, minisearch, alarms, offscreen, concurrency, background-mutation, scheduling]
 ---
 
 # MV3 patterns for a local, privacy-first content-indexing extension
@@ -178,6 +179,42 @@ confirm the effect happened** — `chrome.tabs.get` rejects once the tab is gone
 before counting it (badge, sound, metrics). Otherwise a failed remove still fires
 all the "it closed" side effects for a tab that's still open.
 
+### 11. Scheduled returns: alarms for timeliness, an overdue sweep for correctness
+
+A feature that brings something back at a chosen time (snooze) needs three
+coordinated paths, because no single MV3 mechanism is both timely and durable:
+
+- **Per-item `chrome.alarms` for timeliness.** `chrome.alarms.create('snooze:'+id,
+  {when})` fires near the scheduled moment while Chrome runs — but alarms are
+  best-effort and `persistAcrossSessions` is unreliable, so they are an
+  *optimization*, not the guarantee.
+- **An overdue sweep for correctness.** The real guarantee is a sweep on every SW
+  wake (alongside the cold-start expire-pending step) and on `onStartup`: flip
+  every item whose `returnAt <= now`. Even if every alarm is dropped, the next
+  wake catches everything. The schedule is a stored timestamp, never an in-memory
+  timer (pattern 2).
+- **A startup-only sentinel for "when I'm back."** A context return ("next time I
+  open the browser") carries an `untilStartup` flag, **not** a numeric `returnAt`
+  of `0` — a `0` is `<= now`, so the every-wake sweep would flip it immediately.
+  The flag is resolved only by the `onStartup` path the wake sweep never touches.
+
+Two coordination rules keep it safe:
+
+- **One idempotent serialized flip chain.** The alarm, the sweep, and the manual
+  controls (wake, re-snooze, reopen-clear) all mutate the same record's state, so
+  every write goes through a single promise chain (pattern 7) guarded on the
+  current state — a coincident alarm and sweep flip the record exactly once.
+- **The alarm is a wake-and-sweep, not a flip-by-id.** Re-scheduling an item to a
+  *later* time can't un-enqueue an alarm that already fired, so the alarm handler
+  runs the overdue sweep (which re-checks dueness) instead of flipping its named
+  id — a re-snoozed-to-later record (`returnAt > now`) is correctly skipped rather
+  than returning early.
+
+This extends pattern 10 from one destructive sweep to per-item *non-destructive*
+scheduled state changes: alarms handle timeliness, the wake sweep handles
+correctness, and an idempotent state guard coordinates them — no explicit dedup
+needed because a flip is reversible.
+
 ## Why This Matters
 
 Each of these is a real failure mode that shipped past unit tests and was only
@@ -197,6 +234,14 @@ in the unsynchronized storage glue the tests couldn't reach. Same root truth: in
 MV3, the bugs cluster in the stateful glue between the SW, the page, and storage,
 and a destructive background op (closing tabs) raises the cost of every one of
 them.
+
+Slice 3 (snooze) added scheduled *returns* and hit the same seam from the other
+side: the review's findings were a non-serialized state writer (a re-snooze
+clobbered by a flip) and an alarm that fired by id without re-checking dueness —
+both in the SW glue, both invisible to the (passing) pure-module tests. The fix
+generalized the slice-2 patterns (serialize the writes; make the alarm a
+wake-and-sweep) rather than inventing new machinery, which is the payoff of
+writing these down.
 
 ## When to Apply
 
@@ -225,11 +270,17 @@ them.
   per-tab activation count) over `extension/lib/signal.js` (per-URL).
 - **Termination-safe dedup + confirm-effect (10):** `extension/background.js`
   `claimClose`/`releaseClose` and the `chrome.tabs.get` confirm in `autoCloseOne`.
+- **Scheduled returns (11):** `extension/lib/snooze.js` (`resolve`→`{returnAt}`|
+  `{untilStartup}`, `dueSnoozes` excluding the sentinel) with `extension/background.js`
+  `expireSnoozes`/`snoozeStartup`/`mutateSnooze` and the wake-and-sweep `onAlarm`.
 
 ## Related
 
 - Plans: `docs/plans/2026-06-14-001-feat-ypuf-slice1-recall-shelf-plan.md`,
-  `docs/plans/2026-06-15-001-feat-ypuf-slice2-auto-let-go-plan.md`
+  `docs/plans/2026-06-15-001-feat-ypuf-slice2-auto-let-go-plan.md`,
+  `docs/plans/2026-06-15-002-feat-ypuf-slice3-snooze-plan.md`
 - Origins: `docs/brainstorms/2026-06-14-ypuf-v1-sequence-and-slice1-requirements.md`,
-  `docs/brainstorms/2026-06-15-ypuf-slice2-auto-let-go-requirements.md`
-- PRs: momentmaker/ypuf#1 (slice 1), momentmaker/ypuf#2 (slice 2)
+  `docs/brainstorms/2026-06-15-ypuf-slice2-auto-let-go-requirements.md`,
+  `docs/brainstorms/2026-06-15-ypuf-slice3-snooze-requirements.md`
+- PRs: momentmaker/ypuf#1 (slice 1), momentmaker/ypuf#2 (slice 2),
+  momentmaker/ypuf#4 (slice 3)
