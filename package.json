@@ -1,0 +1,14 @@
+{
+  "name": "ypuf",
+  "version": "0.1.0",
+  "description": "Your Pages, Unburdened & Findable — a local-only Chrome MV3 tab-recall extension.",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5"
+  },
+  "//": "The shipped extension/ is vanilla JS with NO build step. This package.json exists only for dev-time tests (node --test). fake-indexeddb is dev-only and never shipped."
+}

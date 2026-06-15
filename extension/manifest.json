@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "ypuf",
+  "version": "0.1.0",
+  "description": "Your Pages, Unburdened & Findable. Let tabs go; find them again by content. Local-only.",
+  "permissions": ["tabs", "activeTab", "scripting", "storage", "notifications"],
+  "incognito": "not_allowed",
+  "background": { "service_worker": "background.js" },
+  "action": {
+    "default_title": "ypuf — your pages, unburdened",
+    "default_popup": "popup/popup.html",
+    "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  },
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Ctrl+Shift+Y", "mac": "Command+Shift+Y" },
+      "description": "Open the ypuf shelf"
+    },
+    "recall": {
+      "suggested_key": { "default": "Ctrl+Shift+K", "mac": "Command+Shift+K" },
+      "description": "Recall a let-go page (command bar)"
+    },
+    "let-go": {
+      "suggested_key": { "default": "Ctrl+Shift+L", "mac": "Command+Shift+L" },
+      "description": "Let go of the current tab"
+    }
+  }
+}

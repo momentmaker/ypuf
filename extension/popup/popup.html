@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="../style.css" />
+  <title>ypuf</title>
+</head>
+<body class="popup">
+  <main class="shelf" id="shelf">
+    <header class="shelf-head">
+      <span class="wordmark">ypuf</span>
+      <button class="btn-letgo" id="letgo" type="button">Let go of this tab</button>
+    </header>
+
+    <ul class="recent" id="recent" aria-label="Recently let go"></ul>
+
+    <div class="empty" id="empty" hidden>
+      <p>Nothing let go yet.</p>
+      <p class="muted">Let a tab go — its content stays findable, the tab disappears.</p>
+    </div>
+
+    <footer class="shelf-foot">
+      <button class="link" id="open-indexed" type="button">What's indexed</button>
+      <span class="hotkey" id="hotkey-hint"></span>
+    </footer>
+  </main>
+
+  <section class="indexed" id="indexed-panel" hidden>
+    <header class="shelf-head">
+      <button class="link" id="indexed-back" type="button">‹ Back</button>
+      <span class="wordmark">What's indexed</span>
+    </header>
+    <ul class="recent" id="indexed-list" aria-label="Everything ypuf has stored"></ul>
+    <p class="empty muted" id="indexed-empty" hidden>Nothing indexed yet.</p>
+  </section>
+
+  <script src="../lib/attribution.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
