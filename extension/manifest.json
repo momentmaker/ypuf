@@ -3,7 +3,8 @@
   "name": "ypuf",
   "version": "0.1.0",
   "description": "Your Pages, Unburdened & Findable. Let tabs go; find them again by content. Local-only.",
-  "permissions": ["tabs", "activeTab", "scripting", "storage", "notifications"],
+  "permissions": ["tabs", "activeTab", "scripting", "storage", "notifications", "alarms", "offscreen"],
+  "optional_host_permissions": ["<all_urls>"],
   "incognito": "not_allowed",
   "background": { "service_worker": "background.js" },
   "action": {

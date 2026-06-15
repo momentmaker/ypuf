@@ -13,6 +13,10 @@
       <button class="btn-letgo" id="letgo" type="button">Let go of this tab</button>
     </header>
 
+    <button class="auto-status" id="auto-status" type="button" hidden></button>
+    <p class="auto-note muted" id="auto-note" hidden></p>
+    <div class="relief" id="relief" hidden></div>
+
     <ul class="recent" id="recent" aria-label="Recently let go"></ul>
 
     <div class="empty" id="empty" hidden>
@@ -22,6 +26,7 @@
 
     <footer class="shelf-foot">
       <button class="link" id="open-indexed" type="button">What's indexed</button>
+      <button class="link" id="open-protected" type="button">Protected sites</button>
       <span class="hotkey" id="hotkey-hint"></span>
     </footer>
   </main>
@@ -33,6 +38,15 @@
     </header>
     <ul class="recent" id="indexed-list" aria-label="Everything ypuf has stored"></ul>
     <p class="empty muted" id="indexed-empty" hidden>Nothing indexed yet.</p>
+  </section>
+
+  <section class="indexed" id="protected-panel" hidden>
+    <header class="shelf-head">
+      <button class="link" id="protected-back" type="button">‹ Back</button>
+      <span class="wordmark">Protected sites</span>
+    </header>
+    <ul class="recent" id="protected-list" aria-label="Domains ypuf keeps safe"></ul>
+    <p class="empty muted" id="protected-empty" hidden>When ypuf auto-closes a tab and you reopen it, that domain is kept safe here.</p>
   </section>
 
   <script src="../lib/attribution.js"></script>

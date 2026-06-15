@@ -19,26 +19,29 @@
 
   // Build the indexed record from a successful extraction, or fall to the
   // title+URL floor when extraction yields nothing (the floor never has a hole).
-  function buildRecord({ cls, tab, extracted, now, id }) {
+  // `extra` lets a caller stamp additive fields (e.g. {autoClosed:true}) into
+  // the SINGLE store.put before close — never a second write that SW termination
+  // could drop. The manual close path passes no extra (unchanged behavior).
+  function buildRecord({ cls, tab, extracted, now, id, extra }) {
     const content = (extracted && extracted.textContent) ? String(extracted.textContent).trim() : '';
     if (content) {
-      return {
+      return Object.assign({
         id, url: tab.url, host: cls.host,
         title: (extracted.title || tab.title || '').trim(),
         content, excerpt: (extracted.excerpt || '').trim(),
         timestamp: now, lastAccessed: now, contentLess: false,
-      };
+      }, extra || {});
     }
-    return buildFloorRecord({ cls, tab, now, id, url: tab.url });
+    return buildFloorRecord({ cls, tab, now, id, url: tab.url, extra });
   }
 
-  function buildFloorRecord({ cls, tab, now, id, url }) {
-    return {
+  function buildFloorRecord({ cls, tab, now, id, url, extra }) {
+    return Object.assign({
       id, url: url != null ? url : cls.url, host: cls.host,
       title: (tab.title || '').trim(),
       content: '', excerpt: '',
       timestamp: now, lastAccessed: now, contentLess: true,
-    };
+    }, extra || {});
   }
 
   async function readPending(session) {
@@ -57,7 +60,7 @@
     await session.set(PENDING_KEY, pending.filter((p) => p.recordId !== recordId));
   }
 
-  async function letGo(tab, deps) {
+  async function letGo(tab, deps, recordExtra) {
     const { id } = tab;
     if (deps.inFlight.has(id)) return { kind: 'skipped', reason: 'in-flight' };
     deps.inFlight.add(id);
@@ -75,10 +78,10 @@
       if (canExtract) {
         let extracted = null;
         try { extracted = await deps.inject(id); } catch { extracted = null; }
-        record = buildRecord({ cls, tab, extracted, now, id: deps.makeId() });
+        record = buildRecord({ cls, tab, extracted, now, id: deps.makeId(), extra: recordExtra });
       } else {
         // metadata-only, discarded/frozen, or restricted -> title+URL floor
-        record = buildFloorRecord({ cls, tab, now, id: deps.makeId() });
+        record = buildFloorRecord({ cls, tab, now, id: deps.makeId(), extra: recordExtra });
       }
 
       await deps.store.put(record);
