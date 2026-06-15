@@ -23,10 +23,11 @@ importScripts(
   'lib/tabstate.js',
   'lib/eligibility.js',
   'lib/protection.js',
+  'lib/snooze.js',
   'lib/blocklist.js',
 );
 
-const { store, search, capture, exclusion, signal, tabstate, eligibility, protection, privacy, titles } = self.ypuf;
+const { store, search, capture, exclusion, signal, tabstate, eligibility, protection, snooze, privacy, titles } = self.ypuf;
 
 const logErr = (e) => console.error('[ypuf]', e);
 
