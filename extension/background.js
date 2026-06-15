@@ -14,6 +14,7 @@
 importScripts(
   'vendor/minisearch.min.js',
   'lib/attribution.js',
+  'lib/exclusion.js',
 );
 
 // --- top-level synchronous listener registration -------------------------
