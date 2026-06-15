@@ -323,6 +323,140 @@ async function autoDisable() {
   return { ok: true, ...(await autoState()) };
 }
 
+// --- auto-let-go sweep (U5) ----------------------------------------------
+// Thresholds are deferred to dogfooding (CONTEXT §5a); these are conservative
+// defaults. The sweep is the only place tabs auto-close, and it is gated three
+// ways: the host grant, the user's enable flag, and a minimum-observation bar
+// so we never calibrate against an empty signal store.
+
+const STALE_WINDOW_MS = 3 * 86400000;   // 3 days since last activation
+const DWELL_FLOOR_MS = 60000;           // < 60s total foreground = low investment
+const ACTIVATION_FLOOR = 3;             // returned to ≥ 3 times = engaged (URL-stable)
+const MIN_OBSERVED_URLS = 20;           // signal must have banked this many URLs first
+const AUTOCLOSING_KEY = 'autoClosing';
+const BADGE_KEY = 'autoBadge';
+const autoInFlight = new Set();
+
+// U7 wires real protection; default no-op so U4/U5 stand alone.
+let isProtected = () => false;
+
+async function meetsObservationBar() {
+  const durable = await loadDurable();
+  return Object.keys(durable.revisits || {}).length >= MIN_OBSERVED_URLS;
+}
+
+function projectTab(t) {
+  return {
+    id: t.id, url: t.url, title: t.title, incognito: t.incognito,
+    discarded: t.discarded, frozen: t.frozen, audible: t.audible, pinned: t.pinned,
+  };
+}
+
+function eligDeps(signalMap, blocklist) {
+  return {
+    tabstate,
+    signal: signalMap,
+    isProtected: (host) => isProtected(host),
+    classify: exclusion.classify,
+    userBlocklist: blocklist,
+    now: Date.now(),
+    staleWindowMs: STALE_WINDOW_MS,
+    dwellFloorMs: DWELL_FLOOR_MS,
+    activationFloor: ACTIVATION_FLOOR,
+  };
+}
+
+// Persisted close-claim: the in-memory autoInFlight Set dies with the SW, so a
+// sweep interrupted mid-close could re-evaluate the same surviving tab on the
+// next alarm and double-write. The session claim survives termination.
+async function claimClose(id, url) {
+  const m = (await session.get(AUTOCLOSING_KEY)) || {};
+  if (m[id] != null) return false;
+  m[id] = url; await session.set(AUTOCLOSING_KEY, m);
+  return true;
+}
+async function releaseClose(id) {
+  const m = (await session.get(AUTOCLOSING_KEY)) || {};
+  if (m[id] != null) { delete m[id]; await session.set(AUTOCLOSING_KEY, m); }
+}
+
+async function bumpBadge(n) {
+  const total = ((await session.get(BADGE_KEY)) || 0) + n;
+  await session.set(BADGE_KEY, total);
+  chrome.action.setBadgeBackgroundColor({ color: '#9aa0a6' }).catch(() => {});
+  chrome.action.setBadgeText({ text: total ? String(total) : '' }).catch(() => {});
+}
+
+// Re-check ONE candidate against LIVE state (R6) and, if still a zombie,
+// capture-then-close via the reused letGo. R10: only count it closed if a
+// record actually persisted.
+async function autoCloseOne(id, deps) {
+  if (autoInFlight.has(id)) return false;
+  let live;
+  try { live = await chrome.tabs.get(id); } catch { return false; } // tab already gone
+  const tstate = await loadTabstate();
+  const signalMap = await loadDurable();
+  const blocklist = await getUserBlocklist();
+  const verdict = eligibility.classify(projectTab(live), { rec: tstate[id], ...eligDeps(signalMap, blocklist) });
+  if (verdict !== 'zombie') return false;
+  if (!(await claimClose(id, live.url))) return false;
+  autoInFlight.add(id);
+  try {
+    const res = await capture.letGo(projectTab(live), deps, { autoClosed: true });
+    if (res && res.record) return true;   // persisted-before-close confirmed
+    await releaseClose(id);               // nothing persisted → allow a later retry
+    return false;
+  } catch (e) {
+    await releaseClose(id);
+    throw e;
+  } finally {
+    autoInFlight.delete(id);
+  }
+}
+
+async function runAutoSweep() {
+  if (!(await isAutoEnabled())) return;
+  if (!(await hasHostAccess())) { await autoDisable(); return; } // grant revoked
+  if (!(await meetsObservationBar())) return;
+  await initIndex();
+
+  const tabs = await chrome.tabs.query({});
+  const tstate = await loadTabstate();
+  const signalMap = await loadDurable();
+  const blocklist = await getUserBlocklist();
+  const base = eligDeps(signalMap, blocklist);
+
+  const candidates = tabs.filter((t) => t.id != null &&
+    eligibility.classify(projectTab(t), { rec: tstate[t.id], ...base }) === 'zombie');
+  if (!candidates.length) return;
+
+  const deps = await buildDeps();
+  let closed = 0;
+  for (const t of candidates) {
+    try {
+      if (await autoCloseOne(t.id, deps)) { closed += 1; puff(); } // puff per close, decoupled (U6)
+    } catch (e) { logErr(e); }
+  }
+
+  if (closed) {
+    await persistSnapshot();
+    await reconcileIfDiverged();
+    await bumpBadge(closed);
+    maybePrune();
+  }
+}
+
+// Auto-close churns many removes/undos mid-session; search.reconcile runs only
+// on cold start, so heal divergence opportunistically after a sweep.
+async function reconcileIfDiverged() {
+  try {
+    if (search.reconcile(await store.getAll())) await persistSnapshot();
+  } catch (e) { logErr(e); }
+}
+
+// Placeholder until U6 lands the offscreen puff.
+function puff() {}
+
 // --- privacy controls (U8) ----------------------------------------------
 
 const privacyDeps = (durable) => ({ store, search, signal, durable });
@@ -382,7 +516,7 @@ async function listRecent(limit) {
   return {
     items: recs.map((r) => ({
       id: r.id, title: r.title, url: r.url, host: r.host,
-      timestamp: r.timestamp, contentLess: r.contentLess,
+      timestamp: r.timestamp, contentLess: r.contentLess, autoClosed: !!r.autoClosed,
     })),
   };
 }
@@ -485,6 +619,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // the ambient surface tells the truth.
 chrome.permissions.onRemoved.addListener((perms) => {
   if (perms && perms.origins && perms.origins.length) autoDisable().catch(logErr);
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === ALARM_NAME) runAutoSweep().catch(logErr);
 });
 
 chrome.notifications.onButtonClicked.addListener((notifId, btnIndex) => {
