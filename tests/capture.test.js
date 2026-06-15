@@ -113,6 +113,32 @@ test('recordExtra also rides the floor record (discarded auto-close)', async () 
   assert.equal(res.record.autoClosed, true);
 });
 
+test('AE5: a blocklisted tab snoozed stores title+URL only and carries the schedule', async () => {
+  const { deps } = makeDeps();
+  const res = await capture.letGo(
+    { id: 3, url: 'https://www.chase.com/x?id=9', title: 'Chase', incognito: false },
+    deps,
+    { snoozeState: 'snoozed', returnAt: 5000 },
+  );
+  assert.equal(res.kind, 'metadata-only');
+  assert.equal(res.record.contentLess, true);       // no page content captured
+  assert.equal(res.record.url, 'https://www.chase.com/x'); // query stripped
+  assert.equal(res.record.snoozeState, 'snoozed');
+  assert.equal(res.record.returnAt, 5000);
+});
+
+test('a when-im-back snooze records the untilStartup flag and no returnAt', async () => {
+  const { deps } = makeDeps();
+  const res = await capture.letGo(
+    { id: 8, url: 'https://example.com/a', title: 'A', incognito: false },
+    deps,
+    { snoozeState: 'snoozed', untilStartup: true },
+  );
+  assert.equal(res.record.snoozeState, 'snoozed');
+  assert.equal(res.record.untilStartup, true);
+  assert.equal(res.record.returnAt, undefined); // resolved only on startup, never by the wake sweep
+});
+
 test('recordExtra on a never-index tab still persists NOTHING (R10 assert-record backstop)', async () => {
   const { deps, ctx } = makeDeps();
   const res = await capture.letGo({ id: 9, url: 'https://secret.com', title: 'x', incognito: true }, deps, { autoClosed: true });

@@ -165,3 +165,58 @@ permissions, offscreen audio, content-script injection) and is verified by hand.
       open the same day does not re-show it; at zero auto-closes it never shows.
 - [ ] **Protected sites** with nothing protected shows the invitational empty
       state.
+
+---
+
+# Slice 3 — snooze
+
+The scheduling math (`lib/snooze.js`) is covered by `node --test`. The behavior
+below needs real `chrome.alarms`, `chrome.action`, and the popup, so it is
+verified by hand.
+
+> Tip: to test a return without waiting, snooze with **Custom…** set ~1 minute
+> out, or in the SW console run `flipBackNow([<recordId>])` directly. To test the
+> restart path, snooze, then `chrome.runtime.reload()` the extension.
+
+## Snooze a tab (U2 / F1)
+
+- [ ] The popup shows a **"Snooze this tab…"** trigger; clicking it reveals the
+      preset panel (Later today · This evening · Tomorrow morning · This weekend
+      · Next week · When I'm back · Custom…).
+- [ ] Choosing a preset **closes the tab** and it appears under a **"Snoozed"**
+      group as **"snoozed until <time>"**; no Undo notification (calm).
+- [ ] The snoozed page is still **found by recall search** (command bar) while
+      it's away.
+- [ ] **Custom…** reveals a datetime-local input; picking a time snoozes to it.
+- [ ] The **snooze hotkey** (default `Ctrl/Cmd+Shift+S`) opens the popup straight
+      to the preset panel.
+- [ ] Snoozing a **blocklisted** page stores title+URL only; it still returns.
+
+## The return (U3 / F2 / R9)
+
+- [ ] At its time, a clock snooze moves to a pinned **"Back now"** group at the
+      top of the shelf and the icon shows a **badge**; clicking it **reopens the
+      page and clears the snooze** (it leaves both groups).
+- [ ] A snooze whose time passed **while Chrome was closed** is **"back now"** on
+      next startup (shown as overdue, e.g. "back · due 2h ago") — never lost.
+- [ ] **"When I'm back"** does *not* return on a mid-session SW wake; it surfaces
+      on the **next browser startup** (snoozed row reads "next time you're back").
+- [ ] Returning several snoozes at once shows them all under "Back now"; the
+      badge count is correct (no double-count if an alarm and the sweep coincide).
+
+## Controls + forget (U4 / R7 / R11)
+
+- [ ] A **"snoozed until X"** row is **not** opened by a body click; it carries
+      **Wake** and **Later** controls.
+- [ ] **Wake** moves the item to "Back now" immediately.
+- [ ] **Later** reveals the inline preset list; choosing one sets a new return
+      time (and re-arms the alarm).
+- [ ] **Forget** a snoozed item (single, and via **Block site → Forget all**) →
+      it does **not** return later (its `snooze:` alarm is cancelled).
+- [ ] With nothing snoozed, the "Back now"/"Snoozed" groups are absent (no empty
+      headings); the shelf falls straight to the recently-let-go list.
+
+## Auto-let-go interaction (R10 / AE6)
+
+- [ ] A snoozed item is **never auto-closed** (it's not an open tab) — let
+      auto-let-go run with snoozed items present and confirm none are touched.
