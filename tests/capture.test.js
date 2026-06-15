@@ -106,6 +106,15 @@ test('the in-flight guard ignores a second let-go of the same tab', async () => 
   assert.equal(await store.count(), 0);
 });
 
+test('undo with no pending entry is a no-op (never deletes the store record)', async () => {
+  const { deps } = makeDeps();
+  await capture.letGo({ id: 7, url: 'https://example.com/a', title: 'A', incognito: false }, deps);
+  const before = await store.count();
+  const ok = await capture.undo('nonexistent-id', deps);
+  assert.equal(ok, false);
+  assert.equal(await store.count(), before); // store untouched
+});
+
 test('expirePending drops entries past their grace window', async () => {
   const session = { _d: {}, get: async (k) => session._d[k], set: async (k, v) => { session._d[k] = v; } };
   await session.set('pendingUndo', [{ recordId: 'a', expiry: 500 }, { recordId: 'b', expiry: 5000 }]);

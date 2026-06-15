@@ -54,9 +54,19 @@ test('a corrupt snapshot fails to load (caller rebuilds)', () => {
 test('reconcile re-adds store records absent from the index', () => {
   search.addRecord(rec({ id: 'a', content: 'present' }));
   const storeRecords = [rec({ id: 'a', content: 'present' }), rec({ id: 'b', content: 'was missing from index' })];
-  const added = search.reconcile(storeRecords);
-  assert.equal(added, 1);
+  const changed = search.reconcile(storeRecords);
+  assert.ok(changed >= 1);
   assert.ok(search.search('missing').map((r) => r.id).includes('b'));
+});
+
+test('reconcile drops ghost docs absent from the store (interrupted removal)', () => {
+  // Simulate a stale snapshot: index has a + b, but the store only has a
+  // (b was undone/forgotten after the snapshot was flushed, then the SW died).
+  search.addRecord(rec({ id: 'a', content: 'kept' }));
+  search.addRecord(rec({ id: 'b', content: 'ghost should vanish' }));
+  search.reconcile([rec({ id: 'a', content: 'kept' })]);
+  assert.equal(search.search('ghost').length, 0);
+  assert.ok(search.search('kept').map((r) => r.id).includes('a'));
 });
 
 test('replacing an existing id updates its searchable content', () => {

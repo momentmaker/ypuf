@@ -40,7 +40,10 @@
 
   const host = document.createElement('div');
   host.id = HOST_ID;
-  const shadow = host.attachShadow({ mode: 'open' });
+  // CLOSED shadow root: host.shadowRoot returns null, so no script on the page
+  // can read the user's let-go titles/URLs or attach a listener to the recall
+  // input. Refs are kept in this closure. (Privacy: nothing leaves the device.)
+  const shadow = host.attachShadow({ mode: 'closed' });
 
   const style = document.createElement('style');
   style.textContent = STYLES;
@@ -59,8 +62,10 @@
   let items = [];
   let active = -1;
   let seq = 0;
+  let closed = false;
 
   function close() {
+    closed = true;
     host.remove();
     try { if (prevFocus && prevFocus.focus) prevFocus.focus(); } catch { /* ignore */ }
   }
@@ -100,7 +105,7 @@
     const q = input.value.trim();
     const mine = ++seq;
     chrome.runtime.sendMessage({ type: 'recall-search', q }, (resp) => {
-      if (mine !== seq || !resp) return;
+      if (closed || mine !== seq || !resp) return; // overlay removed mid-flight, or stale response
       if (resp.total === 0) { state.hidden = false; state.textContent = 'Nothing let go yet. Let a tab go to start your shelf.'; render([]); return; }
       if (q && resp.results.length === 0) { state.hidden = false; state.textContent = 'No match.'; render([]); return; }
       state.hidden = true;

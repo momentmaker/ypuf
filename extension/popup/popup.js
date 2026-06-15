@@ -23,6 +23,7 @@
   // Shelf list (U7): the SW owns the store; the popup renders what it returns.
   // Every page-derived string goes through textContent — never innerHTML.
   const T = (window.ypuf && window.ypuf.titles) || {};
+  const titleOf = (it) => (T.cleanTitle ? T.cleanTitle(it.title || it.url || '', it.host || '') : it.title) || it.url || '(untitled)';
 
   function render(items) {
     recent.textContent = '';
@@ -33,7 +34,7 @@
       li.className = 'recent-item' + (it.contentLess ? ' content-less' : '');
       const title = document.createElement('div');
       title.className = 'title';
-      title.textContent = (T.cleanTitle ? T.cleanTitle(it.title || it.url || '', it.host || '') : it.title) || it.url || '(untitled)';
+      title.textContent = titleOf(it);
       const meta = document.createElement('div');
       meta.className = 'meta';
       const host = T.friendlyDomain ? T.friendlyDomain(it.host || '') : (it.host || '');
@@ -58,8 +59,6 @@
   const panel = document.getElementById('indexed-panel');
   const indexedList = document.getElementById('indexed-list');
   const indexedEmpty = document.getElementById('indexed-empty');
-
-  const titleOf = (it) => (T.cleanTitle ? T.cleanTitle(it.title || it.url || '', it.host || '') : it.title) || it.url || '(untitled)';
 
   function showIndexed() {
     shelf.hidden = true; panel.hidden = false;
@@ -89,7 +88,8 @@
   }
 
   function doForget(it, li, actions) {
-    chrome.runtime.sendMessage({ type: 'forget-page', recordId: it.id }, () => {
+    chrome.runtime.sendMessage({ type: 'forget-page', recordId: it.id }, (resp) => {
+      if (chrome.runtime.lastError || !resp || !resp.ok) return; // forget failed — don't fake success
       li.classList.add('struck');
       actions.textContent = '';
       const undo = document.createElement('button'); undo.className = 'link'; undo.type = 'button'; undo.textContent = 'Undo';

@@ -23,7 +23,9 @@ importScripts(
   'lib/blocklist.js',
 );
 
-const { store, search, capture, exclusion, signal, privacy } = self.ypuf;
+const { store, search, capture, exclusion, signal, privacy, titles } = self.ypuf;
+
+const logErr = (e) => console.error('[ypuf]', e);
 
 const SNAPSHOT_KEY = 'searchSnapshot';
 const BLOCKLIST_KEY = 'userBlocklist';
@@ -53,7 +55,7 @@ async function persistSnapshot() {
 let _initPromise = null;
 function initIndex() {
   if (_initPromise) return _initPromise;
-  _initPromise = (async () => {
+  const p = (async () => {
     const snap = await local.get(SNAPSHOT_KEY);
     if (!search.load(snap)) {
       search.buildFrom(await store.getAll());
@@ -61,8 +63,21 @@ function initIndex() {
     const reconciled = search.reconcile(await store.getAll());
     if (reconciled) await persistSnapshot();
     await capture.expirePending(session, Date.now());
+    await sweepPendingForget(Date.now());
   })();
-  return _initPromise;
+  // Don't memoize a rejection — clear so the next caller retries instead of
+  // permanently failing every flow for this SW lifetime.
+  p.catch(() => { if (_initPromise === p) _initPromise = null; });
+  _initPromise = p;
+  return p;
+}
+
+// Drop forgotten-page undo bundles past their grace window so explicitly-
+// forgotten page content does not linger in session storage.
+async function sweepPendingForget(now) {
+  const pending = (await session.get('pendingForget')) || [];
+  const live = pending.filter((p) => p.expiry > now);
+  if (live.length !== pending.length) await session.set('pendingForget', live);
 }
 
 // --- in-page extractor (runs in the page's isolated world) ----------------
@@ -108,7 +123,8 @@ async function buildDeps() {
     classify: exclusion.classify,
     userBlocklist: await getUserBlocklist(),
     inject: injectExtract,
-    closeTab: (id) => chrome.tabs.remove(id),
+    closeTab: (id) => chrome.tabs.remove(id).catch(() => {}), // tab may already be gone
+
     openTab: (url) => chrome.tabs.create({ url }),
     session,
     now: () => Date.now(),
@@ -153,7 +169,7 @@ async function maybePrune() {
 }
 
 function showUndoNotification(record) {
-  const title = self.ypuf.titles.cleanTitle(record.title || record.url || 'page', record.host || '');
+  const title = titles.cleanTitle(record.title || record.url || 'page', record.host || '');
   chrome.notifications.create('ypuf-undo:' + record.id, {
     type: 'basic',
     iconUrl: 'icons/icon48.png',
@@ -285,8 +301,13 @@ async function getRecallResults(q) {
 async function reopenRecord(recordId) {
   const rec = await store.get(recordId);
   if (!rec || !exclusion.isWebUrl(rec.url)) return; // reopen guard: web schemes only
+  // Match on origin+path, not the exact URL: metadata-only records store a
+  // query-stripped URL, so an exact compare against a live tab's full URL would
+  // always miss and spawn a duplicate.
+  const key = (u) => { try { const x = new URL(u); return x.origin + x.pathname; } catch { return u; } };
+  const target = key(rec.url);
   const tabs = await chrome.tabs.query({});
-  const open = tabs.find((t) => t.url === rec.url);
+  const open = tabs.find((t) => t.url && key(t.url) === target);
   if (open) {
     await chrome.tabs.update(open.id, { active: true });
     if (open.windowId != null) await chrome.windows.update(open.windowId, { focused: true });
@@ -314,28 +335,31 @@ chrome.runtime.onInstalled.addListener(() => { initIndex(); });
 chrome.runtime.onStartup.addListener(() => { initIndex(); });
 
 chrome.commands.onCommand.addListener((command) => {
-  if (command === 'let-go') handleLetGo();
-  if (command === 'recall') handleRecall();
+  if (command === 'let-go') handleLetGo().catch(logErr);
+  if (command === 'recall') handleRecall().catch(logErr);
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!sender || sender.id !== chrome.runtime.id) return; // SW-as-broker: trust only our own contexts
   if (!msg) return;
-  if (msg.type === 'let-go') { handleLetGo(); return; }
-  if (msg.type === 'undo' && msg.recordId) { handleUndo(msg.recordId); return; }
-  if (msg.type === 'list-recent') { listRecent(msg.limit || 15).then(sendResponse); return true; }
-  if (msg.type === 'recall-search') { getRecallResults(msg.q).then(sendResponse); return true; }
-  if (msg.type === 'recall-open' && msg.recordId) { reopenRecord(msg.recordId).then(() => sendResponse({ ok: true })); return true; }
-  if (msg.type === 'whats-indexed') { whatsIndexed().then(sendResponse); return true; }
-  if (msg.type === 'forget-page' && msg.recordId) { forgetPage(msg.recordId).then(sendResponse); return true; }
-  if (msg.type === 'forget-page-undo' && msg.recordId) { forgetPageUndo(msg.recordId).then(sendResponse); return true; }
-  if (msg.type === 'forget-domain' && msg.host) { forgetDomain(msg.host).then(sendResponse); return true; }
-  if (msg.type === 'blocklist-add' && msg.host) { blocklistAdd(msg.host).then(sendResponse); return true; }
+  if (msg.type === 'let-go') { handleLetGo().catch(logErr); return; }
+  if (msg.type === 'undo' && msg.recordId) { handleUndo(msg.recordId).catch(logErr); return; }
+  // Async branches: always answer the caller — a rejection that never calls
+  // sendResponse would hang the overlay/popup until Chrome times out the channel.
+  const respond = (p) => { p.then(sendResponse).catch((e) => sendResponse({ error: String(e) })); return true; };
+  if (msg.type === 'list-recent') return respond(listRecent(msg.limit || 15));
+  if (msg.type === 'recall-search') return respond(getRecallResults(msg.q));
+  if (msg.type === 'recall-open' && msg.recordId) return respond(reopenRecord(msg.recordId).then(() => ({ ok: true })));
+  if (msg.type === 'whats-indexed') return respond(whatsIndexed());
+  if (msg.type === 'forget-page' && msg.recordId) return respond(forgetPage(msg.recordId));
+  if (msg.type === 'forget-page-undo' && msg.recordId) return respond(forgetPageUndo(msg.recordId));
+  if (msg.type === 'forget-domain' && msg.host) return respond(forgetDomain(msg.host));
+  if (msg.type === 'blocklist-add' && msg.host) return respond(blocklistAdd(msg.host));
 });
 
 chrome.notifications.onButtonClicked.addListener((notifId, btnIndex) => {
   if (notifId.startsWith('ypuf-undo:') && btnIndex === 0) {
-    handleUndo(notifId.slice('ypuf-undo:'.length));
+    handleUndo(notifId.slice('ypuf-undo:'.length)).catch(logErr);
     chrome.notifications.clear(notifId);
   }
 });

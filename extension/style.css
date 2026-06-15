@@ -2,8 +2,10 @@
  * ypuf — styles.
  *
  * The :root design tokens (the warm-paper "calm" palette) are lifted from
- * tab-out (https://github.com/zarazhang/tab-out, Copyright (c) Zara Zhang,
- * MIT). Component styles below are ypuf's. See NOTICE.md.
+ * tab-out (https://github.com/zarazhangrui/tab-out):
+ *   Copyright (c) Zara Zhang — MIT License
+ *   Copyright (c) momentmaker (ypuf) — MIT License
+ * Component styles below are ypuf's. See NOTICE.md.
  *
  * Fonts are self-hosted / system (no external CDN — nothing leaves the machine).
  */

@@ -30,7 +30,7 @@
   function openDB(name) {
     if (name && name !== _name) { _name = name; _dbPromise = null; }
     if (_dbPromise) return _dbPromise;
-    _dbPromise = new Promise((resolve, reject) => {
+    const p = new Promise((resolve, reject) => {
       const req = indexedDB.open(_name, VERSION);
       req.onupgradeneeded = () => {
         const db = req.result;
@@ -43,7 +43,11 @@
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
-    return _dbPromise;
+    // Don't memoize a rejection — one transient open failure would otherwise
+    // poison the store for the whole SW lifetime. Clear so the next call retries.
+    p.catch(() => { if (_dbPromise === p) _dbPromise = null; });
+    _dbPromise = p;
+    return p;
   }
 
   function reqToPromise(req) {
@@ -94,11 +98,25 @@
     }
   }
 
+  // On QuotaExceededError, free real space before retrying — an age cap plus a
+  // byte budget derived from the live quota estimate. prune({}) frees nothing,
+  // so the retry would hit the same error and lose the record.
+  async function quotaPrune() {
+    let maxBytes;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.estimate) {
+        const { quota = 0 } = (await navigator.storage.estimate()) || {};
+        if (quota) maxBytes = Math.floor(quota * 0.6);
+      }
+    } catch { /* ignore */ }
+    return prune({ maxAgeMs: 180 * 86400000, maxBytes });
+  }
+
   async function put(record) {
     const r = normalize(record);
     return withQuotaRetry(
       () => withStore('readwrite', (s) => reqToPromise(s.put(r))),
-      () => prune({}),
+      quotaPrune,
     );
   }
 

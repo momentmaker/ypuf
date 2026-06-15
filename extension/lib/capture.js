@@ -83,8 +83,10 @@
 
       await deps.store.put(record);
       deps.search.addRecord(record);
-      await deps.closeTab(id);
+      // Record the pending-undo BEFORE closing the tab: if closeTab throws
+      // (tab already gone), the archive is still reversible and not orphaned.
       await pushPending(deps.session, { recordId: record.id, title: record.title, url: record.url, expiry: now + UNDO_MS });
+      await deps.closeTab(id);
 
       return { kind: cls.kind, record };
     } finally {
@@ -95,11 +97,12 @@
   async function undo(recordId, deps) {
     const pending = await readPending(deps.session);
     const entry = pending.find((p) => p.recordId === recordId);
+    if (!entry) return false; // nothing pending for this id — never touch the store
     await deps.store.remove(recordId);
     deps.search.removeRecord(recordId);
     await removePending(deps.session, recordId);
-    if (entry && entry.url) await deps.openTab(entry.url);
-    return !!entry;
+    if (entry.url) await deps.openTab(entry.url);
+    return true;
   }
 
   // Drop pending-undo entries whose grace window has elapsed (called on SW wake).

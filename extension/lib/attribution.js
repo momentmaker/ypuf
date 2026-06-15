@@ -1,7 +1,7 @@
 /*
  * ypuf — title & domain display helpers
  *
- * Derived from tab-out (https://github.com/zarazhang/tab-out)
+ * Derived from tab-out (https://github.com/zarazhangrui/tab-out)
  *   Copyright (c) Zara Zhang — MIT License
  * Modifications and additions:
  *   Copyright (c) momentmaker (ypuf) — MIT License

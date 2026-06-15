@@ -93,10 +93,19 @@
     }
   }
 
-  // Re-add any authoritative store record missing from the index (covers an
-  // SW death between the IDB write and the snapshot flush).
+  // Reconcile the index against the authoritative store on cold start. The
+  // store is the source of truth, so this must heal divergence in BOTH
+  // directions: an interrupted ADD (record in store, missing from a stale
+  // snapshot) AND an interrupted REMOVE (record removed from the store by
+  // undo/forget, but still a ghost in a snapshot that was flushed before the
+  // removal). When counts differ we rebuild from the store — that drops ghosts
+  // and adds missing docs in one pass. Returns the number of docs changed.
   function reconcile(records) {
     const ms = ensure();
+    if (ms.documentCount !== records.length) {
+      buildFrom(records);
+      return records.length || 1; // signal a change so the caller re-snapshots
+    }
     let added = 0;
     for (const record of records) {
       if (!ms.has(record.id)) { ms.add(toDoc(record)); added++; }
