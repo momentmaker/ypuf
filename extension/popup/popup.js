@@ -11,6 +11,15 @@
   const recent = document.getElementById('recent');
   const empty = document.getElementById('empty');
 
+  // Let-go trigger (U5): the SW owns the capture; the popup just asks.
+  const letgo = document.getElementById('letgo');
+  if (letgo) {
+    letgo.addEventListener('click', () => {
+      chrome.runtime.sendMessage({ type: 'let-go' });
+      window.close();
+    });
+  }
+
   // Until U7 fills the list, show the invitational empty state.
   if (recent && empty && recent.children.length === 0) {
     empty.hidden = false;

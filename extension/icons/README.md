@@ -1,7 +1,8 @@
 # Icons (placeholder)
 
-The toolbar/action icon is intentionally **omitted from `manifest.json`** for the
-slice-1 scaffold — Chrome falls back to a generic extension icon, which loads
-cleanly with no error. The real **"puff"** mark (the signature let-go glyph) is
-TODO before any public release: add `icon16.png` / `icon48.png` / `icon128.png`
-here and an `icons` + `action.default_icon` block to the manifest.
+`icon16.png` / `icon48.png` / `icon128.png` are **placeholder** marks — a solid
+amber (`#c8713a`) rounded square, generated programmatically so the extension,
+toolbar action, and undo notification all load with a valid icon.
+
+TODO before any public release: replace these with the real **"puff"** mark
+(the signature let-go glyph).
