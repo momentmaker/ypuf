@@ -1,7 +1,7 @@
 ---
 title: "feat: ypuf slice 1 — recall + archive shelf"
 type: feat
-status: active
+status: completed
 date: 2026-06-14
 deepened: 2026-06-14
 origin: docs/brainstorms/2026-06-14-ypuf-v1-sequence-and-slice1-requirements.md
