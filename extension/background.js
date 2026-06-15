@@ -20,10 +20,11 @@ importScripts(
   'lib/search.js',
   'lib/capture.js',
   'lib/signal.js',
+  'lib/tabstate.js',
   'lib/blocklist.js',
 );
 
-const { store, search, capture, exclusion, signal, privacy, titles } = self.ypuf;
+const { store, search, capture, exclusion, signal, tabstate, privacy, titles } = self.ypuf;
 
 const logErr = (e) => console.error('[ypuf]', e);
 
@@ -218,6 +219,50 @@ async function applyBlur() {
   await session.set('signalActive', next.active);
 }
 
+// --- per-tab state (U1) --------------------------------------------------
+// Open-tab timing/engagement, in chrome.storage.session: it survives SW
+// termination but clears on browser restart — so restored tabs start with NO
+// record and fail safe (never eligible until actually observed).
+
+const TABSTATE_KEY = 'tabstate';
+const STARTUP_KEY = 'startupAt';
+const STARTUP_GRACE_MS = 30000;   // tabs created within 30s of startup ≈ restored
+const BURST_WINDOW_MS = 1500;     // dense opener-less creations ≈ open-all-bookmarks
+const BURST_MIN_CLUSTER = 5;
+
+const loadTabstate = async () => (await session.get(TABSTATE_KEY)) || tabstate.emptyState();
+const saveTabstate = (s) => session.set(TABSTATE_KEY, s);
+
+async function stampCreated(tab) {
+  if (!tab || tab.id == null) return;
+  const s = await loadTabstate();
+  tabstate.recordCreated(s, tab.id, Date.now(), {
+    openerTabId: tab.openerTabId, host: tab.url,
+    startupAt: await session.get(STARTUP_KEY),
+    startupGraceMs: STARTUP_GRACE_MS, burstWindowMs: BURST_WINDOW_MS, burstMinCluster: BURST_MIN_CLUSTER,
+  });
+  await saveTabstate(s);
+}
+
+async function stampActivated(tab) {
+  if (!tab || tab.id == null) return;
+  const s = await loadTabstate();
+  tabstate.recordActivated(s, tab.id, Date.now(), tab.url);
+  await saveTabstate(s);
+}
+
+async function stampHost(tabId, url) {
+  const s = await loadTabstate();
+  tabstate.setHost(s, tabId, url);
+  await saveTabstate(s);
+}
+
+async function purgeTab(tabId) {
+  const s = await loadTabstate();
+  tabstate.deleteByTabId(s, tabId);
+  await saveTabstate(s);
+}
+
 // --- privacy controls (U8) ----------------------------------------------
 
 const privacyDeps = (durable) => ({ store, search, signal, durable });
@@ -332,7 +377,12 @@ async function handleRecall() {
 // --- top-level synchronous listener registration -------------------------
 
 chrome.runtime.onInstalled.addListener(() => { initIndex(); });
-chrome.runtime.onStartup.addListener(() => { initIndex(); });
+chrome.runtime.onStartup.addListener(() => {
+  // Stamp startup so tabs created in the next grace window are flagged as a
+  // restored-session burst (U1/R3) and excluded from auto-close.
+  session.set(STARTUP_KEY, Date.now()).catch(() => {});
+  initIndex();
+});
 
 chrome.commands.onCommand.addListener((command) => {
   if (command === 'let-go') handleLetGo().catch(logErr);
@@ -364,14 +414,17 @@ chrome.notifications.onButtonClicked.addListener((notifId, btnIndex) => {
   }
 });
 
-// Dwell/revisit signal (U9) — listeners MUST be registered synchronously here
-// so a terminated worker still wakes for them.
+// Dwell/revisit signal (U9) + per-tab state (U1) — listeners MUST be registered
+// synchronously here so a terminated worker still wakes for them.
+chrome.tabs.onCreated.addListener((tab) => { stampCreated(tab).catch(() => {}); });
 chrome.tabs.onActivated.addListener(({ tabId }) => {
-  chrome.tabs.get(tabId).then(applyForeground).catch(() => {});
+  chrome.tabs.get(tabId).then((tab) => { applyForeground(tab); return stampActivated(tab); }).catch(() => {});
 });
-chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url && tab && tab.active) applyForeground(tab);
+  if (changeInfo.status === 'complete' && tab && tab.url) stampHost(tabId, tab.url).catch(() => {});
 });
+chrome.tabs.onRemoved.addListener((tabId) => { purgeTab(tabId).catch(() => {}); });
 chrome.windows.onFocusChanged.addListener((windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) { applyBlur(); return; }
   chrome.tabs.query({ active: true, windowId }).then(([tab]) => applyForeground(tab)).catch(() => {});
