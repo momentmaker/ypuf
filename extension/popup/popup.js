@@ -54,29 +54,37 @@
   const T = (window.ypuf && window.ypuf.titles) || {};
   const titleOf = (it) => (T.cleanTitle ? T.cleanTitle(it.title || it.url || '', it.host || '') : it.title) || it.url || '(untitled)';
 
+  // The empty state shows only when both the let-go list and the snooze groups
+  // are empty — a user with snoozed items hasn't got "nothing let go yet".
+  let recentEmpty = true, snoozeEmpty = true;
+  function updateEmpty() { empty.hidden = !(recentEmpty && snoozeEmpty); }
+
+  function itemRow(it, tags) {
+    const li = document.createElement('li');
+    li.className = 'recent-item' + (it.contentLess ? ' content-less' : '');
+    const title = document.createElement('div'); title.className = 'title'; title.textContent = titleOf(it);
+    const meta = document.createElement('div'); meta.className = 'meta';
+    const host = T.friendlyDomain ? T.friendlyDomain(it.host || '') : (it.host || '');
+    meta.textContent = [host].concat(tags || []).filter(Boolean).join('  ·  ');
+    li.append(title, meta);
+    return li;
+  }
+  const openOnClick = (li, id) => li.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'recall-open', recordId: id });
+    window.close();
+  });
+
   function render(items) {
     recent.textContent = '';
-    if (!items || !items.length) { empty.hidden = false; return; }
-    empty.hidden = true;
+    recentEmpty = !(items && items.length);
+    updateEmpty();
+    if (recentEmpty) return;
     for (const it of items) {
-      const li = document.createElement('li');
-      li.className = 'recent-item' + (it.contentLess ? ' content-less' : '');
-      const title = document.createElement('div');
-      title.className = 'title';
-      title.textContent = titleOf(it);
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      const host = T.friendlyDomain ? T.friendlyDomain(it.host || '') : (it.host || '');
       const ago = T.timeAgo ? T.timeAgo(it.timestamp) : '';
       // Auto-closed items carry a quiet marker so the undo shelf doubles as a
       // discovery surface when the ambient indicator was missed (R13).
-      const tag = it.autoClosed ? 'let go for you' : '';
-      meta.textContent = [host, ago, tag].filter(Boolean).join('  ·  ');
-      li.append(title, meta);
-      li.addEventListener('click', () => {
-        chrome.runtime.sendMessage({ type: 'recall-open', recordId: it.id });
-        window.close();
-      });
+      const li = itemRow(it, [ago, it.autoClosed ? 'let go for you' : '']);
+      openOnClick(li, it.id);
       recent.appendChild(li);
     }
   }
@@ -85,6 +93,75 @@
     if (chrome.runtime.lastError) return;
     render(resp && resp.items);
   });
+
+  // Snooze groups (U4): "Back now" (click-to-open) and "Snoozed" (wake / later).
+  const snoozeGroups = document.getElementById('snooze-groups');
+  const RESNOOZE_PRESETS = [
+    ['later-today', 'Later today'], ['this-evening', 'This evening'], ['tomorrow-morning', 'Tomorrow'],
+    ['this-weekend', 'Weekend'], ['next-week', 'Next week'], ['when-im-back', 'When back'],
+  ];
+
+  function whenLabel(returnAt) {
+    try { return new Date(returnAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }); }
+    catch { return ''; }
+  }
+  function backTag(it) {
+    if (typeof it.returnAt === 'number' && it.returnAt < Date.now()) {
+      const ago = T.timeAgo ? T.timeAgo(it.returnAt) : '';
+      return ago ? `back · due ${ago}` : 'back now';
+    }
+    return 'back now';
+  }
+  const snoozedTag = (it) => it.untilStartup ? 'snoozed · next time you’re back'
+    : (it.returnAt ? `snoozed until ${whenLabel(it.returnAt)}` : 'snoozed');
+
+  function groupHeading(text) {
+    const h = document.createElement('div'); h.className = 'group-label'; h.textContent = text; return h;
+  }
+
+  function renderSnooze(back, snoozed) {
+    snoozeGroups.textContent = '';
+    snoozeEmpty = !((back && back.length) || (snoozed && snoozed.length));
+    updateEmpty();
+    if (back && back.length) {
+      snoozeGroups.appendChild(groupHeading('Back now'));
+      const ul = document.createElement('ul'); ul.className = 'recent';
+      for (const it of back) { const li = itemRow(it, [backTag(it)]); openOnClick(li, it.id); ul.appendChild(li); }
+      snoozeGroups.appendChild(ul);
+    }
+    if (snoozed && snoozed.length) {
+      snoozeGroups.appendChild(groupHeading('Snoozed'));
+      const ul = document.createElement('ul'); ul.className = 'recent';
+      for (const it of snoozed) ul.appendChild(snoozedRow(it));
+      snoozeGroups.appendChild(ul);
+    }
+  }
+
+  function snoozedRow(it) {
+    const li = itemRow(it, [snoozedTag(it)]); // intentionally NOT click-to-open (recall via search)
+    const controls = document.createElement('div'); controls.className = 'snooze-controls';
+    const wake = mkBtn('Wake', () => chrome.runtime.sendMessage({ type: 'snooze-wake', recordId: it.id }, refreshSnooze));
+    const later = mkBtn('Later', () => showResnooze(it.id, controls));
+    controls.append(wake, later);
+    li.appendChild(controls);
+    return li;
+  }
+
+  function showResnooze(id, controls) {
+    controls.textContent = '';
+    for (const [preset, label] of RESNOOZE_PRESETS) {
+      controls.appendChild(mkBtn(label, () => chrome.runtime.sendMessage({ type: 'snooze-resnooze', recordId: id, preset }, refreshSnooze)));
+    }
+    controls.appendChild(mkBtn('Cancel', refreshSnooze));
+  }
+
+  function refreshSnooze() {
+    if (chrome.runtime.lastError) return;
+    chrome.runtime.sendMessage({ type: 'snooze-list' }, (resp) => {
+      if (!chrome.runtime.lastError) renderSnooze(resp && resp.back, resp && resp.snoozed);
+    });
+  }
+  refreshSnooze();
 
   // --- auto-let-go: ambient status, activation, relief, badge (U8) --------
   const autoStatus = document.getElementById('auto-status');

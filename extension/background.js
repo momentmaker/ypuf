@@ -652,11 +652,48 @@ async function blocklistAdd(host) {
 async function listRecent(limit) {
   const recs = await store.listRecent(limit);
   return {
-    items: recs.map((r) => ({
+    items: recs.filter((r) => !r.snoozeState).map((r) => ({ // snoozed/back-now live in their own groups
       id: r.id, title: r.title, url: r.url, host: r.host,
       timestamp: r.timestamp, contentLess: r.contentLess, autoClosed: !!r.autoClosed,
     })),
   };
+}
+
+// The snooze groups (U4): every snoozed / back-now record, regardless of recency
+// (a tab snoozed weeks out must still surface). Back-now newest-first; snoozed
+// soonest-return first (untilStartup, which has no returnAt, sorts last).
+function projectSnooze(r) {
+  return {
+    id: r.id, title: r.title, url: r.url, host: r.host,
+    contentLess: r.contentLess, snoozeState: r.snoozeState,
+    returnAt: typeof r.returnAt === 'number' ? r.returnAt : null, untilStartup: !!r.untilStartup,
+  };
+}
+async function snoozeList() {
+  const all = await store.getAll();
+  const back = all.filter((r) => r.snoozeState === 'back-now')
+    .sort((a, b) => (b.returnAt || 0) - (a.returnAt || 0)).map(projectSnooze);
+  const snoozed = all.filter((r) => r.snoozeState === 'snoozed')
+    .sort((a, b) => (a.returnAt || Infinity) - (b.returnAt || Infinity)).map(projectSnooze);
+  return { back, snoozed };
+}
+
+async function snoozeWake(recordId) {
+  chrome.alarms.clear('snooze:' + recordId).catch(() => {});
+  await flipBackNow([recordId]); // guarded: snoozed → back-now (no-op if already back-now)
+  return { ok: true };
+}
+
+async function snoozeResnooze(recordId, preset, custom) {
+  const rec = await store.get(recordId);
+  if (!rec) return { ok: false };
+  chrome.alarms.clear('snooze:' + recordId).catch(() => {});
+  const schedule = snooze.resolve(preset, Date.now(), custom);
+  const updated = Object.assign(snooze.mark(rec, null), { snoozeState: 'snoozed' }, schedule);
+  await store.put(updated);
+  await persistSnapshot();
+  if (typeof updated.returnAt === 'number') chrome.alarms.create('snooze:' + recordId, { when: updated.returnAt });
+  return { ok: true };
 }
 
 // --- recall (U6 / flow F2) -----------------------------------------------
@@ -692,6 +729,12 @@ async function reopenRecord(recordId) {
     await chrome.tabs.create({ url: rec.url });
   }
   await store.touch(recordId);
+  // Reopening a snoozed/back-now record ends the snooze — it's a normal tab now.
+  if (rec.snoozeState) {
+    chrome.alarms.clear('snooze:' + recordId).catch(() => {});
+    const fresh = await store.get(recordId);
+    if (fresh) { await store.put(snooze.mark(fresh, null)); await persistSnapshot(); }
+  }
   // The v1 learning (R14/F2): reopening a tab ypuf auto-let-go is the strongest
   // "I wanted that" signal — protect its domain. Only auto-closed records count
   // (a manual let-go the user reopens is not a correction of ypuf).
@@ -814,6 +857,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'auto-summary') return respond(autoSummary());
   if (msg.type === 'relief-claim') return respond(reliefClaim());
   if (msg.type === 'seen-badge') return respond(seenBadge());
+  if (msg.type === 'snooze-list') return respond(snoozeList());
+  if (msg.type === 'snooze-wake' && msg.recordId) return respond(snoozeWake(msg.recordId));
+  if (msg.type === 'snooze-resnooze' && msg.recordId && msg.preset) return respond(snoozeResnooze(msg.recordId, msg.preset, msg.custom));
 });
 
 // Auto-let-go grant lifecycle (U2). If the user revokes host access from
