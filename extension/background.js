@@ -22,10 +22,11 @@ importScripts(
   'lib/signal.js',
   'lib/tabstate.js',
   'lib/eligibility.js',
+  'lib/protection.js',
   'lib/blocklist.js',
 );
 
-const { store, search, capture, exclusion, signal, tabstate, eligibility, privacy, titles } = self.ypuf;
+const { store, search, capture, exclusion, signal, tabstate, eligibility, protection, privacy, titles } = self.ypuf;
 
 const logErr = (e) => console.error('[ypuf]', e);
 
@@ -335,10 +336,11 @@ const ACTIVATION_FLOOR = 3;             // returned to ≥ 3 times = engaged (UR
 const MIN_OBSERVED_URLS = 20;           // signal must have banked this many URLs first
 const AUTOCLOSING_KEY = 'autoClosing';
 const BADGE_KEY = 'autoBadge';
+const PROTECTION_KEY = 'protection';
 const autoInFlight = new Set();
 
-// U7 wires real protection; default no-op so U4/U5 stand alone.
-let isProtected = () => false;
+const loadProtection = async () => (await local.get(PROTECTION_KEY)) || protection.emptyState();
+const saveProtection = (s) => local.set(PROTECTION_KEY, s);
 
 async function meetsObservationBar() {
   const durable = await loadDurable();
@@ -352,11 +354,11 @@ function projectTab(t) {
   };
 }
 
-function eligDeps(signalMap, blocklist) {
+function eligDeps(signalMap, blocklist, protState) {
   return {
     tabstate,
     signal: signalMap,
-    isProtected: (host) => isProtected(host),
+    isProtected: (host) => protection.isProtected(protState, host),
     classify: exclusion.classify,
     userBlocklist: blocklist,
     now: Date.now(),
@@ -397,7 +399,8 @@ async function autoCloseOne(id, deps) {
   const tstate = await loadTabstate();
   const signalMap = await loadDurable();
   const blocklist = await getUserBlocklist();
-  const verdict = eligibility.classify(projectTab(live), { rec: tstate[id], ...eligDeps(signalMap, blocklist) });
+  const protState = await loadProtection();
+  const verdict = eligibility.classify(projectTab(live), { rec: tstate[id], ...eligDeps(signalMap, blocklist, protState) });
   if (verdict !== 'zombie') return false;
   if (!(await claimClose(id, live.url))) return false;
   autoInFlight.add(id);
@@ -424,7 +427,8 @@ async function runAutoSweep() {
   const tstate = await loadTabstate();
   const signalMap = await loadDurable();
   const blocklist = await getUserBlocklist();
-  const base = eligDeps(signalMap, blocklist);
+  const protState = await loadProtection();
+  const base = eligDeps(signalMap, blocklist, protState);
 
   const candidates = tabs.filter((t) => t.id != null &&
     eligibility.classify(projectTab(t), { rec: tstate[t.id], ...base }) === 'zombie');
@@ -514,10 +518,22 @@ async function forgetPageUndo(recordId) {
   return { ok: true };
 }
 
+// Cross-store purge of the slice-2 stores (protection + per-tab state), keeping
+// the "forget spans ALL stores" invariant as new stores are added (U7/S-finding).
+async function purgeDomainStores(host) {
+  const ps = await loadProtection();
+  protection.deleteByDomain(ps, host);
+  await saveProtection(ps);
+  const ts = await loadTabstate();
+  tabstate.deleteByDomain(ts, host);
+  await saveTabstate(ts);
+}
+
 async function forgetDomain(host) {
   const durable = await loadDurable();
   const n = await privacy.forgetDomain(host, privacyDeps(durable));
   await saveDurable(durable);
+  await purgeDomainStores(host);
   await persistSnapshot();
   return { count: n };
 }
@@ -528,6 +544,7 @@ async function blocklistAdd(host) {
   const durable = await loadDurable();
   const n = await privacy.retroactivePurge(host, privacyDeps(durable));
   await saveDurable(durable);
+  await purgeDomainStores(host);
   await persistSnapshot();
   return { count: n };
 }
@@ -577,6 +594,25 @@ async function reopenRecord(recordId) {
     await chrome.tabs.create({ url: rec.url });
   }
   await store.touch(recordId);
+  // The v1 learning (R14/F2): reopening a tab ypuf auto-let-go is the strongest
+  // "I wanted that" signal — protect its domain. Only auto-closed records count
+  // (a manual let-go the user reopens is not a correction of ypuf).
+  if (rec.autoClosed && rec.host) {
+    const ps = await loadProtection();
+    protection.protect(ps, rec.host);
+    await saveProtection(ps);
+  }
+}
+
+async function protectedList() {
+  return { items: protection.list(await loadProtection()).sort() };
+}
+
+async function protectRemove(host) {
+  const ps = await loadProtection();
+  protection.unprotect(ps, host);
+  await saveProtection(ps);
+  return { ok: true };
 }
 
 async function handleRecall() {
@@ -635,6 +671,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'auto-state') return respond(autoState());
   if (msg.type === 'auto-enable') return respond(autoEnable());
   if (msg.type === 'auto-disable') return respond(autoDisable());
+  if (msg.type === 'protected-list') return respond(protectedList());
+  if (msg.type === 'protect-remove' && msg.host) return respond(protectRemove(msg.host));
 });
 
 // Auto-let-go grant lifecycle (U2). If the user revokes host access from

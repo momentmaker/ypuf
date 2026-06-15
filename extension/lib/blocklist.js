@@ -5,7 +5,8 @@
  * this module is the load-bearing part: every forget / blocklist-purge spans
  * ALL persisted stores — IndexedDB content (U3), the MiniSearch index (U4), and
  * the dwell/revisit signal (U9). Adding a store is incomplete until these
- * paths cover it.
+ * paths cover it. Slice 2's per-tab state and reopen-protection stores are
+ * purged alongside these via background.js `purgeDomainStores` (U1/U7).
  *
  * Orchestration only — store/search/signal/durable are injected so the
  * cross-store guarantees are unit-testable; background.js owns persistence.
