@@ -101,3 +101,67 @@ No UI in slice 1. In the SW console, after browsing a few normal pages:
 - [ ] Let go of a page, then in the SW console run `chrome.runtime.reload()` (or
       let the worker idle out) and recall the page — it is still searchable
       (index reconciled against the store on wake).
+
+---
+
+# Slice 2 — auto-let-go
+
+The eligibility gate, per-tab store, capture threading, and reopen-protection
+are covered by `node --test`. The behavior below needs real `chrome.*` (alarms,
+permissions, offscreen audio, content-script injection) and is verified by hand.
+
+> Tip: to exercise the sweep without waiting, open the SW console and call
+> `runAutoSweep()` directly; force a tab "stale" by editing its per-tab record
+> via `chrome.storage.session.get('tabstate')` (push `lastActivatedAt` back).
+
+## Activation grant (U2)
+
+- [ ] Fresh load: the popup header shows **"Auto-let-go: off — turn on"**; the
+      sweep does nothing; manual let-go still works.
+- [ ] Click **turn on** → Chrome's host-access prompt appears (the gesture).
+      Accept → header flips to **"auto-let-go: on · watching for quiet tabs"**.
+- [ ] Click **turn on** then **deny** the prompt → header stays off and an inline
+      note explains page access is needed.
+- [ ] Revoke host access at `chrome://extensions` → the header reads off again on
+      next open and the sweep no-ops (`autoEnabled` cleared).
+
+## The sweep (U5 / F1)
+
+- [ ] Below the min-observation bar (few URLs browsed) the sweep closes nothing.
+- [ ] With a genuinely stale, never-revisited, low-dwell tab (and grant on), the
+      sweep **closes it silently** — no notification — and it appears in the
+      shelf marked **"let go for you"**, recallable.
+- [ ] A tab that is **audible**, **pinned**, has **unsaved input** (type into a
+      form, don't submit), was **recently activated**, or is **engaged**
+      (activated ≥ 3×) is **never** auto-closed.
+- [ ] A **blocklisted** stale tab is left open (never auto-closed).
+- [ ] Reopen-all-tabs at startup (or open-all-bookmarks) → none of the restored
+      burst is auto-closed in the following minutes (R3 / AE3).
+- [ ] Drive a tab's URL across an SPA / redirect after engaging it → it is not
+      auto-closed despite zero signal under the new URL (URL-drift safety).
+
+## The puff (U6)
+
+- [ ] On an auto-close, a soft **"puff"** plays. A burst of several closes plays
+      without console errors and creates **one** offscreen document (check
+      `chrome://extensions` → service worker → `chrome.runtime.getContexts`).
+
+## Reopen-protection (U7 / F2 / AE5)
+
+- [ ] After ypuf auto-closes a `news.com` tab, **reopen it from the shelf** →
+      open the popup's **Protected sites** → `news.com` is listed.
+- [ ] A subsequent stale `news.com` tab is **not** auto-closed.
+- [ ] **Un-protect** `news.com` → it becomes eligible again.
+- [ ] Reopening a **manually** let-go page does **not** protect its domain.
+- [ ] **Block site / Forget all** on a domain also clears its protection entry
+      and its per-tab state (cross-store purge).
+
+## Discoverability & relief (U8)
+
+- [ ] The extension icon shows a **badge** counting auto-closes since the popup
+      was last opened; opening the popup clears it.
+- [ ] After at least one auto-close today, the first popup open shows the
+      **relief banner** ("N let go today — all in your recall list"); a second
+      open the same day does not re-show it; at zero auto-closes it never shows.
+- [ ] **Protected sites** with nothing protected shows the invitational empty
+      state.
