@@ -1,6 +1,9 @@
 # OS
 .DS_Store
 
+# Claude Code per-subagent worktrees
+.claude/worktrees/
+
 # Dependencies / build output
 node_modules/
 dist/

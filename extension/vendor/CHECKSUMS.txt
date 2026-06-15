@@ -1,0 +1,5 @@
+# SHA-256 of vendored libraries — verify before release (no build step = no integrity pipeline).
+# Regenerate: shasum -a 256 extension/vendor/*.js
+
+ed6adfc3de0782b1407c124386f350d58ff3283d02e971b7eef4b7a4a745cff0   minisearch.min.js
+34dcab3d0832d0019f02990eed6b6124e029e8c32b9f0c6f2550544ff8dff174   Readability.js
