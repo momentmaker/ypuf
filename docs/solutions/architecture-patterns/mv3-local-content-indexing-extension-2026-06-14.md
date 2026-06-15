@@ -1,6 +1,7 @@
 ---
 title: MV3 patterns for a local, privacy-first content-indexing extension
 date: 2026-06-14
+last_updated: 2026-06-15
 category: docs/solutions/architecture-patterns
 module: extension (service worker, lib, overlay, popup)
 problem_type: architecture_pattern
@@ -12,7 +13,11 @@ applies_when:
   - Persisting state that must survive service-worker termination (~30s idle)
   - Keeping an in-memory search index consistent with an IndexedDB source of truth
   - Shipping a vanilla-JS extension with no build step that also needs node tests
-tags: [chrome-mv3, service-worker, indexeddb, content-script, privacy, message-passing, no-build, minisearch]
+  - Mutating one chrome.storage key from many concurrent SW event listeners
+  - Running a periodic background op (alarms) that destructively changes tabs
+  - Playing audio or using a DOM API from a service worker (offscreen document)
+  - Feeding a per-URL signal into a per-tab decision
+tags: [chrome-mv3, service-worker, indexeddb, content-script, privacy, message-passing, no-build, minisearch, alarms, offscreen, concurrency, background-mutation]
 ---
 
 # MV3 patterns for a local, privacy-first content-indexing extension
@@ -27,6 +32,12 @@ MV3 patterns that are non-obvious and easy to get subtly wrong — several only
 caught by an adversarial/security code review of the *implementation* (the plan
 review couldn't see them because the bugs lived in the Chrome-API glue). These
 notes capture the reusable shape so the next MV3 content extension starts ahead.
+
+Slice 2 (auto-let-go: a periodic background sweep that silently closes stale
+tabs) added a second cluster — patterns 7-10 — all in the same SW-glue seam and,
+again, all surfaced only by reviewing the *implementation*: a data race across
+concurrent listeners, an offscreen-audio document, a per-URL-vs-per-tab signal
+trap, and termination-safe dedup of a destructive op.
 
 ## Guidance
 
@@ -103,6 +114,70 @@ error) leaves the message channel open until Chrome times it out — the overlay
 popup hangs with no signal. Wrap every async branch so a rejection still calls
 `sendResponse({ error })`, and have the UI tolerate `!resp`.
 
+### 7. Serialize writes when many listeners mutate one storage key
+
+This is the highest-severity bug a code review caught in slice 2. Several SW
+listeners (`tabs.onCreated`/`onActivated`/`onUpdated`/`onRemoved` plus
+content-script reports) each do load → modify → save on **one** shared
+`chrome.storage` object. They're async, so two events firing close together
+interleave: A loads, B loads the same snapshot, A saves, B saves over A — A's
+write is silently lost. Persisting timestamps (pattern 2) does not save you; the
+lost update happens between a load and its save. In a safety-critical flow a lost
+write is a real bug (a reverted "has unsaved input" flag, a dropped engagement
+count) that drives a wrong decision. Funnel every mutation of a shared key
+through one in-SW promise chain:
+
+```js
+let _chain = Promise.resolve();
+function mutate(fn) {
+  _chain = _chain.then(async () => { const s = await load(); await fn(s); await save(s); }).catch(logErr);
+  return _chain;
+}
+```
+
+Reads can stay unserialized — they observe a consistent committed state. The
+chain lives in memory and resets on SW termination, which is correct: concurrent
+writes only race *within* one SW activation; across activations the wakes are
+sequential.
+
+### 8. Play sound (or use any DOM API) from a serialized, decoupled offscreen document
+
+A SW has no Web Audio/DOM, so a short sound plays from a single offscreen
+document (`chrome.offscreen.createDocument({ reasons: ['AUDIO_PLAYBACK'] })` —
+Chrome allows only one). Three things make it safe. Detect-before-create via
+`chrome.runtime.getContexts`, but that has a TOCTOU window under bursts — so also
+**serialize creation behind one module-level promise** (pattern 7's shape) so
+concurrent triggers await a single create instead of the second one throwing.
+**Fire the side effect catch-decoupled** from the operation that triggered it
+(`ensureOffscreen().then(play).catch(() => {})`): the sound is cosmetic, the
+close is not, so an audio failure must never propagate into the real work.
+Verify `sender.id === chrome.runtime.id` in the offscreen listener (pattern 1).
+`AUDIO_PLAYBACK` auto-reaps the doc ~30s after the last sound — no lifecycle code.
+
+### 9. A per-URL signal can't gate a per-tab decision
+
+Slice 1 banked a dwell/revisit signal keyed by the exact URL. Slice 2 wanted to
+decide "is this *tab* abandoned?" — and naively reading the per-URL signal is a
+trap: a tab that navigated (SPA route, hash, redirect, post-login rewrite) shows
+**zero** signal under its current URL and looks brand-new, even after the user
+lived in it for hours. Make the per-tab decision turn on a URL-stable per-tab
+fact (an activation count bumped on `tabs.onActivated`), and treat the per-URL
+signal as corroborating only. Mind the failure direction: here a false zero would
+auto-close a tab the user is actively using.
+
+### 10. Termination-safe dedup, and confirm a destructive effect before counting it
+
+For a destructive background op that can be interrupted mid-flight and re-fired by
+the next alarm (auto-close): an in-memory in-flight `Set` doesn't survive SW
+termination, so a re-fired sweep re-processes the same item and double-writes.
+Dedup on a **persisted claim** (a `chrome.storage` key), released on confirmed
+completion *and* on the cleanup event (`tabs.onRemoved`). Separately, because the
+reusable close helper swallows `chrome.tabs.remove` errors (so a capture stays
+reversible even if the close throws, pattern 4), the caller must **independently
+confirm the effect happened** — `chrome.tabs.get` rejects once the tab is gone —
+before counting it (badge, sound, metrics). Otherwise a failed remove still fires
+all the "it closed" side effects for a tab that's still open.
+
 ## Why This Matters
 
 Each of these is a real failure mode that shipped past unit tests and was only
@@ -113,6 +188,15 @@ uncaught async handler (hung UI). They are invisible to a plan review and to
 DI-stubbed unit tests, because they live in the SW↔page↔storage seams. Knowing the
 shape up front turns "found in adversarial review" into "built correctly the first
 time."
+
+Slice 2 reinforced the lesson: the pure modules (eligibility, per-tab state) were
+correctly fail-safe in isolation and fully unit-tested, yet the code review's
+worst finding — a concurrent load-modify-save race that could revert an
+unsaved-input flag and auto-close a tab the user was typing into — lived entirely
+in the unsynchronized storage glue the tests couldn't reach. Same root truth: in
+MV3, the bugs cluster in the stateful glue between the SW, the page, and storage,
+and a destructive background op (closing tabs) raises the cost of every one of
+them.
 
 ## When to Apply
 
@@ -133,9 +217,19 @@ time."
   with `extension/lib/store.js` as source of truth.
 - **No-build interop:** the wrapper at the bottom of every `extension/lib/*.js`
   (`module.exports` + `self.ypuf`); tests under `tests/*.test.js`.
+- **Serialized writes (7):** `extension/background.js` `mutateTabstate` (one
+  `_tabstateChain` behind every per-tab write).
+- **Offscreen audio (8):** `extension/background.js` `ensureOffscreen`/`puff` and
+  `extension/offscreen/offscreen.js` (`sender.id` check, synthesized puff).
+- **Per-URL-vs-per-tab (9):** `extension/lib/eligibility.js` (`isEngaged` on the
+  per-tab activation count) over `extension/lib/signal.js` (per-URL).
+- **Termination-safe dedup + confirm-effect (10):** `extension/background.js`
+  `claimClose`/`releaseClose` and the `chrome.tabs.get` confirm in `autoCloseOne`.
 
 ## Related
 
-- Plan: `docs/plans/2026-06-14-001-feat-ypuf-slice1-recall-shelf-plan.md`
-- Origin: `docs/brainstorms/2026-06-14-ypuf-v1-sequence-and-slice1-requirements.md`
-- PR: momentmaker/ypuf#1
+- Plans: `docs/plans/2026-06-14-001-feat-ypuf-slice1-recall-shelf-plan.md`,
+  `docs/plans/2026-06-15-001-feat-ypuf-slice2-auto-let-go-plan.md`
+- Origins: `docs/brainstorms/2026-06-14-ypuf-v1-sequence-and-slice1-requirements.md`,
+  `docs/brainstorms/2026-06-15-ypuf-slice2-auto-let-go-requirements.md`
+- PRs: momentmaker/ypuf#1 (slice 1), momentmaker/ypuf#2 (slice 2)
