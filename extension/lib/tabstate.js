@@ -35,7 +35,7 @@
       activations: 0,
       burst: false,
       dirty: 'unknown',
-      host: (opts && opts.host) || '',
+      host: (opts && opts.host) ? hostOf(opts.host) : '',
       noOpener: !opts || opts.openerTabId == null,
     };
   }

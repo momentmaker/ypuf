@@ -113,6 +113,15 @@ test('recordExtra also rides the floor record (discarded auto-close)', async () 
   assert.equal(res.record.autoClosed, true);
 });
 
+test('recordExtra on a never-index tab still persists NOTHING (R10 assert-record backstop)', async () => {
+  const { deps, ctx } = makeDeps();
+  const res = await capture.letGo({ id: 9, url: 'https://secret.com', title: 'x', incognito: true }, deps, { autoClosed: true });
+  assert.equal(res.kind, 'never-index');
+  assert.equal(res.record, undefined);       // the sweep's `if (res && res.record)` guard never counts this closed
+  assert.equal(await store.count(), 0);
+  assert.deepEqual(ctx.closed, [9]);
+});
+
 test('the in-flight guard ignores a second let-go of the same tab', async () => {
   const { deps } = makeDeps();
   deps.inFlight.add(5);

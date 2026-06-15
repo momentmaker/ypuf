@@ -11,7 +11,7 @@
 (function () {
   'use strict';
 
-  if (window.__ypufDirtyTracker) return; // injected once per page
+  if (window.__ypufDirtyTracker) return;
   window.__ypufDirtyTracker = true;
 
   let dirty = null;

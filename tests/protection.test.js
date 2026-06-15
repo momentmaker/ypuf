@@ -30,7 +30,7 @@ test('unprotect removes the domain', () => {
   assert.deepEqual(protection.list(s), []);
 });
 
-test('deleteByDomain purges the protection entry (forget-domain reaches here)', () => {
+test('deleteByDomain purges the host and anything beneath it', () => {
   const s = protection.emptyState();
   protection.protect(s, 'news.com');
   protection.protect(s, 'blog.example.com');
@@ -38,6 +38,14 @@ test('deleteByDomain purges the protection entry (forget-domain reaches here)', 
   assert.deepEqual(protection.list(s), ['news.com']);
   protection.deleteByDomain(s, 'news.com');
   assert.deepEqual(protection.list(s), []);
+});
+
+test('forgetting a subdomain does NOT un-protect the parent family', () => {
+  const s = protection.emptyState();
+  protection.protect(s, 'news.com');
+  protection.deleteByDomain(s, 'sub.news.com'); // forgetting a child must not clear the parent
+  assert.equal(protection.isProtected(s, 'news.com'), true);
+  assert.deepEqual(protection.list(s), ['news.com']);
 });
 
 test('state round-trips through JSON (persisted, not in-memory-only)', () => {

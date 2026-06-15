@@ -235,40 +235,42 @@ const BURST_MIN_CLUSTER = 5;
 const loadTabstate = async () => (await session.get(TABSTATE_KEY)) || tabstate.emptyState();
 const saveTabstate = (s) => session.set(TABSTATE_KEY, s);
 
+// Serialize per-tab store mutations. Many listeners (onCreated/onActivated/
+// onUpdated/onRemoved + dirty reports) read-modify-write one shared session
+// object; without serialization a stale save could revert dirty:true→false or
+// drop an activation, wrongly auto-closing a tab the user still cares about.
+let _tabstateChain = Promise.resolve();
+function mutateTabstate(mutator) {
+  _tabstateChain = _tabstateChain.then(async () => {
+    const s = await loadTabstate();
+    await mutator(s);
+    await saveTabstate(s);
+  }).catch(logErr);
+  return _tabstateChain;
+}
+
 async function stampCreated(tab) {
   if (!tab || tab.id == null) return;
-  const s = await loadTabstate();
-  tabstate.recordCreated(s, tab.id, Date.now(), {
-    openerTabId: tab.openerTabId, host: tab.url,
-    startupAt: await session.get(STARTUP_KEY),
-    startupGraceMs: STARTUP_GRACE_MS, burstWindowMs: BURST_WINDOW_MS, burstMinCluster: BURST_MIN_CLUSTER,
+  const startupAt = await session.get(STARTUP_KEY);
+  return mutateTabstate((s) => {
+    tabstate.recordCreated(s, tab.id, Date.now(), {
+      openerTabId: tab.openerTabId, host: tab.url, startupAt,
+      startupGraceMs: STARTUP_GRACE_MS, burstWindowMs: BURST_WINDOW_MS, burstMinCluster: BURST_MIN_CLUSTER,
+    });
   });
-  await saveTabstate(s);
 }
 
-async function stampActivated(tab) {
-  if (!tab || tab.id == null) return;
-  const s = await loadTabstate();
-  tabstate.recordActivated(s, tab.id, Date.now(), tab.url);
-  await saveTabstate(s);
-}
+const stampActivated = (tab) => (!tab || tab.id == null)
+  ? Promise.resolve()
+  : mutateTabstate((s) => tabstate.recordActivated(s, tab.id, Date.now(), tab.url));
 
-async function stampHost(tabId, url) {
-  const s = await loadTabstate();
-  tabstate.setHost(s, tabId, url);
-  await saveTabstate(s);
-}
+const stampHost = (tabId, url) => mutateTabstate((s) => tabstate.setHost(s, tabId, url));
+
+const writeDirty = (tabId, dirty) => mutateTabstate((s) => tabstate.setDirty(s, tabId, dirty));
 
 async function purgeTab(tabId) {
-  const s = await loadTabstate();
-  tabstate.deleteByTabId(s, tabId);
-  await saveTabstate(s);
-}
-
-async function writeDirty(tabId, dirty) {
-  const s = await loadTabstate();
-  tabstate.setDirty(s, tabId, dirty);
-  await saveTabstate(s);
+  await mutateTabstate((s) => tabstate.deleteByTabId(s, tabId));
+  await releaseClose(tabId); // a closed tab's auto-close claim is done
 }
 
 // Inject the dirty-tracker (U3) while the tab is alive so we know its unsaved-
@@ -301,7 +303,7 @@ const isAutoEnabled = async () => (await local.get(AUTO_KEY)) === true;
 const hasHostAccess = () => chrome.permissions.contains(HOST_ACCESS).catch(() => false);
 
 function ensureAutoAlarm() {
-  chrome.alarms.create(ALARM_NAME, { periodInMinutes: SWEEP_PERIOD_MIN });
+  Promise.resolve(chrome.alarms.create(ALARM_NAME, { periodInMinutes: SWEEP_PERIOD_MIN })).catch(logErr);
 }
 const clearAutoAlarm = () => chrome.alarms.clear(ALARM_NAME).catch(() => {});
 
@@ -397,16 +399,22 @@ async function autoCloseOne(id, deps) {
   let live;
   try { live = await chrome.tabs.get(id); } catch { return false; } // tab already gone
   const tstate = await loadTabstate();
+  let rec = tstate[id];
+  // Tab-id reuse guard: if our record's host no longer matches the live tab,
+  // an onRemoved+onCreated pair was missed (SW asleep) and a new tab inherited
+  // the id — treat it as unobserved (drop the record) so a stale zombie verdict
+  // can't carry over to a tab the user just opened.
+  if (rec && rec.host && live.url && tabstate.hostOf(live.url) !== rec.host) rec = undefined;
   const signalMap = await loadDurable();
   const blocklist = await getUserBlocklist();
   const protState = await loadProtection();
-  const verdict = eligibility.classify(projectTab(live), { rec: tstate[id], ...eligDeps(signalMap, blocklist, protState) });
+  const verdict = eligibility.classify(projectTab(live), { rec, ...eligDeps(signalMap, blocklist, protState) });
   if (verdict !== 'zombie') return false;
   if (!(await claimClose(id, live.url))) return false;
   autoInFlight.add(id);
   try {
     const res = await capture.letGo(projectTab(live), deps, { autoClosed: true });
-    if (res && res.record) return true;   // persisted-before-close confirmed
+    if (res && res.record) { await releaseClose(id); return true; } // close confirmed → claim done
     await releaseClose(id);               // nothing persisted → allow a later retry
     return false;
   } catch (e) {
@@ -738,7 +746,7 @@ chrome.notifications.onButtonClicked.addListener((notifId, btnIndex) => {
 // synchronously here so a terminated worker still wakes for them.
 chrome.tabs.onCreated.addListener((tab) => { stampCreated(tab).catch(() => {}); });
 chrome.tabs.onActivated.addListener(({ tabId }) => {
-  chrome.tabs.get(tabId).then((tab) => { applyForeground(tab); return stampActivated(tab); }).catch(() => {});
+  chrome.tabs.get(tabId).then(async (tab) => { await applyForeground(tab); await stampActivated(tab); }).catch(() => {});
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url && tab && tab.active) applyForeground(tab);

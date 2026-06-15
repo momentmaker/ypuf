@@ -21,7 +21,7 @@ function puff() {
   const data = buffer.getChannelData(0);
   for (let i = 0; i < frames; i++) {
     const t = i / frames;
-    data[i] = (Math.random() * 2 - 1) * (1 - t) * (1 - t); // noise with a quick quadratic fade
+    data[i] = (Math.random() * 2 - 1) * (1 - t) * (1 - t);
   }
   const src = audio.createBufferSource();
   src.buffer = buffer;

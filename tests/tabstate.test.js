@@ -26,6 +26,13 @@ test('AE6: a tab idle past the window but recently re-activated is NOT stale', (
   assert.equal(tabstate.isStale(s[1], 10_000, 5_000), false);
 });
 
+test('isStale falls back to createdAt for a record never activated', () => {
+  const s = tabstate.emptyState();
+  tabstate.recordCreated(s, 1, 0, {});        // background tab, never activated
+  assert.equal(tabstate.isStale(s[1], 10_000, 5_000), true);  // measured from createdAt
+  assert.equal(tabstate.isStale(s[1], 3_000, 5_000), false);
+});
+
 test('gracePassed is false until the tab has been the active tab at least once', () => {
   const s = tabstate.emptyState();
   tabstate.recordCreated(s, 1, 0, {});        // created in background, never activated

@@ -43,12 +43,13 @@
 
   function list(state) { return Object.keys(state); }
 
-  // Forget/purge: drop every entry inside the forgotten domain (and the parent,
-  // if a subdomain entry exists under it).
+  // Forget/purge: drop the forgotten host and any entry beneath it. We do NOT
+  // drop a parent entry when forgetting a subdomain — forgetting sub.news.com
+  // must not silently un-protect the whole news.com family.
   function deleteByDomain(state, host) {
     const h = normalizeHost(host);
     for (const e of Object.keys(state)) {
-      if (e === h || e.endsWith('.' + h) || h.endsWith('.' + e)) delete state[e];
+      if (e === h || e.endsWith('.' + h)) delete state[e];
     }
     return state;
   }
