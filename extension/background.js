@@ -21,10 +21,11 @@ importScripts(
   'lib/capture.js',
   'lib/signal.js',
   'lib/tabstate.js',
+  'lib/eligibility.js',
   'lib/blocklist.js',
 );
 
-const { store, search, capture, exclusion, signal, tabstate, privacy, titles } = self.ypuf;
+const { store, search, capture, exclusion, signal, tabstate, eligibility, privacy, titles } = self.ypuf;
 
 const logErr = (e) => console.error('[ypuf]', e);
 
