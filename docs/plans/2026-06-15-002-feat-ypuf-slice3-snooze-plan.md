@@ -1,7 +1,7 @@
 ---
 title: "feat: ypuf slice 3 — snooze"
 type: feat
-status: active
+status: completed
 date: 2026-06-15
 deepened: 2026-06-15
 origin: docs/brainstorms/2026-06-15-ypuf-slice3-snooze-requirements.md
