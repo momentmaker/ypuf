@@ -45,7 +45,7 @@ The product's whole promise is *permission to let go — close everything, trust
 
 **Eligibility — what becomes a zombie**
 - R1. Track **per-tab staleness** — open-time and last-activated per tab (slice 1's signal is keyed by URL, not tab). A tab is *stale* when open and not activated for a (tunable) window. A tab must also pass a **grace floor**: it has been observed across at least one genuine browsing-active period, so "stale" can never fire on a set the user has not yet had a chance to touch.
-- R2. The **ultra-safe tier** (the only tier that auto-closes in v1): stale + grace-floor-passed + (effectively never meaningfully activated) + not part of a restored-session/bulk-open burst (R3) + passes the never-touch list + obvious dead duplicates. Conservative defaults, tuned by dogfooding.
+- R2. The **ultra-safe tier** (the only tier that auto-closes in v1): stale + **zero revisits and foreground dwell below a floor** (slice 1's signal — the "opened but never engaged" zombie, CONTEXT §4's intentional-loop-vs-forgotten disambiguation) + grace-floor-passed + not part of a restored-session/bulk-open burst (R3) + passes the never-touch list + obvious dead duplicates. Conservative defaults, tuned by dogfooding.
 - R3. **Never auto-close restored-session or bulk-open tabs.** Tabs created in a tight burst at session/window start (session restore, "open all bookmarks", a link-dump) are a curated working set, not zombies — exclude them from auto-close regardless of activation state.
 - R4. Importance weighting uses slice 1's per-URL dwell + revisit signal: a URL with meaningful revisits or foreground dwell is load-bearing intent and is **protected**, not a zombie. (In v1 this is a protection filter, not a separate learning system — see Scope Boundaries for the deferred gray-zone learning.)
 
@@ -56,7 +56,7 @@ The product's whole promise is *permission to let go — close everything, trust
 
 **Auto-close behavior + safety invariants**
 - R8. Auto-close is **silent and calm** — no modal, no confirmation, no per-close interrupt (a confirm rebuilds manual closing — CONTEXT §9).
-- R9. Closing reuses slice 1's **capture-then-close** path: capture content first so the tab is recallable; a discarded/restricted tab falls to the title+URL floor.
+- R9. Closing reuses slice 1's **capture-then-close** path: capture content first so the tab is recallable; a discarded/restricted tab falls to the title+URL floor. **Auto-closed zombies (usually discarded) recall by title+URL only** — the "nothing lost" promise for auto-closed tabs is *navigability* (get back to it), not full-content recall. Accepted: by R2 these are the low-engagement tabs by definition, and pre-capture would re-open the continuous-capture surface slice 1 rejected.
 - R10. **Never close a tab whose capture did not persist.** If capture fails or is gated off (blocklist/incognito/scheme), the tab is **excluded from auto-close** (left open) — never closed-without-a-recall-entry. A blocklisted tab is *never-auto-closed*, not *capture-skipped-then-closed*.
 - R11. The **privacy gate** (incognito, blocklist, http(s)-only) is evaluated **before any content-script injection** for auto-capture, not only before close. Capture stays local-only.
 - R12. **The "puff"** — re-seated for the background case: the audio cue is produced via an offscreen document (a service worker has no Web Audio), and the visual "puff" lives on a ypuf surface the user is actually viewing (the popup / relief moment), since a tab the user isn't looking at has no surface to fade. tab-out's `playCloseSound`/`shootConfetti` are the material, not a drop-in.
@@ -81,7 +81,7 @@ The product's whole promise is *permission to let go — close everything, trust
 - AE5. **Covers R14, R13.** Given ypuf auto-let-go a `news.com` tab, when the user reopens it, then `news.com` is protected, no further `news.com` tab is auto-closed, and `news.com` appears in the protected-domains view where the user can un-protect it.
 - AE6. **Covers R1.** Given a tab open 6 days but repeatedly revisited, when evaluation runs, then ypuf treats it as load-bearing (not stale) and does not auto-close it.
 - AE7. **Covers R8, R13, R15.** Given several tabs are auto-closed at once, when they close, then no per-close notification fires; they all appear in the recently-let-go list, and the relief moment shows the total with "all recoverable".
-- AE8. **Covers R9.** Given an auto-closed tab that Chrome had discarded (no live DOM), when it is captured, then its recall entry is title+URL only (no full content). *(See Outstanding Questions — the fidelity of this case is a Resolve-Before-Planning fork.)*
+- AE8. **Covers R9.** Given an auto-closed tab that Chrome had discarded (no live DOM), when it is captured, then its recall entry is title+URL only (navigability, not full-content recall — the accepted v1 fidelity for auto-closed zombies).
 
 ---
 
@@ -103,7 +103,7 @@ The product's whole promise is *permission to let go — close everything, trust
 - **Propose-then-confirm prompts** — parked (CONTEXT §9).
 - **URL path-pattern learning** ("keep GitHub PRs, not repo browse") — v2 refinement; v1 learns per domain.
 - **Cross-device sync** of learned preferences / protected domains — later paid/jivx-account tier.
-- **Reload-then-extract for discarded zombies** to get full content — see the Resolve-Before-Planning fork; not assumed.
+- **Pre-capture-before-discard or reload-then-extract for full-content zombie recall** — rejected for v1. Auto-closed zombies recall by title+URL (navigability, R9); pre-capture re-opens continuous capture (slice 1 rejected it), reload-then-extract is heavy (re-fetch, expired sessions). Revisit only if zombie *content* recall proves valuable in dogfooding.
 - **Session clustering / context restore (slice 4)** and the **flashcard widget (slice 5)** — later slices.
 
 ---
@@ -114,6 +114,8 @@ The product's whole promise is *permission to let go — close everything, trust
 - **Conservative core; defer the learning system.** v1 = ultra-safe auto-close + reopen-protection only. The gray-zone shadow/promotion machinery is deferred until the core is proven and calibration data is real — this both de-risks the #1 risk and sidesteps that silent close corrupts shadow-learning's signal.
 - **Safety invariants over reach.** Uncertainty fails safe (R7); a tab is never closed without a persisted recall entry (R10); the privacy gate runs before injection, not just before close (R11); restored sessions are excluded (R3). Reach is allowed to shrink so trust never does.
 - **Honest claims.** The relief moment says "all recoverable" (verifiable), never "0 lost" (unmeasurable under silent close), and the dogfooding success bar audits the closed set, not just the reopened set.
+- **Zombie recall = title+URL (navigability), not full content.** Keeps slice 1's archive-time-only capture model intact; pre-capture (continuous) and reload-then-extract (heavy) both rejected for v1.
+- **Ultra-safe eligibility is signal-gated** (R2): stale + zero revisits + sub-floor dwell — the intentional-loop-vs-forgotten disambiguation slice 1's signal collector exists to enable, catching "opened but never engaged" while staying conservative.
 - **Domain-level learning.** Reopen-protection operates on the hostname — legible and generalizes from one reopen; its coarseness (one reopen exempts a busy hostname) is bounded by making protection visible and un-protectable (R14). Path-pattern precision is v2.
 
 ---
@@ -132,8 +134,7 @@ The product's whole promise is *permission to let go — close everything, trust
 
 ### Resolve Before Planning
 
-- [Affects R9, AE8][Product] **Zombie recall fidelity.** Auto-closed zombies are usually Chrome-discarded → recall entry is title+URL-only, so the "nothing lost" promise is weakest for exactly the tabs this slice closes. Options: (a) **pre-capture** content while the tab is still alive (on last-active / before discard) — but that is continuous-ish capture, which slice 1 deliberately rejected ("capture only at let-go"); (b) **accept** URL-level recall for auto-closed zombies and scope the promise to *navigability*, not full-content recall, for them; (c) **reload-then-extract** the tab before closing (heavy; re-fetches; may hit expired sessions). This changes what gets built — resolve before planning.
-- [Affects R2][Product] **Ultra-safe tier breadth.** After the restored-session exclusion + grace floor, how aggressive is the day-1 set? "Literally never activated" is safest but may clear too little to feel like a win; "activated once long ago, never since" clears more but is less unmistakable. The felt-win vs. safety dial — pick the v1 posture.
+- None — both product forks are resolved: zombie recall = title+URL / navigability (R9, Key Decisions), and the ultra-safe tier is signal-gated (R2, Key Decisions).
 
 ### Deferred to Planning
 
