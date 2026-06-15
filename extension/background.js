@@ -68,6 +68,7 @@ function initIndex() {
     if (reconciled) await persistSnapshot();
     await capture.expirePending(session, Date.now());
     await sweepPendingForget(Date.now());
+    await expireSnoozes(Date.now()); // surface overdue clock snoozes on every wake
   })();
   // Don't memoize a rejection — clear so the next caller retries instead of
   // permanently failing every flow for this SW lifetime.
@@ -190,6 +191,38 @@ const SNOOZE_INTENT_KEY = 'snoozeIntent';
 async function openSnoozePicker() {
   await session.set(SNOOZE_INTENT_KEY, true);
   try { await chrome.action.openPopup(); } catch { /* unsupported Chrome — popup button still works */ }
+}
+
+// --- snooze return lifecycle (U3 / flow F2, R9) --------------------------
+// The guarantee that a snooze returns is the overdue sweep on every SW wake /
+// startup; per-item alarms are best-effort timeliness only. One serialized
+// chain owns the flip + badge, so a coincident alarm and sweep targeting the
+// same record flip it once (idempotent — an already-back-now record is skipped).
+
+let _snoozeChain = Promise.resolve();
+function flipBackNow(ids) {
+  _snoozeChain = _snoozeChain.then(async () => {
+    let flipped = 0;
+    for (const id of ids) {
+      const rec = await store.get(id);
+      if (rec && rec.snoozeState === 'snoozed') { await store.put(snooze.mark(rec, 'back-now')); flipped += 1; }
+    }
+    if (flipped) { await persistSnapshot(); await bumpBadge(flipped); }
+  }).catch(logErr);
+  return _snoozeChain;
+}
+
+// Overdue clock snoozes only (numeric returnAt <= now). untilStartup records are
+// never swept here — they resolve only on startup.
+const expireSnoozes = async (now) => flipBackNow(snooze.dueSnoozes(await store.getAll(), now).map((r) => r.id));
+
+async function snoozeStartup() {
+  await initIndex(); // index loaded before any persistSnapshot from a flip
+  const all = await store.getAll();
+  for (const r of snooze.pendingClock(all)) {
+    chrome.alarms.create('snooze:' + r.id, { when: r.returnAt }); // re-arm (persistAcrossSessions unreliable)
+  }
+  await flipBackNow(snooze.pendingStartup(all).map((r) => r.id)); // resolve "when I'm back"
 }
 
 // Retention (R21): age + LRU + byte-budget, triggered when storage crosses
@@ -418,11 +451,24 @@ async function releaseClose(id) {
   if (m[id] != null) { delete m[id]; await session.set(AUTOCLOSING_KEY, m); }
 }
 
-async function bumpBadge(n) {
-  const total = ((await session.get(BADGE_KEY)) || 0) + n;
-  await session.set(BADGE_KEY, total);
-  chrome.action.setBadgeBackgroundColor({ color: '#9aa0a6' }).catch(() => {});
-  chrome.action.setBadgeText({ text: total ? String(total) : '' }).catch(() => {});
+// All badge mutations go through one chain — auto-close, snooze returns, and the
+// popup-open clear are all read-modify-write on the shared BADGE_KEY.
+let _badgeChain = Promise.resolve();
+function bumpBadge(n) {
+  _badgeChain = _badgeChain.then(async () => {
+    const total = ((await session.get(BADGE_KEY)) || 0) + n;
+    await session.set(BADGE_KEY, total);
+    chrome.action.setBadgeBackgroundColor({ color: '#9aa0a6' }).catch(() => {});
+    chrome.action.setBadgeText({ text: total ? String(total) : '' }).catch(() => {});
+  }).catch(logErr);
+  return _badgeChain;
+}
+function clearBadge() {
+  _badgeChain = _badgeChain.then(async () => {
+    await session.set(BADGE_KEY, 0);
+    chrome.action.setBadgeText({ text: '' }).catch(() => {});
+  }).catch(logErr);
+  return _badgeChain;
 }
 
 // Re-check ONE candidate against LIVE state (R6) and, if still a zombie,
@@ -544,6 +590,7 @@ async function forgetPage(recordId) {
   const durable = await loadDurable();
   const bundle = await privacy.forgetPage(recordId, privacyDeps(durable));
   await saveDurable(durable);
+  chrome.alarms.clear('snooze:' + recordId).catch(() => {}); // cancel any pending return
   await persistSnapshot();
   if (bundle) {
     const pending = (await session.get('pendingForget')) || [];
@@ -577,10 +624,14 @@ async function purgeDomainStores(host) {
 }
 
 async function forgetDomain(host) {
+  // Gather ids BEFORE deletion so we can cancel pending snooze returns — the
+  // privacy.forgetDomain call removes the records and returns only a count.
+  const ids = (await store.getByDomain(host)).map((r) => r.id);
   const durable = await loadDurable();
   const n = await privacy.forgetDomain(host, privacyDeps(durable));
   await saveDurable(durable);
   await purgeDomainStores(host);
+  for (const id of ids) chrome.alarms.clear('snooze:' + id).catch(() => {});
   await persistSnapshot();
   return { count: n };
 }
@@ -684,8 +735,7 @@ async function reliefClaim() {
 // The badge is the between-opens signal; opening the popup is the deliberate
 // reading surface, so clear it on open.
 async function seenBadge() {
-  await session.set(BADGE_KEY, 0);
-  chrome.action.setBadgeText({ text: '' }).catch(() => {});
+  await clearBadge();
   return { ok: true };
 }
 
@@ -727,6 +777,7 @@ chrome.runtime.onStartup.addListener(() => {
   session.set(STARTUP_KEY, Date.now()).catch(() => {});
   initIndex();
   rearmAutoAlarm().catch(() => {});
+  snoozeStartup().catch(logErr); // re-arm clock alarms + resolve "when I'm back" (U3/R9)
 });
 
 chrome.commands.onCommand.addListener((command) => {
@@ -774,6 +825,7 @@ chrome.permissions.onRemoved.addListener((perms) => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) runAutoSweep().catch(logErr);
+  else if (alarm.name.startsWith('snooze:')) flipBackNow([alarm.name.slice('snooze:'.length)]).catch(logErr);
 });
 
 chrome.notifications.onButtonClicked.addListener((notifId, btnIndex) => {
