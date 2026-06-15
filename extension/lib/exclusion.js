@@ -86,7 +86,25 @@
     return { kind: 'extractable', url: u.href, host: u.hostname };
   }
 
-  const api = { classify, stripQuery, hostMatches, DEFAULT_BLOCKLIST, RESTRICTED_SCHEMES };
+  // Can a content script (the recall overlay) be injected into this page?
+  // Blocklisted domains ARE injectable (we only gate content *capture*); only
+  // restricted schemes / the Web Store / the PDF viewer are not.
+  function isInjectable(url) {
+    let u;
+    try { u = new URL(url); } catch { return false; }
+    if (RESTRICTED_SCHEMES.has(u.protocol)) return false;
+    if (WEB_STORE_HOSTS.has(u.hostname)) return false;
+    if (u.pathname.toLowerCase().endsWith('.pdf')) return false;
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  }
+
+  // Reopen guard: never navigate to a non-web scheme (javascript:/data:/...).
+  function isWebUrl(url) {
+    try { const u = new URL(url); return u.protocol === 'http:' || u.protocol === 'https:'; }
+    catch { return false; }
+  }
+
+  const api = { classify, stripQuery, hostMatches, isInjectable, isWebUrl, DEFAULT_BLOCKLIST, RESTRICTED_SCHEMES };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ypuf = Object.assign(root.ypuf || {}, { exclusion: api });

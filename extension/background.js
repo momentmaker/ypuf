@@ -158,6 +158,48 @@ async function handleUndo(recordId) {
   await persistSnapshot();
 }
 
+// --- recall (U6 / flow F2) -----------------------------------------------
+
+async function getRecallResults(q) {
+  await initIndex();
+  const total = await store.count();
+  let results = [];
+  if (q) {
+    const hits = search.search(q).slice(0, 20);
+    const recs = await Promise.all(hits.map((h) => store.get(h.id)));
+    results = recs.filter(Boolean).map((r) => ({
+      id: r.id, title: r.title, url: r.url, host: r.host, contentLess: r.contentLess,
+    }));
+  }
+  return { results, total };
+}
+
+async function reopenRecord(recordId) {
+  const rec = await store.get(recordId);
+  if (!rec || !exclusion.isWebUrl(rec.url)) return; // reopen guard: web schemes only
+  const tabs = await chrome.tabs.query({});
+  const open = tabs.find((t) => t.url === rec.url);
+  if (open) {
+    await chrome.tabs.update(open.id, { active: true });
+    if (open.windowId != null) await chrome.windows.update(open.windowId, { focused: true });
+  } else {
+    await chrome.tabs.create({ url: rec.url });
+  }
+  await store.touch(recordId);
+}
+
+async function handleRecall() {
+  await initIndex();
+  const tab = await getActiveTab();
+  if (tab && tab.url && exclusion.isInjectable(tab.url)) {
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['overlay/overlay.js'] });
+      return;
+    } catch { /* fall through to popup fallback */ }
+  }
+  try { await chrome.action.openPopup(); } catch { /* unsupported -> no-op */ }
+}
+
 // --- top-level synchronous listener registration -------------------------
 
 chrome.runtime.onInstalled.addListener(() => { initIndex(); });
@@ -165,13 +207,16 @@ chrome.runtime.onStartup.addListener(() => { initIndex(); });
 
 chrome.commands.onCommand.addListener((command) => {
   if (command === 'let-go') handleLetGo();
-  // 'recall' is wired in U6.
+  if (command === 'recall') handleRecall();
 });
 
-chrome.runtime.onMessage.addListener((msg, sender) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!sender || sender.id !== chrome.runtime.id) return; // SW-as-broker: trust only our own contexts
-  if (msg && msg.type === 'let-go') handleLetGo();
-  if (msg && msg.type === 'undo' && msg.recordId) handleUndo(msg.recordId);
+  if (!msg) return;
+  if (msg.type === 'let-go') { handleLetGo(); return; }
+  if (msg.type === 'undo' && msg.recordId) { handleUndo(msg.recordId); return; }
+  if (msg.type === 'recall-search') { getRecallResults(msg.q).then(sendResponse); return true; }
+  if (msg.type === 'recall-open' && msg.recordId) { reopenRecord(msg.recordId).then(() => sendResponse({ ok: true })); return true; }
 });
 
 chrome.notifications.onButtonClicked.addListener((notifId, btnIndex) => {

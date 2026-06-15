@@ -3,7 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { classify, DEFAULT_BLOCKLIST } = require('../extension/lib/exclusion.js');
+const { classify, isInjectable, isWebUrl, DEFAULT_BLOCKLIST } = require('../extension/lib/exclusion.js');
 
 test('AE2: incognito is never indexed regardless of URL', () => {
   const r = classify({ url: 'https://en.wikipedia.org/wiki/Cat', incognito: true });
@@ -47,6 +47,21 @@ test('malformed or empty URL fails closed to metadata-only', () => {
   assert.equal(classify({ url: '', incognito: false }).kind, 'metadata-only');
   assert.equal(classify({ url: 'not a url', incognito: false }).kind, 'metadata-only');
   assert.equal(classify({ url: undefined, incognito: false }).kind, 'metadata-only');
+});
+
+test('isInjectable: normal + blocklisted pages yes, restricted schemes no', () => {
+  assert.equal(isInjectable('https://example.com/a'), true);
+  assert.equal(isInjectable('https://www.chase.com/x'), true); // blocklisted is still injectable
+  assert.equal(isInjectable('chrome://settings'), false);
+  assert.equal(isInjectable('https://example.com/x.pdf'), false);
+  assert.equal(isInjectable('not a url'), false);
+});
+
+test('isWebUrl rejects non-web schemes (reopen guard)', () => {
+  assert.equal(isWebUrl('https://example.com'), true);
+  assert.equal(isWebUrl('http://example.com'), true);
+  assert.equal(isWebUrl('javascript:alert(1)'), false);
+  assert.equal(isWebUrl('data:text/html,x'), false);
 });
 
 test('default blocklist covers banking, health, gov, and password managers', () => {

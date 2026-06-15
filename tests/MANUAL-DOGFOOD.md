@@ -40,6 +40,22 @@ math) is covered by `node --test`. The behavior below depends on real
 - [ ] Press let-go **twice quickly** on the same tab → exactly one entry, one
       close (in-flight guard).
 
+## Recall command bar (U6 / F2)
+
+- [ ] Press the recall hotkey (default `Ctrl/Cmd+Shift+K`) on a normal page →
+      an overlay opens with the search box **focused**.
+- [ ] Type a phrase from a let-go page's body → it appears and reopens in well
+      under a second when chosen.
+- [ ] **↑/↓** move the selection, **Enter** opens it, **Esc** / backdrop-click /
+      a second hotkey press all close the overlay; focus returns to the page.
+- [ ] With nothing let go yet, the overlay shows the "Nothing let go yet" state;
+      with items present but no query match, it shows the distinct "No match".
+- [ ] A reopened page that is still open is **focused**, not duplicated.
+- [ ] Recall on a `chrome://` / restricted page opens the popup fallback instead
+      of failing silently.
+- [ ] A result whose title contains `<img src=x onerror=alert(1)>` renders as
+      inert text — no script runs (textContent rendering).
+
 ## Crash-consistency (U3/U4/U5)
 
 - [ ] Let go of a page, then in the SW console run `chrome.runtime.reload()` (or
