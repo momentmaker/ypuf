@@ -19,6 +19,7 @@ importScripts(
   'lib/store.js',
   'lib/search.js',
   'lib/capture.js',
+  'lib/cluster.js',
   'lib/signal.js',
   'lib/tabstate.js',
   'lib/eligibility.js',
@@ -27,7 +28,7 @@ importScripts(
   'lib/blocklist.js',
 );
 
-const { store, search, capture, exclusion, signal, tabstate, eligibility, protection, snooze, privacy, titles } = self.ypuf;
+const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, snooze, privacy, titles } = self.ypuf;
 
 const logErr = (e) => console.error('[ypuf]', e);
 
@@ -147,13 +148,41 @@ async function getActiveTab() {
   return tab;
 }
 
+// --- working-set clustering (slice 4 / flow F1) --------------------------
+// At let-go, snapshot the tab's working set from the LIVE open tabs. The anchor
+// and candidates come from the raw chrome.tabs.query result (which carries
+// openerTabId/windowId natively); lastActivatedAt comes from the tabstate map.
+// Best-effort: any failure yields no set and never blocks the close.
+
+const CLUSTER_MAX = 8;
+const CLUSTER_CO_WINDOW_MS = 5 * 60 * 1000;
+const CLUSTER_BURST_WINDOW_MS = 90 * 1000;
+
+async function computeSiblings(anchor, openTabs) {
+  try {
+    return cluster.computeSet(anchor, openTabs, {
+      classify: exclusion.classify,
+      userBlocklist: await getUserBlocklist(),
+      tabstate: await loadTabstate(),
+      now: Date.now(),
+      maxSize: CLUSTER_MAX,
+      coWindowMs: CLUSTER_CO_WINDOW_MS,
+      burstWindowMs: CLUSTER_BURST_WINDOW_MS,
+    });
+  } catch (e) { logErr(e); return []; }
+}
+
 async function handleLetGo() {
   await initIndex();
   const tab = await getActiveTab();
   if (!tab) return;
+  const openTabs = await chrome.tabs.query({});
+  const anchor = openTabs.find((t) => t.id === tab.id) || tab;
+  const siblings = await computeSiblings(anchor, openTabs);
   const res = await capture.letGo(
     { id: tab.id, url: tab.url, title: tab.title, incognito: tab.incognito, discarded: tab.discarded, frozen: tab.frozen },
     await buildDeps(),
+    siblings.length ? { siblings } : undefined,
   );
   if (res && res.record) {
     await persistSnapshot();
@@ -173,10 +202,13 @@ async function handleSnooze(preset, custom) {
   const tab = await getActiveTab();
   if (!tab) return;
   const schedule = snooze.resolve(preset, Date.now(), custom);
+  const openTabs = await chrome.tabs.query({});
+  const anchor = openTabs.find((t) => t.id === tab.id) || tab;
+  const siblings = await computeSiblings(anchor, openTabs);
   const res = await capture.letGo(
     { id: tab.id, url: tab.url, title: tab.title, incognito: tab.incognito, discarded: tab.discarded, frozen: tab.frozen },
     await buildDeps(),
-    Object.assign({ snoozeState: 'snoozed' }, schedule),
+    Object.assign({ snoozeState: 'snoozed' }, schedule, siblings.length ? { siblings } : null),
   );
   if (res && res.record) {
     await persistSnapshot();
