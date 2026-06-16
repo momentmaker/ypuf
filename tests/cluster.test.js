@@ -146,6 +146,17 @@ test('the set is capped and the cap is deterministic across runs', () => {
   assert.ok(urls(a).includes('https://s2.com/p'));
 });
 
+test('each member of a same-window cluster sees the others from one snapshot (sweep order-independence)', () => {
+  const open = [
+    tab(1, 'https://a.com/', { windowId: 10, openerTabId: 5 }),
+    tab(2, 'https://b.com/', { windowId: 10, openerTabId: 5 }),
+    tab(3, 'https://c.com/', { windowId: 10, openerTabId: 5 }),
+  ];
+  assert.deepEqual(urls(cluster.computeSet(open[0], open, opts())).sort(), ['https://b.com/', 'https://c.com/']);
+  assert.deepEqual(urls(cluster.computeSet(open[1], open, opts())).sort(), ['https://a.com/', 'https://c.com/']);
+  assert.deepEqual(urls(cluster.computeSet(open[2], open, opts())).sort(), ['https://a.com/', 'https://b.com/']);
+});
+
 test('spawn-tree siblings outrank co-activation-only siblings when over the cap', () => {
   const anchor = tab(1, 'https://a.com/', { windowId: 10 });
   const open = [anchor];

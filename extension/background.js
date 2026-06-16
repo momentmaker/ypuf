@@ -158,18 +158,18 @@ const CLUSTER_MAX = 8;
 const CLUSTER_CO_WINDOW_MS = 5 * 60 * 1000;
 const CLUSTER_BURST_WINDOW_MS = 90 * 1000;
 
-async function computeSiblings(anchor, openTabs) {
+function clusterSet(anchor, openTabs, tstate, blocklist) {
   try {
     return cluster.computeSet(anchor, openTabs, {
-      classify: exclusion.classify,
-      userBlocklist: await getUserBlocklist(),
-      tabstate: await loadTabstate(),
-      now: Date.now(),
-      maxSize: CLUSTER_MAX,
-      coWindowMs: CLUSTER_CO_WINDOW_MS,
-      burstWindowMs: CLUSTER_BURST_WINDOW_MS,
+      classify: exclusion.classify, userBlocklist: blocklist, tabstate: tstate,
+      now: Date.now(), maxSize: CLUSTER_MAX,
+      coWindowMs: CLUSTER_CO_WINDOW_MS, burstWindowMs: CLUSTER_BURST_WINDOW_MS,
     });
   } catch (e) { logErr(e); return []; }
+}
+
+async function computeSiblings(anchor, openTabs) {
+  return clusterSet(anchor, openTabs, await loadTabstate(), await getUserBlocklist());
 }
 
 async function handleLetGo() {
@@ -517,7 +517,7 @@ function clearBadge() {
 // Re-check ONE candidate against LIVE state (R6) and, if still a zombie,
 // capture-then-close via the reused letGo. R10: only count it closed if a
 // record actually persisted.
-async function autoCloseOne(id, deps) {
+async function autoCloseOne(id, deps, siblings) {
   if (autoInFlight.has(id)) return false;
   let live;
   try { live = await chrome.tabs.get(id); } catch { return false; } // tab already gone
@@ -536,7 +536,8 @@ async function autoCloseOne(id, deps) {
   if (!(await claimClose(id, live.url))) return false;
   autoInFlight.add(id);
   try {
-    const res = await capture.letGo(projectTab(live), deps, { autoClosed: true });
+    const extra = (siblings && siblings.length) ? { autoClosed: true, siblings } : { autoClosed: true };
+    const res = await capture.letGo(projectTab(live), deps, extra);
     if (!res || !res.record) { await releaseClose(id); return false; } // nothing persisted → retry later
     // letGo's closeTab swallows errors (so a capture stays reversible even if the
     // close throws). Confirm the tab is actually gone before counting it: on a
@@ -570,11 +571,17 @@ async function runAutoSweep() {
     eligibility.classify(projectTab(t), { rec: tstate[t.id], ...base }) === 'zombie');
   if (!candidates.length) return;
 
+  // Snapshot each candidate's working set from the SAME pre-loop `tabs` snapshot,
+  // BEFORE the close loop mutates the tab set — so co-closing siblings still
+  // appear in each other's sets regardless of close order (slice 4 / R3).
+  const sibsById = new Map();
+  for (const t of candidates) sibsById.set(t.id, clusterSet(t, tabs, tstate, blocklist));
+
   const deps = await buildDeps();
   let closed = 0;
   for (const t of candidates) {
     try {
-      if (await autoCloseOne(t.id, deps)) { closed += 1; puff(); } // puff per close, decoupled (U6)
+      if (await autoCloseOne(t.id, deps, sibsById.get(t.id))) { closed += 1; puff(); } // puff per close, decoupled (U6)
     } catch (e) { logErr(e); }
   }
 
