@@ -6,6 +6,12 @@
   "permissions": ["tabs", "activeTab", "scripting", "storage", "notifications", "alarms", "offscreen"],
   "optional_host_permissions": ["<all_urls>"],
   "incognito": "not_allowed",
+  "chrome_url_overrides": { "newtab": "newtab/newtab.html" },
+  "sandbox": { "pages": ["panels/sandbox.html"] },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'",
+    "sandbox": "sandbox allow-scripts; default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; object-src 'none'; connect-src 'none'; img-src 'none'; child-src 'none'; frame-src 'none';"
+  },
   "background": { "service_worker": "background.js" },
   "action": {
     "default_title": "ypuf — your pages, unburdened",

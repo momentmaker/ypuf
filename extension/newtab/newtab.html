@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="newtab.css" />
+  <title>ypuf</title>
+</head>
+<body class="board">
+  <main class="board-main">
+    <header class="board-head">
+      <span class="wordmark">ypuf</span>
+      <div class="board-actions">
+        <button class="board-edit" id="board-edit" type="button" hidden>Edit board</button>
+      </div>
+    </header>
+
+    <div class="board-grid" id="board-grid" aria-label="Your panel board"></div>
+    <p class="board-empty" id="board-empty" hidden>A calm board. Add a panel to begin.</p>
+    <button class="add-panel" id="add-panel" type="button" hidden>+ add a panel</button>
+    <p class="minimal-note" id="minimal-note" hidden></p>
+  </main>
+
+  <script src="../lib/attribution.js"></script>
+  <script src="newtab.js"></script>
+</body>
+</html>
