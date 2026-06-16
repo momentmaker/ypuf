@@ -1,7 +1,7 @@
 ---
 title: MV3 patterns for a local, privacy-first content-indexing extension
 date: 2026-06-14
-last_updated: 2026-06-15
+last_updated: 2026-06-16
 category: docs/solutions/architecture-patterns
 module: extension (service worker, lib, overlay, popup)
 problem_type: architecture_pattern
@@ -18,7 +18,10 @@ applies_when:
   - Playing audio or using a DOM API from a service worker (offscreen document)
   - Feeding a per-URL signal into a per-tab decision
   - Scheduling a return/resurfacing at a chosen time that must survive SW termination
-tags: [chrome-mv3, service-worker, indexeddb, content-script, privacy, message-passing, no-build, minisearch, alarms, offscreen, concurrency, background-mutation, scheduling]
+  - Snapshotting derived state (a working set) live at an event instead of banking the signal
+  - Forgetting a record whose identity is embedded as a reference inside other records
+  - Restoring user-selected items by validating the request against SW-owned state
+tags: [chrome-mv3, service-worker, indexeddb, content-script, privacy, message-passing, no-build, minisearch, alarms, offscreen, concurrency, background-mutation, scheduling, session-clustering, snapshot-at-event, context-restore, working-set]
 ---
 
 # MV3 patterns for a local, privacy-first content-indexing extension
@@ -39,6 +42,12 @@ tabs) added a second cluster — patterns 7-10 — all in the same SW-glue seam 
 again, all surfaced only by reviewing the *implementation*: a data race across
 concurrent listeners, an offscreen-audio document, a per-URL-vs-per-tab signal
 trap, and termination-safe dedup of a destructive op.
+
+Slice 3 (snooze) added pattern 11, and slice 4 (session clustering + context
+restore) added patterns 12-15: snapshotting a tab's working set live at let-go,
+scrubbing forgotten pages out of *other* records' embedded sets, a memoized-init
+deferred-work hole, and a restore-time authorization check. Every one surfaced in
+implementation review, not planning — the same seam, the same lesson.
 
 ## Guidance
 
@@ -215,6 +224,64 @@ scheduled state changes: alarms handle timeliness, the wake sweep handles
 correctness, and an idempotent state guard coordinates them — no explicit dedup
 needed because a flip is reversible.
 
+### 12. Snapshot derived state from live data at the event; don't reconstruct from a signal you never banked
+
+The clustering signals for a tab's working set — its `openerTabId`, same-window
+membership, co-activation — were never banked (per-tab state stored only a
+`noOpener` boolean). So the set is computed *live* at let-go from a single
+`chrome.tabs.query({})`, not reassembled from storage. The load-bearing move:
+source the anchor **and** its candidates from the *same* raw snapshot
+(`handleLetGo` finds the anchor by id inside the just-queried `openTabs`), so
+`openerTabId`/`windowId` are mutually consistent — stamping them onto a
+separately-queried tab object would let the anchor's ids drift from the candidate
+set. The one signal that *was* banked (`lastActivatedAt`, on the per-tab state
+map, not on the `chrome.tabs` `Tab` object) is threaded into the pure cluster
+module and read for co-activation. This is the deliberate inverse of slice 1→2's
+"bank the dwell signal ahead of time": when a signal genuinely isn't banked,
+snapshot-at-event is cheaper and more correct than reconstructing pairwise history
+that was never stored — *provided* anchor and candidates come from one atomic read.
+
+### 13. Forget spans all records, not just all stores
+
+Pattern 4 said a forget must reach every *store*. Once a record embeds the
+*identities of other pages* (the sibling working set lives inside each let-go
+record), forget must also reach every *record*: forgetting page B has to scrub B's
+URL out of every other record's embedded set, or B lingers as a sibling and a
+restore reopens a page the user erased. With no reverse index, one full-store scan
+handles the whole batch (a per-URL loop re-scans N times), normalizing both the
+forgotten URL and each stored sibling to origin+pathname so a full-href forget
+still matches the query-stripped sibling form. The scrub is *tiered by
+reversibility*: page-forget defers it past the undo window so an in-window undo is
+a clean reversal; domain-forget (no undo) scrubs immediately; blocklist-add does
+**not** scrub, because it downgrades content rather than deleting the record.
+
+### 14. Deferred work behind a memoized init runs once per worker lifetime; drive it from the consuming read path
+
+The deferred cross-record scrub was first wired only into the cold-start path —
+`sweepPendingForget` called from `initIndex()`, which memoizes its promise and
+re-runs only on rejection (pattern 2). After the first successful init, a forget
+during a *warm* session was never scrubbed until the next SW cold start, leaving a
+window where a restore could reopen a just-forgotten page. This was slice 4's P1
+review finding: a correctness hole that only manifests across the memoized-init
+lifecycle boundary, invisible to module tests. The fix: also run the deferred sweep
+at the surfaces that *consume* the affected data (the recall search, the shelf
+list, and restore each sweep before reading siblings), not only on cold init. The
+rule: deferred/cleanup work must be driven by a recurring trigger (alarm/startup)
+**or** by the consuming read path — never solely by a once-per-lifetime memoized
+init.
+
+### 15. Restore-intersect: validate caller-supplied identifiers against SW-owned state
+
+A `restore-set` message carries user-checked URLs from the popup/overlay —
+caller-supplied identifiers from a context the SW shouldn't fully trust, even after
+the `sender.id` check. The SW never opens those URLs directly: it intersects the
+request against the record's *stored* sibling set (plus a web-scheme gate) and
+reopens only the intersection, deduped. So a replaying or compromised popup context
+can reopen only URLs the SW itself previously stored for that record, never an
+arbitrary one. This extends SW-as-broker (pattern 1) from "trust only our own
+contexts" to the finer "even from our own contexts, validate caller-supplied
+identifiers against state the SW owns."
+
 ## Why This Matters
 
 Each of these is a real failure mode that shipped past unit tests and was only
@@ -242,6 +309,19 @@ both in the SW glue, both invisible to the (passing) pure-module tests. The fix
 generalized the slice-2 patterns (serialize the writes; make the alarm a
 wake-and-sweep) rather than inventing new machinery, which is the payoff of
 writing these down.
+
+Slice 4 (session clustering) made the throughline impossible to miss. Its modules
+— the pure cluster computation and the restore planner — were fully unit-tested,
+yet the review's P1 lived exactly where the deferred forget-scrub met the memoized
+service-worker init: warm-session forgets never ran the scrub, so a restore could
+reopen a page the user had erased. As in slices 2 and 3, the fix generalized an
+existing idea (drive deferred work from the consuming read path, not a
+once-per-lifetime init) rather than adding machinery. Four slices, four
+highest-severity findings, every one in the SW glue and none reachable by a
+pure-module test — so review attention belongs disproportionately at the
+SW↔page↔storage boundary, where listener registration, promise memoization, alarm
+timing, and shared-storage mutation create failure modes no pure-function test
+will surface.
 
 ## When to Apply
 
@@ -273,14 +353,29 @@ writing these down.
 - **Scheduled returns (11):** `extension/lib/snooze.js` (`resolve`→`{returnAt}`|
   `{untilStartup}`, `dueSnoozes` excluding the sentinel) with `extension/background.js`
   `expireSnoozes`/`snoozeStartup`/`mutateSnooze` and the wake-and-sweep `onAlarm`.
+- **Snapshot-from-live-state (12):** `extension/lib/cluster.js` `computeSet`/
+  `spawnRelated` (pure, gated to extractable) with `extension/background.js`
+  `computeSiblings`/`clusterSet` and the anchor-from-snapshot find in
+  `handleLetGo`/`runAutoSweep`.
+- **Forget spans all records (13):** `extension/lib/store.js` `scrubSiblings`/
+  `siblingKey` with `extension/background.js` `sweepPendingForget` (deferred),
+  `forgetDomain` (immediate), and the no-scrub-on-`blocklistAdd` policy.
+- **Memoized-init deferred-work (14):** `extension/background.js` `sweepPendingForget`
+  driven from `restoreSet`/`getRecallResults`/`listRecent`, not only the memoized
+  `initIndex`.
+- **Restore-intersect (15):** `extension/lib/cluster.js` `restorePlan` (intersect
+  requested URLs against stored siblings) with `extension/background.js`
+  `restoreSet`/`reopenUrl`.
 
 ## Related
 
 - Plans: `docs/plans/2026-06-14-001-feat-ypuf-slice1-recall-shelf-plan.md`,
   `docs/plans/2026-06-15-001-feat-ypuf-slice2-auto-let-go-plan.md`,
-  `docs/plans/2026-06-15-002-feat-ypuf-slice3-snooze-plan.md`
+  `docs/plans/2026-06-15-002-feat-ypuf-slice3-snooze-plan.md`,
+  `docs/plans/2026-06-16-001-feat-ypuf-slice4-session-clustering-plan.md`
 - Origins: `docs/brainstorms/2026-06-14-ypuf-v1-sequence-and-slice1-requirements.md`,
   `docs/brainstorms/2026-06-15-ypuf-slice2-auto-let-go-requirements.md`,
-  `docs/brainstorms/2026-06-15-ypuf-slice3-snooze-requirements.md`
+  `docs/brainstorms/2026-06-15-ypuf-slice3-snooze-requirements.md`,
+  `docs/brainstorms/2026-06-15-ypuf-slice4-session-clustering-requirements.md`
 - PRs: momentmaker/ypuf#1 (slice 1), momentmaker/ypuf#2 (slice 2),
-  momentmaker/ypuf#4 (slice 3)
+  momentmaker/ypuf#4 (slice 3), momentmaker/ypuf#6 (slice 4)
