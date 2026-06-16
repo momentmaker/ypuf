@@ -780,22 +780,44 @@ async function getRecallResults(q) {
   return { results, total };
 }
 
-async function reopenRecord(recordId) {
-  const rec = await store.get(recordId);
-  if (!rec || !exclusion.isWebUrl(rec.url)) return; // reopen guard: web schemes only
-  // Match on origin+path, not the exact URL: metadata-only records store a
-  // query-stripped URL, so an exact compare against a live tab's full URL would
-  // always miss and spawn a duplicate.
-  const key = (u) => { try { const x = new URL(u); return x.origin + x.pathname; } catch { return u; } };
-  const target = key(rec.url);
-  const tabs = await chrome.tabs.query({});
-  const open = tabs.find((t) => t.url && key(t.url) === target);
+// Shared reopen+dedup core (slice 4 / R8): focus an already-open tab whose URL
+// matches by origin+path (stored URLs are query-stripped, so an exact compare
+// would miss and spawn a duplicate), else create it. Web-scheme only. No record
+// side effects — callers needing touch/snooze-clear/protect do those separately.
+async function reopenUrl(url, openTabs) {
+  if (!exclusion.isWebUrl(url)) return { skipped: true };
+  const target = cluster.originPathKey(url);
+  const open = openTabs.find((t) => t.url && cluster.originPathKey(t.url) === target);
   if (open) {
     await chrome.tabs.update(open.id, { active: true });
     if (open.windowId != null) await chrome.windows.update(open.windowId, { focused: true });
-  } else {
-    await chrome.tabs.create({ url: rec.url });
+    return { focused: true };
   }
+  await chrome.tabs.create({ url });
+  return { created: true };
+}
+
+// Restore the working set (slice 4 / F2, R8/R10/R11). User-triggered ONLY — no
+// alarm/startup path. cluster.restorePlan opens only URLs the record stored
+// (intersect against siblings — a replaying popup can't open arbitrary URLs),
+// web-scheme only, deduped; reopenUrl then dedups against currently-open tabs.
+async function restoreSet(recordId, urls) {
+  const rec = await store.get(recordId);
+  if (!rec) return { ok: false };
+  const plan = cluster.restorePlan(rec.siblings, urls, exclusion.isWebUrl);
+  const openTabs = await chrome.tabs.query({});
+  let opened = 0;
+  for (const u of plan) {
+    const res = await reopenUrl(u, openTabs).catch((e) => { logErr(e); return null; });
+    if (res && res.created) opened += 1;
+  }
+  return { ok: true, opened };
+}
+
+async function reopenRecord(recordId) {
+  const rec = await store.get(recordId);
+  if (!rec || !exclusion.isWebUrl(rec.url)) return; // reopen guard: web schemes only
+  await reopenUrl(rec.url, await chrome.tabs.query({}));
   await store.touch(recordId);
   // Reopening a snoozed/back-now record ends the snooze — it's a normal tab now.
   if (rec.snoozeState) {
@@ -913,6 +935,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'list-recent') return respond(listRecent(msg.limit || 15));
   if (msg.type === 'recall-search') return respond(getRecallResults(msg.q));
   if (msg.type === 'recall-open' && msg.recordId) return respond(reopenRecord(msg.recordId).then(() => ({ ok: true })));
+  if (msg.type === 'restore-set' && msg.recordId) return respond(restoreSet(msg.recordId, msg.urls));
   if (msg.type === 'whats-indexed') return respond(whatsIndexed());
   if (msg.type === 'forget-page' && msg.recordId) return respond(forgetPage(msg.recordId));
   if (msg.type === 'forget-page-undo' && msg.recordId) return respond(forgetPageUndo(msg.recordId));

@@ -169,3 +169,27 @@ test('spawn-tree siblings outrank co-activation-only siblings when over the cap'
   const set = cluster.computeSet(anchor, open, opts({ tabstate, maxSize: 1 }));
   assert.deepEqual(urls(set), ['https://child.com/']);
 });
+
+// --- restorePlan (U5) -------------------------------------------------------
+
+test('restorePlan opens only stored siblings, deduped by origin+path', () => {
+  const sibs = [{ url: 'https://b.com/x' }, { url: 'https://c.com/y' }];
+  const plan = cluster.restorePlan(
+    sibs,
+    ['https://b.com/x', 'https://evil.com/z', 'https://b.com/x', 'https://c.com/y'], // unstored + dup
+    exclusion.isWebUrl,
+  );
+  assert.deepEqual(plan, ['https://b.com/x', 'https://c.com/y']);
+});
+
+test('restorePlan drops a non-web-scheme requested url', () => {
+  const sibs = [{ url: 'javascript:alert(1)' }, { url: 'https://b.com/x' }];
+  assert.deepEqual(
+    cluster.restorePlan(sibs, ['javascript:alert(1)', 'https://b.com/x'], exclusion.isWebUrl),
+    ['https://b.com/x'],
+  );
+});
+
+test('restorePlan with no requested urls (uncheck-all) opens nothing', () => {
+  assert.deepEqual(cluster.restorePlan([{ url: 'https://b.com/x' }], [], exclusion.isWebUrl), []);
+});

@@ -78,7 +78,30 @@
     return scored.slice(0, o.maxSize).map((s) => ({ url: s.url, title: s.title, host: s.host }));
   }
 
-  const api = { computeSet };
+  function originPathKey(u) {
+    try { const x = new URL(u); return x.origin + x.pathname; } catch { return u; }
+  }
+
+  // Restore (slice 4 / R8): the ordered list of URLs to reopen for a "bring back
+  // the set?" request. Opens ONLY URLs the record actually stored (intersect
+  // against `siblings`, so a replaying/compromised popup can't open arbitrary
+  // URLs), web-scheme only, deduped by origin+pathname within the pass.
+  function restorePlan(siblings, requestedUrls, isWebUrl) {
+    const allowed = new Set((Array.isArray(siblings) ? siblings : []).map((s) => s && s.url));
+    const seen = new Set();
+    const plan = [];
+    for (const u of (Array.isArray(requestedUrls) ? requestedUrls : [])) {
+      if (!allowed.has(u)) continue;
+      if (typeof isWebUrl === 'function' && !isWebUrl(u)) continue;
+      const k = originPathKey(u);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      plan.push(u);
+    }
+    return plan;
+  }
+
+  const api = { computeSet, restorePlan, originPathKey };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ypuf = Object.assign(root.ypuf || {}, { cluster: api });
