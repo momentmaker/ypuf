@@ -218,30 +218,30 @@
     try { const x = new URL(u); return x.origin + x.pathname; } catch { return u; }
   }
 
-  // Cross-record forget consistency (slice 4 / R12): remove `url` from every
-  // other record's working set when its page is forgotten, so a forgotten URL
-  // never lingers as a sibling. No reverse index exists, so this is a full-store
-  // scan — acceptable at the store's scale. Returns the number of records touched.
-  async function scrubSibling(url) {
-    const key = siblingKey(url);
+  // Cross-record forget consistency (slice 4 / R12): remove the given URL(s) from
+  // every other record's working set when their page is forgotten, so a forgotten
+  // URL never lingers as a sibling. No reverse index exists, so this is ONE
+  // full-store scan for the whole batch (a per-URL loop would re-scan N times).
+  // Returns the number of records touched.
+  async function scrubSiblings(urls) {
+    const keys = new Set((Array.isArray(urls) ? urls : []).map(siblingKey));
+    if (!keys.size) return 0;
     const all = await getAll();
     let touched = 0;
     for (const r of all) {
       if (!Array.isArray(r.siblings) || !r.siblings.length) continue;
-      const next = r.siblings.filter((s) => siblingKey(s.url) !== key);
-      if (next.length !== r.siblings.length) {
-        r.siblings = next;
-        await put(r);
-        touched += 1;
-      }
+      const next = r.siblings.filter((s) => !keys.has(siblingKey(s.url)));
+      if (next.length !== r.siblings.length) { r.siblings = next; await put(r); touched += 1; }
     }
     return touched;
   }
 
+  const scrubSibling = (url) => scrubSiblings([url]);
+
   const api = {
     reset, openDB, put, get, getAll, listRecent, getByDomain,
     remove, deleteByDomain, touch, allIds, totalBytes, prune, shouldPrune,
-    withQuotaRetry, count, scrubSibling,
+    withQuotaRetry, count, scrubSibling, scrubSiblings,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

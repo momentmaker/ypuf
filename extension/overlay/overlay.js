@@ -154,6 +154,7 @@
     const mine = ++seq;
     chrome.runtime.sendMessage({ type: 'recall-search', q }, (resp) => {
       if (closed || mine !== seq || !resp) return; // overlay removed mid-flight, or stale response
+      if (list.querySelector('.set-box')) return;  // a set is expanded — don't clobber it with a re-render
       if (resp.total === 0) { state.hidden = false; state.textContent = 'Nothing let go yet. Let a tab go to start your shelf.'; render([]); return; }
       if (q && resp.results.length === 0) { state.hidden = false; state.textContent = 'No match.'; render([]); return; }
       state.hidden = true;

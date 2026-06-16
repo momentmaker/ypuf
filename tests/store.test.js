@@ -118,6 +118,24 @@ test('scrubSibling on a URL no record references is a no-op', async () => {
   assert.deepEqual((await store.get('A')).siblings.map((s) => s.url), ['https://b.com/x']);
 });
 
+test('scrubSiblings removes multiple forgotten URLs in one store scan (domain forget)', async () => {
+  await store.put(rec({ id: 'A', siblings: [
+    { url: 'https://b.com/x', title: 'B', host: 'b.com' },
+    { url: 'https://c.com/y', title: 'C', host: 'c.com' },
+  ] }));
+  await store.put(rec({ id: 'D', siblings: [{ url: 'https://c.com/y', title: 'C', host: 'c.com' }] }));
+  const n = await store.scrubSiblings(['https://b.com/x', 'https://c.com/y']);
+  assert.equal(n, 2);
+  assert.deepEqual((await store.get('A')).siblings, []);
+  assert.deepEqual((await store.get('D')).siblings, []);
+});
+
+test('scrubSiblings([]) is a no-op', async () => {
+  await store.put(rec({ id: 'A', siblings: [{ url: 'https://b.com/x', title: 'B', host: 'b.com' }] }));
+  assert.equal(await store.scrubSiblings([]), 0);
+  assert.equal((await store.get('A')).siblings.length, 1);
+});
+
 test('contentLess record stores and lists like any other, never holding content', async () => {
   await store.put(rec({ id: 'meta', title: 'Bank', url: 'https://bank.com/x', content: 'SHOULD NOT PERSIST', contentLess: true }));
   const got = await store.get('meta');

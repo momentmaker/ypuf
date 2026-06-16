@@ -86,14 +86,13 @@ async function sweepPendingForget(now) {
   const pending = (await session.get('pendingForget')) || [];
   const live = pending.filter((p) => p.expiry > now);
   if (live.length === pending.length) return;
-  // Past the undo window a forget is final — only now scrub the forgotten URL
+  // Past the undo window a forget is final — only now scrub the forgotten URL(s)
   // from every other record's working set (slice 4 / R12). Deferring the scrub
-  // until here keeps an in-window undo a clean reversal, and is termination-safe:
-  // it runs on the next wake if the SW died during the window.
-  for (const p of pending) {
-    if (p.expiry > now || !p.url) continue;
-    try { await store.scrubSibling(p.url); } catch (e) { logErr(e); }
-  }
+  // until here keeps an in-window undo a clean reversal. Called from the
+  // sibling-consuming surfaces (recall/shelf/restore) as well as initIndex, so a
+  // warm-session forget is scrubbed before any reopen — not only on a cold start.
+  const urls = pending.filter((p) => p.expiry <= now && p.url).map((p) => p.url);
+  if (urls.length) { try { await store.scrubSiblings(urls); } catch (e) { logErr(e); } }
   await session.set('pendingForget', live);
 }
 
@@ -697,7 +696,7 @@ async function forgetDomain(host) {
   await saveDurable(durable);
   await purgeDomainStores(host);
   for (const id of ids) clearSnoozeAlarm(id);
-  for (const u of urls) { try { await store.scrubSibling(u); } catch (e) { logErr(e); } }
+  try { await store.scrubSiblings(urls); } catch (e) { logErr(e); } // one scan for the whole domain
   await persistSnapshot();
   return { count: n };
 }
@@ -716,6 +715,7 @@ async function blocklistAdd(host) {
 // --- shelf (U7) ----------------------------------------------------------
 
 async function listRecent(limit) {
+  await sweepPendingForget(Date.now()); // keep shelf set-offers free of just-forgotten siblings
   const recs = await store.listRecent(limit);
   return {
     items: recs.filter((r) => !r.snoozeState).map((r) => ({ // snoozed/back-now live in their own groups
@@ -769,6 +769,7 @@ async function snoozeResnooze(recordId, preset, custom) {
 
 async function getRecallResults(q) {
   await initIndex();
+  await sweepPendingForget(Date.now()); // keep set offers free of just-forgotten siblings
   const total = await store.count();
   let results = [];
   if (q) {
@@ -804,6 +805,9 @@ async function reopenUrl(url, openTabs) {
 // (intersect against siblings — a replaying popup can't open arbitrary URLs),
 // web-scheme only, deduped; reopenUrl then dedups against currently-open tabs.
 async function restoreSet(recordId, urls) {
+  // Scrub any just-expired forgets first — the deferred scrub otherwise only runs
+  // on a cold initIndex, so a warm-session forget could still be reopened here.
+  await sweepPendingForget(Date.now());
   const rec = await store.get(recordId);
   if (!rec) return { ok: false };
   const plan = cluster.restorePlan(rec.siblings, urls, exclusion.isWebUrl);
