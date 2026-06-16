@@ -927,6 +927,22 @@ chrome.commands.onCommand.addListener((command) => {
   if (command === 'snooze') openSnoozePicker().catch(logErr);
 });
 
+// --- new-tab board config (slice 5 / U2) ---------------------------------
+// The board host stores its panel arrangement here. The SW is the single writer:
+// board pages send the FULL config on save and writes are serialized through one
+// chain, so two open board tabs can't interleave or clobber each other (pattern 7).
+
+const BOARD_CONFIG_KEY = 'boardConfig';
+const DEFAULT_BOARD = { panels: [{ id: 'ypuf-1', type: 'ypuf' }], minimalMode: false };
+
+const boardGetConfig = async () => (await local.get(BOARD_CONFIG_KEY)) || DEFAULT_BOARD;
+
+let boardWriteChain = Promise.resolve();
+function boardSaveConfig(config) {
+  boardWriteChain = boardWriteChain.then(() => local.set(BOARD_CONFIG_KEY, config)).catch(logErr);
+  return boardWriteChain.then(() => ({ ok: true }));
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!sender || sender.id !== chrome.runtime.id) return; // SW-as-broker: trust only our own contexts
   if (!msg) return;
@@ -959,13 +975,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'snooze-list') return respond(snoozeList());
   if (msg.type === 'snooze-wake' && msg.recordId) return respond(snoozeWake(msg.recordId));
   if (msg.type === 'snooze-resnooze' && msg.recordId && msg.preset) return respond(snoozeResnooze(msg.recordId, msg.preset, msg.custom));
+  if (msg.type === 'board-get-config') return respond(boardGetConfig());
+  if (msg.type === 'board-save-config' && msg.config) return respond(boardSaveConfig(msg.config));
 });
 
-// Auto-let-go grant lifecycle (U2). If the user revokes host access from
-// chrome://extensions, disable the sweep and clear the persisted "on" flag so
-// the ambient surface tells the truth.
+// Auto-let-go grant lifecycle. If the user revokes the broad <all_urls> host
+// access from chrome://extensions, disable the sweep and clear the persisted
+// "on" flag so the ambient surface tells the truth. Slice 5 adds per-origin feed
+// grants whose removal must NOT disable auto-let-go — so gate on <all_urls>
+// specifically, not on any origin removal.
 chrome.permissions.onRemoved.addListener((perms) => {
-  if (perms && perms.origins && perms.origins.length) autoDisable().catch(logErr);
+  if (perms && perms.origins && perms.origins.includes('<all_urls>')) autoDisable().catch(logErr);
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {

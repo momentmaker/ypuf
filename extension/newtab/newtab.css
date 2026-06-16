@@ -96,7 +96,18 @@ body.board {
 
 .board-empty { color: var(--muted); font-size: 13px; margin: 8px 0 18px; }
 
+/* Edit mode — per-panel controls + inline add picker (U2). */
+.panel-controls { display: flex; gap: 8px; }
+.panel-ctrl { font-size: 12px; color: var(--muted); }
+.panel-ctrl:hover { color: var(--ink); }
+.panel[tabindex]:focus { outline: 2px solid var(--accent-amber); outline-offset: 2px; }
+
+.add-picker, .add-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 8px 0 18px; }
+.add-form input { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--warm-gray); border-radius: 6px; min-width: 220px; }
+.add-error { color: var(--accent-rose); font-size: 12px; width: 100%; }
+
 /* Minimal mode — a near-blank calm page that keeps the engine running (U2). */
 .board.minimal .board-grid,
-.board.minimal .add-panel { display: none; }
-.minimal-note { color: var(--muted); font-size: 13px; }
+.board.minimal .add-panel,
+.board.minimal .board-empty { display: none; }
+.minimal-note { color: var(--muted); font-size: 13px; display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
