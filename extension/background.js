@@ -721,6 +721,7 @@ async function listRecent(limit) {
     items: recs.filter((r) => !r.snoozeState).map((r) => ({ // snoozed/back-now live in their own groups
       id: r.id, title: r.title, url: r.url, host: r.host,
       timestamp: r.timestamp, contentLess: r.contentLess, autoClosed: !!r.autoClosed,
+      siblings: Array.isArray(r.siblings) ? r.siblings : [],
     })),
   };
 }
@@ -775,6 +776,7 @@ async function getRecallResults(q) {
     const recs = await Promise.all(hits.map((h) => store.get(h.id)));
     results = recs.filter(Boolean).map((r) => ({
       id: r.id, title: r.title, url: r.url, host: r.host, contentLess: r.contentLess,
+      siblings: Array.isArray(r.siblings) ? r.siblings : [],
     }));
   }
   return { results, total };

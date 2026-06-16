@@ -69,10 +69,57 @@
     li.append(title, meta);
     return li;
   }
-  const openOnClick = (li, id) => li.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'recall-open', recordId: id });
-    window.close();
-  });
+  const recallOpen = (id) => { chrome.runtime.sendMessage({ type: 'recall-open', recordId: id }); window.close(); };
+  const openOnClick = (li, id) => li.addEventListener('click', () => recallOpen(id));
+
+  // For a set-bearing row, only the title opens the single page — the row itself
+  // is not click-to-open, so clicking the set affordance never closes the popup.
+  function titleOpens(li, id) {
+    const title = li.querySelector('.title');
+    if (!title) return;
+    title.classList.add('clickable');
+    title.addEventListener('click', () => recallOpen(id));
+  }
+
+  // "bring back the set? (N)" — a passive, dismissible affordance (slice 4 / R6,
+  // R9). It never gates the single-page recall (the title still opens just this
+  // page). N is the stored sibling count.
+  function setControls(it) {
+    const wrap = document.createElement('div'); wrap.className = 'set-controls';
+    wrap.appendChild(mkBtn(`bring back the set? (${it.siblings.length})`, () => expandSet(it, wrap)));
+    return wrap;
+  }
+
+  function expandSet(it, wrap) {
+    wrap.textContent = '';
+    const members = document.createElement('div'); members.className = 'set-members';
+    const boxes = [];
+    for (const sib of it.siblings) {
+      const row = document.createElement('label'); row.className = 'set-member';
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = true; cb.value = sib.url;
+      const text = document.createElement('span');
+      const host = T.friendlyDomain ? T.friendlyDomain(sib.host || '') : (sib.host || '');
+      text.textContent = (sib.title && sib.title.trim()) ? `${sib.title.trim()}  ·  ${host}` : (host || sib.url);
+      row.append(cb, text); members.appendChild(row); boxes.push(cb);
+    }
+    const restore = document.createElement('button'); restore.className = 'link'; restore.type = 'button';
+    const update = () => {
+      const n = boxes.filter((b) => b.checked).length;
+      restore.textContent = n ? `Bring back ${n}` : 'Just open this page';
+    };
+    for (const b of boxes) b.addEventListener('change', update);
+    update();
+    restore.addEventListener('click', () => {
+      if (restore.disabled) return;
+      restore.disabled = true; // debounce — a second tap can't double-fire the fan-out
+      const urls = boxes.filter((b) => b.checked).map((b) => b.value);
+      if (urls.length) chrome.runtime.sendMessage({ type: 'restore-set', recordId: it.id, urls }, () => window.close());
+      else recallOpen(it.id); // uncheck-all collapses to opening just the anchor page
+    });
+    const actions = document.createElement('div'); actions.className = 'set-actions';
+    actions.append(restore, mkBtn('Cancel', loadRecent));
+    wrap.append(members, actions);
+  }
 
   function render(items) {
     recent.textContent = '';
@@ -84,15 +131,19 @@
       // Auto-closed items carry a quiet marker so the undo shelf doubles as a
       // discovery surface when the ambient indicator was missed (R13).
       const li = itemRow(it, [ago, it.autoClosed ? 'let go for you' : '']);
-      openOnClick(li, it.id);
+      if (it.siblings && it.siblings.length) { titleOpens(li, it.id); li.appendChild(setControls(it)); }
+      else openOnClick(li, it.id);
       recent.appendChild(li);
     }
   }
 
-  chrome.runtime.sendMessage({ type: 'list-recent' }, (resp) => {
-    if (chrome.runtime.lastError) return;
-    render(resp && resp.items);
-  });
+  function loadRecent() {
+    chrome.runtime.sendMessage({ type: 'list-recent' }, (resp) => {
+      if (chrome.runtime.lastError) return;
+      render(resp && resp.items);
+    });
+  }
+  loadRecent();
 
   // Snooze groups (U4): "Back now" (click-to-open) and "Snoozed" (wake / later).
   const snoozeGroups = document.getElementById('snooze-groups');
