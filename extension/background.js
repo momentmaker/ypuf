@@ -85,7 +85,16 @@ function initIndex() {
 async function sweepPendingForget(now) {
   const pending = (await session.get('pendingForget')) || [];
   const live = pending.filter((p) => p.expiry > now);
-  if (live.length !== pending.length) await session.set('pendingForget', live);
+  if (live.length === pending.length) return;
+  // Past the undo window a forget is final — only now scrub the forgotten URL
+  // from every other record's working set (slice 4 / R12). Deferring the scrub
+  // until here keeps an in-window undo a clean reversal, and is termination-safe:
+  // it runs on the next wake if the SW died during the window.
+  for (const p of pending) {
+    if (p.expiry > now || !p.url) continue;
+    try { await store.scrubSibling(p.url); } catch (e) { logErr(e); }
+  }
+  await session.set('pendingForget', live);
 }
 
 // --- in-page extractor (runs in the page's isolated world) ----------------
@@ -644,7 +653,9 @@ async function forgetPage(recordId) {
   await persistSnapshot();
   if (bundle) {
     const pending = (await session.get('pendingForget')) || [];
-    pending.push({ recordId, bundle, expiry: Date.now() + capture.UNDO_MS });
+    // Carry the forgotten URL so the post-undo-window sweep can scrub it from
+    // other records' working sets (slice 4 / R12 — deferred, not immediate).
+    pending.push({ recordId, url: bundle.record && bundle.record.url, bundle, expiry: Date.now() + capture.UNDO_MS });
     await session.set('pendingForget', pending);
   }
   return { ok: !!bundle };
@@ -674,14 +685,19 @@ async function purgeDomainStores(host) {
 }
 
 async function forgetDomain(host) {
-  // Gather ids BEFORE deletion so we can cancel pending snooze returns — the
-  // privacy.forgetDomain call removes the records and returns only a count.
-  const ids = (await store.getByDomain(host)).map((r) => r.id);
+  // Gather ids + urls BEFORE deletion — privacy.forgetDomain removes the records
+  // and returns only a count. ids cancel pending snooze returns; urls scrub the
+  // forgotten pages from other records' working sets (slice 4 / R12 — domain
+  // forget has no undo, so scrub immediately).
+  const gone = await store.getByDomain(host);
+  const ids = gone.map((r) => r.id);
+  const urls = gone.map((r) => r.url);
   const durable = await loadDurable();
   const n = await privacy.forgetDomain(host, privacyDeps(durable));
   await saveDurable(durable);
   await purgeDomainStores(host);
   for (const id of ids) clearSnoozeAlarm(id);
+  for (const u of urls) { try { await store.scrubSibling(u); } catch (e) { logErr(e); } }
   await persistSnapshot();
   return { count: n };
 }

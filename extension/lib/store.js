@@ -211,10 +211,37 @@
     return withStore('readonly', (s) => reqToPromise(s.count()));
   }
 
+  // origin+pathname key — same normalization the working set stores siblings
+  // under (drops ?query/#hash), so a forgotten record's full-href URL still
+  // matches the query-stripped sibling form.
+  function siblingKey(u) {
+    try { const x = new URL(u); return x.origin + x.pathname; } catch { return u; }
+  }
+
+  // Cross-record forget consistency (slice 4 / R12): remove `url` from every
+  // other record's working set when its page is forgotten, so a forgotten URL
+  // never lingers as a sibling. No reverse index exists, so this is a full-store
+  // scan — acceptable at the store's scale. Returns the number of records touched.
+  async function scrubSibling(url) {
+    const key = siblingKey(url);
+    const all = await getAll();
+    let touched = 0;
+    for (const r of all) {
+      if (!Array.isArray(r.siblings) || !r.siblings.length) continue;
+      const next = r.siblings.filter((s) => siblingKey(s.url) !== key);
+      if (next.length !== r.siblings.length) {
+        r.siblings = next;
+        await put(r);
+        touched += 1;
+      }
+    }
+    return touched;
+  }
+
   const api = {
     reset, openDB, put, get, getAll, listRecent, getByDomain,
     remove, deleteByDomain, touch, allIds, totalBytes, prune, shouldPrune,
-    withQuotaRetry, count,
+    withQuotaRetry, count, scrubSibling,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
