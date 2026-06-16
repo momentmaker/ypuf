@@ -28,16 +28,13 @@
 
   const DEFAULTS = { maxSize: 8, coWindowMs: 5 * 60 * 1000, burstWindowMs: 90 * 1000 };
 
-  function stripped(url) {
-    const u = new URL(url);
-    return { url: u.origin + u.pathname, host: u.hostname };
-  }
-
+  // Chrome's spawn-tree (openerTabId) is the strong "these tabs are related" signal:
+  // the tab is the anchor's child, the anchor's opener, or shares the anchor's opener.
   function spawnRelated(anchor, t) {
-    if (t.openerTabId != null && t.openerTabId === anchor.id) return true;        // child of anchor
-    if (anchor.openerTabId != null && anchor.openerTabId === t.id) return true;   // anchor's opener
+    if (t.openerTabId != null && t.openerTabId === anchor.id) return true;
+    if (anchor.openerTabId != null && anchor.openerTabId === t.id) return true;
     if (anchor.openerTabId != null && t.openerTabId != null &&
-        t.openerTabId === anchor.openerTabId) return true;                        // shared opener
+        t.openerTabId === anchor.openerTabId) return true;
     return false;
   }
 
@@ -62,9 +59,9 @@
       const cls = o.classify({ url: t.url, incognito: t.incognito }, o.userBlocklist);
       if (cls.kind !== 'extractable') continue;    // R5: only extractable siblings
 
-      const id = stripped(t.url);
+      const u = new URL(t.url); // safe: classify already parsed it as extractable
       scored.push({
-        url: id.url, title: (t.title || '').trim(), host: id.host,
+        url: u.origin + u.pathname, title: (t.title || '').trim(), host: u.hostname,
         _tier: spawn ? 2 : 1,
         _last: tState.lastActivatedAt != null ? tState.lastActivatedAt : -Infinity,
         _id: t.id,

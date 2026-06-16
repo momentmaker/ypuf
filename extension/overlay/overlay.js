@@ -131,7 +131,7 @@
       const urls = boxes.filter((b) => b.checked).map((b) => b.value);
       chrome.runtime.sendMessage(urls.length
         ? { type: 'restore-set', recordId: r.id, urls }
-        : { type: 'recall-open', recordId: r.id });
+        : { type: 'recall-open', recordId: r.id }, () => void chrome.runtime.lastError);
       close();
     });
     const cancel = document.createElement('button'); cancel.className = 'set-btn'; cancel.textContent = 'Cancel';

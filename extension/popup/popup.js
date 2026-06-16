@@ -113,8 +113,10 @@
       if (restore.disabled) return;
       restore.disabled = true; // debounce — a second tap can't double-fire the fan-out
       const urls = boxes.filter((b) => b.checked).map((b) => b.value);
+      // Both branches close only after the SW acknowledges, so a cold worker
+      // can't drop the message before window.close().
       if (urls.length) chrome.runtime.sendMessage({ type: 'restore-set', recordId: it.id, urls }, () => window.close());
-      else recallOpen(it.id); // uncheck-all collapses to opening just the anchor page
+      else chrome.runtime.sendMessage({ type: 'recall-open', recordId: it.id }, () => window.close()); // uncheck-all → just the anchor
     });
     const actions = document.createElement('div'); actions.className = 'set-actions';
     actions.append(restore, mkBtn('Cancel', loadRecent));
@@ -137,9 +139,11 @@
     }
   }
 
+  let recentSeq = 0;
   function loadRecent() {
+    const mine = ++recentSeq; // Cancel can re-fire this while the first fetch is in flight
     chrome.runtime.sendMessage({ type: 'list-recent' }, (resp) => {
-      if (chrome.runtime.lastError) return;
+      if (mine !== recentSeq || chrome.runtime.lastError) return;
       render(resp && resp.items);
     });
   }

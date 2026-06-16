@@ -171,7 +171,7 @@ function clusterSet(anchor, openTabs, tstate, blocklist) {
   try {
     return cluster.computeSet(anchor, openTabs, {
       classify: exclusion.classify, userBlocklist: blocklist, tabstate: tstate,
-      now: Date.now(), maxSize: CLUSTER_MAX,
+      maxSize: CLUSTER_MAX,
       coWindowMs: CLUSTER_CO_WINDOW_MS, burstWindowMs: CLUSTER_BURST_WINDOW_MS,
     });
   } catch (e) { logErr(e); return []; }

@@ -193,3 +193,8 @@ test('restorePlan drops a non-web-scheme requested url', () => {
 test('restorePlan with no requested urls (uncheck-all) opens nothing', () => {
   assert.deepEqual(cluster.restorePlan([{ url: 'https://b.com/x' }], [], exclusion.isWebUrl), []);
 });
+
+test('restorePlan tolerates a record with no siblings field (pre-slice-4 record)', () => {
+  assert.deepEqual(cluster.restorePlan(undefined, ['https://b.com/x'], exclusion.isWebUrl), []);
+  assert.deepEqual(cluster.restorePlan(null, ['https://b.com/x'], exclusion.isWebUrl), []);
+});
