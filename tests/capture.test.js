@@ -106,6 +106,15 @@ test('recordExtra is stamped into the single pre-close store.put (auto-close mar
   assert.equal(stored.autoClosed, true); // persisted with the record, not a second write
 });
 
+test('a siblings working-set rides the recordExtra into the single store.put (slice 4)', async () => {
+  const { deps } = makeDeps();
+  const siblings = [{ url: 'https://b.com/x', title: 'B', host: 'b.com' }];
+  const res = await capture.letGo({ id: 7, url: 'https://a.com/', title: 'A', incognito: false }, deps, { siblings });
+  assert.deepEqual(res.record.siblings, siblings);
+  const stored = await store.get(res.record.id);
+  assert.deepEqual(stored.siblings, siblings); // persisted with the record, not a second write
+});
+
 test('recordExtra also rides the floor record (discarded auto-close)', async () => {
   const { deps } = makeDeps();
   const res = await capture.letGo({ id: 4, url: 'https://example.com/z', title: 'Z', incognito: false, discarded: true }, deps, { autoClosed: true });

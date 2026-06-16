@@ -19,6 +19,7 @@ importScripts(
   'lib/store.js',
   'lib/search.js',
   'lib/capture.js',
+  'lib/cluster.js',
   'lib/signal.js',
   'lib/tabstate.js',
   'lib/eligibility.js',
@@ -27,7 +28,7 @@ importScripts(
   'lib/blocklist.js',
 );
 
-const { store, search, capture, exclusion, signal, tabstate, eligibility, protection, snooze, privacy, titles } = self.ypuf;
+const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, snooze, privacy, titles } = self.ypuf;
 
 const logErr = (e) => console.error('[ypuf]', e);
 
@@ -84,7 +85,15 @@ function initIndex() {
 async function sweepPendingForget(now) {
   const pending = (await session.get('pendingForget')) || [];
   const live = pending.filter((p) => p.expiry > now);
-  if (live.length !== pending.length) await session.set('pendingForget', live);
+  if (live.length === pending.length) return;
+  // Past the undo window a forget is final — only now scrub the forgotten URL(s)
+  // from every other record's working set (slice 4 / R12). Deferring the scrub
+  // until here keeps an in-window undo a clean reversal. Called from the
+  // sibling-consuming surfaces (recall/shelf/restore) as well as initIndex, so a
+  // warm-session forget is scrubbed before any reopen — not only on a cold start.
+  const urls = pending.filter((p) => p.expiry <= now && p.url).map((p) => p.url);
+  if (urls.length) { try { await store.scrubSiblings(urls); } catch (e) { logErr(e); } }
+  await session.set('pendingForget', live);
 }
 
 // --- in-page extractor (runs in the page's isolated world) ----------------
@@ -147,13 +156,41 @@ async function getActiveTab() {
   return tab;
 }
 
+// --- working-set clustering (slice 4 / flow F1) --------------------------
+// At let-go, snapshot the tab's working set from the LIVE open tabs. The anchor
+// and candidates come from the raw chrome.tabs.query result (which carries
+// openerTabId/windowId natively); lastActivatedAt comes from the tabstate map.
+// Best-effort: any failure yields no set and never blocks the close.
+
+const CLUSTER_MAX = 8;
+const CLUSTER_CO_WINDOW_MS = 5 * 60 * 1000;
+const CLUSTER_BURST_WINDOW_MS = 90 * 1000;
+
+function clusterSet(anchor, openTabs, tstate, blocklist) {
+  try {
+    return cluster.computeSet(anchor, openTabs, {
+      classify: exclusion.classify, userBlocklist: blocklist, tabstate: tstate,
+      maxSize: CLUSTER_MAX,
+      coWindowMs: CLUSTER_CO_WINDOW_MS, burstWindowMs: CLUSTER_BURST_WINDOW_MS,
+    });
+  } catch (e) { logErr(e); return []; }
+}
+
+async function computeSiblings(anchor, openTabs) {
+  return clusterSet(anchor, openTabs, await loadTabstate(), await getUserBlocklist());
+}
+
 async function handleLetGo() {
   await initIndex();
   const tab = await getActiveTab();
   if (!tab) return;
+  const openTabs = await chrome.tabs.query({});
+  const anchor = openTabs.find((t) => t.id === tab.id) || tab;
+  const siblings = await computeSiblings(anchor, openTabs);
   const res = await capture.letGo(
     { id: tab.id, url: tab.url, title: tab.title, incognito: tab.incognito, discarded: tab.discarded, frozen: tab.frozen },
     await buildDeps(),
+    siblings.length ? { siblings } : undefined,
   );
   if (res && res.record) {
     await persistSnapshot();
@@ -173,10 +210,13 @@ async function handleSnooze(preset, custom) {
   const tab = await getActiveTab();
   if (!tab) return;
   const schedule = snooze.resolve(preset, Date.now(), custom);
+  const openTabs = await chrome.tabs.query({});
+  const anchor = openTabs.find((t) => t.id === tab.id) || tab;
+  const siblings = await computeSiblings(anchor, openTabs);
   const res = await capture.letGo(
     { id: tab.id, url: tab.url, title: tab.title, incognito: tab.incognito, discarded: tab.discarded, frozen: tab.frozen },
     await buildDeps(),
-    Object.assign({ snoozeState: 'snoozed' }, schedule),
+    Object.assign({ snoozeState: 'snoozed' }, schedule, siblings.length ? { siblings } : null),
   );
   if (res && res.record) {
     await persistSnapshot();
@@ -485,7 +525,7 @@ function clearBadge() {
 // Re-check ONE candidate against LIVE state (R6) and, if still a zombie,
 // capture-then-close via the reused letGo. R10: only count it closed if a
 // record actually persisted.
-async function autoCloseOne(id, deps) {
+async function autoCloseOne(id, deps, siblings) {
   if (autoInFlight.has(id)) return false;
   let live;
   try { live = await chrome.tabs.get(id); } catch { return false; } // tab already gone
@@ -504,7 +544,8 @@ async function autoCloseOne(id, deps) {
   if (!(await claimClose(id, live.url))) return false;
   autoInFlight.add(id);
   try {
-    const res = await capture.letGo(projectTab(live), deps, { autoClosed: true });
+    const extra = (siblings && siblings.length) ? { autoClosed: true, siblings } : { autoClosed: true };
+    const res = await capture.letGo(projectTab(live), deps, extra);
     if (!res || !res.record) { await releaseClose(id); return false; } // nothing persisted → retry later
     // letGo's closeTab swallows errors (so a capture stays reversible even if the
     // close throws). Confirm the tab is actually gone before counting it: on a
@@ -538,11 +579,17 @@ async function runAutoSweep() {
     eligibility.classify(projectTab(t), { rec: tstate[t.id], ...base }) === 'zombie');
   if (!candidates.length) return;
 
+  // Snapshot each candidate's working set from the SAME pre-loop `tabs` snapshot,
+  // BEFORE the close loop mutates the tab set — so co-closing siblings still
+  // appear in each other's sets regardless of close order (slice 4 / R3).
+  const sibsById = new Map();
+  for (const t of candidates) sibsById.set(t.id, clusterSet(t, tabs, tstate, blocklist));
+
   const deps = await buildDeps();
   let closed = 0;
   for (const t of candidates) {
     try {
-      if (await autoCloseOne(t.id, deps)) { closed += 1; puff(); } // puff per close, decoupled (U6)
+      if (await autoCloseOne(t.id, deps, sibsById.get(t.id))) { closed += 1; puff(); } // puff per close, decoupled (U6)
     } catch (e) { logErr(e); }
   }
 
@@ -605,7 +652,9 @@ async function forgetPage(recordId) {
   await persistSnapshot();
   if (bundle) {
     const pending = (await session.get('pendingForget')) || [];
-    pending.push({ recordId, bundle, expiry: Date.now() + capture.UNDO_MS });
+    // Carry the forgotten URL so the post-undo-window sweep can scrub it from
+    // other records' working sets (slice 4 / R12 — deferred, not immediate).
+    pending.push({ recordId, url: bundle.record && bundle.record.url, bundle, expiry: Date.now() + capture.UNDO_MS });
     await session.set('pendingForget', pending);
   }
   return { ok: !!bundle };
@@ -635,14 +684,19 @@ async function purgeDomainStores(host) {
 }
 
 async function forgetDomain(host) {
-  // Gather ids BEFORE deletion so we can cancel pending snooze returns — the
-  // privacy.forgetDomain call removes the records and returns only a count.
-  const ids = (await store.getByDomain(host)).map((r) => r.id);
+  // Gather ids + urls BEFORE deletion — privacy.forgetDomain removes the records
+  // and returns only a count. ids cancel pending snooze returns; urls scrub the
+  // forgotten pages from other records' working sets (slice 4 / R12 — domain
+  // forget has no undo, so scrub immediately).
+  const gone = await store.getByDomain(host);
+  const ids = gone.map((r) => r.id);
+  const urls = gone.map((r) => r.url);
   const durable = await loadDurable();
   const n = await privacy.forgetDomain(host, privacyDeps(durable));
   await saveDurable(durable);
   await purgeDomainStores(host);
   for (const id of ids) clearSnoozeAlarm(id);
+  try { await store.scrubSiblings(urls); } catch (e) { logErr(e); } // one scan for the whole domain
   await persistSnapshot();
   return { count: n };
 }
@@ -661,11 +715,13 @@ async function blocklistAdd(host) {
 // --- shelf (U7) ----------------------------------------------------------
 
 async function listRecent(limit) {
+  await sweepPendingForget(Date.now()); // keep shelf set-offers free of just-forgotten siblings
   const recs = await store.listRecent(limit);
   return {
     items: recs.filter((r) => !r.snoozeState).map((r) => ({ // snoozed/back-now live in their own groups
       id: r.id, title: r.title, url: r.url, host: r.host,
       timestamp: r.timestamp, contentLess: r.contentLess, autoClosed: !!r.autoClosed,
+      siblings: Array.isArray(r.siblings) ? r.siblings : [],
     })),
   };
 }
@@ -713,6 +769,7 @@ async function snoozeResnooze(recordId, preset, custom) {
 
 async function getRecallResults(q) {
   await initIndex();
+  await sweepPendingForget(Date.now()); // keep set offers free of just-forgotten siblings
   const total = await store.count();
   let results = [];
   if (q) {
@@ -720,27 +777,53 @@ async function getRecallResults(q) {
     const recs = await Promise.all(hits.map((h) => store.get(h.id)));
     results = recs.filter(Boolean).map((r) => ({
       id: r.id, title: r.title, url: r.url, host: r.host, contentLess: r.contentLess,
+      siblings: Array.isArray(r.siblings) ? r.siblings : [],
     }));
   }
   return { results, total };
 }
 
-async function reopenRecord(recordId) {
-  const rec = await store.get(recordId);
-  if (!rec || !exclusion.isWebUrl(rec.url)) return; // reopen guard: web schemes only
-  // Match on origin+path, not the exact URL: metadata-only records store a
-  // query-stripped URL, so an exact compare against a live tab's full URL would
-  // always miss and spawn a duplicate.
-  const key = (u) => { try { const x = new URL(u); return x.origin + x.pathname; } catch { return u; } };
-  const target = key(rec.url);
-  const tabs = await chrome.tabs.query({});
-  const open = tabs.find((t) => t.url && key(t.url) === target);
+// Shared reopen+dedup core (slice 4 / R8): focus an already-open tab whose URL
+// matches by origin+path (stored URLs are query-stripped, so an exact compare
+// would miss and spawn a duplicate), else create it. Web-scheme only. No record
+// side effects — callers needing touch/snooze-clear/protect do those separately.
+async function reopenUrl(url, openTabs) {
+  if (!exclusion.isWebUrl(url)) return { skipped: true };
+  const target = cluster.originPathKey(url);
+  const open = openTabs.find((t) => t.url && cluster.originPathKey(t.url) === target);
   if (open) {
     await chrome.tabs.update(open.id, { active: true });
     if (open.windowId != null) await chrome.windows.update(open.windowId, { focused: true });
-  } else {
-    await chrome.tabs.create({ url: rec.url });
+    return { focused: true };
   }
+  await chrome.tabs.create({ url });
+  return { created: true };
+}
+
+// Restore the working set (slice 4 / F2, R8/R10/R11). User-triggered ONLY — no
+// alarm/startup path. cluster.restorePlan opens only URLs the record stored
+// (intersect against siblings — a replaying popup can't open arbitrary URLs),
+// web-scheme only, deduped; reopenUrl then dedups against currently-open tabs.
+async function restoreSet(recordId, urls) {
+  // Scrub any just-expired forgets first — the deferred scrub otherwise only runs
+  // on a cold initIndex, so a warm-session forget could still be reopened here.
+  await sweepPendingForget(Date.now());
+  const rec = await store.get(recordId);
+  if (!rec) return { ok: false };
+  const plan = cluster.restorePlan(rec.siblings, urls, exclusion.isWebUrl);
+  const openTabs = await chrome.tabs.query({});
+  let opened = 0;
+  for (const u of plan) {
+    const res = await reopenUrl(u, openTabs).catch((e) => { logErr(e); return null; });
+    if (res && res.created) opened += 1;
+  }
+  return { ok: true, opened };
+}
+
+async function reopenRecord(recordId) {
+  const rec = await store.get(recordId);
+  if (!rec || !exclusion.isWebUrl(rec.url)) return; // reopen guard: web schemes only
+  await reopenUrl(rec.url, await chrome.tabs.query({}));
   await store.touch(recordId);
   // Reopening a snoozed/back-now record ends the snooze — it's a normal tab now.
   if (rec.snoozeState) {
@@ -858,6 +941,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'list-recent') return respond(listRecent(msg.limit || 15));
   if (msg.type === 'recall-search') return respond(getRecallResults(msg.q));
   if (msg.type === 'recall-open' && msg.recordId) return respond(reopenRecord(msg.recordId).then(() => ({ ok: true })));
+  if (msg.type === 'restore-set' && msg.recordId) return respond(restoreSet(msg.recordId, msg.urls));
   if (msg.type === 'whats-indexed') return respond(whatsIndexed());
   if (msg.type === 'forget-page' && msg.recordId) return respond(forgetPage(msg.recordId));
   if (msg.type === 'forget-page-undo' && msg.recordId) return respond(forgetPageUndo(msg.recordId));

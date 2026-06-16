@@ -220,3 +220,79 @@ verified by hand.
 
 - [ ] A snoozed item is **never auto-closed** (it's not an open tab) — let
       auto-let-go run with snoozed items present and confirm none are touched.
+
+---
+
+# Slice 4 — session clustering + context restore
+
+The cluster math (`lib/cluster.js`: `computeSet`, `restorePlan`) and the
+cross-record forget scrub (`store.scrubSibling`) are covered by `node --test`.
+The behavior below needs real `chrome.tabs` + the popup/overlay DOM.
+
+> Tip: open 3-4 related tabs by **middle-clicking links** from one page (so they
+> share an `openerTabId`), then let one go. Inspect a record's set in the SW
+> console: `store.getAll().then(rs => console.log(rs.map(r => [r.title, r.siblings])))`.
+
+## Snapshot the working set at let-go (U1–U3 / F1 / AE1, AE4)
+
+- [ ] Open a page, middle-click 2-3 links from it (same window), then **let go**
+      the opener → its shelf row shows **"bring back the set? (N)"** with N = the
+      other tabs still open.
+- [ ] Let go a tab that is **open alone** (no related tabs) → its row has **no**
+      set affordance.
+- [ ] Open an unrelated tab in **another window**, plus a related cluster in this
+      window; let go a cluster member → the other-window tab is **not** in the set
+      (same-window only).
+- [ ] Include a **banking/blocklisted** tab and an **incognito** window among the
+      open tabs; let go a normal cluster member → neither appears in the set
+      (`r.siblings` excludes them — AE4).
+- [ ] A sibling's stored URL has **no query string** (open a link with `?utm=…`,
+      let go its opener, inspect `r.siblings` — the url is `origin+pathname`).
+
+## Auto-let-go snapshots its set too (U3 / AE5)
+
+- [ ] With auto-let-go on, drive a **cluster of related tabs** stale and run
+      `runAutoSweep()` in the SW console → each auto-closed member's record has a
+      `siblings` set reflecting the **other cluster members** (consistent
+      regardless of close order); **nothing reopens** until you ask.
+
+## Bring back the set — popup shelf (U6 / F2 / AE2, AE3)
+
+- [ ] A set-bearing shelf row: clicking the **title** opens just that one page
+      (single-page recall is instant); clicking **"bring back the set? (N)"**
+      expands a checkable member list (each: title · host), **without** closing
+      the popup.
+- [ ] A member known **only by URL** (a never-captured sibling) shows a hostname
+      fallback label.
+- [ ] Uncheck one member, click **Bring back k** → only the checked members
+      reopen; a member that is **already open** is focused, not duplicated (AE3).
+- [ ] **Uncheck all** → the button relabels to **"Just open this page"**; clicking
+      it opens only the anchor (no extra tabs) and closes the popup.
+- [ ] A completed restore **closes the popup** (dismiss-on-restore); a second tap
+      on Restore can't double-fire (button disables).
+- [ ] **Cancel** collapses the expanded set back to the passive offer.
+
+## Bring back the set — command bar (U6 / R9)
+
+- [ ] Recall (overlay) a set-member → the result row shows **"+N — bring back the
+      set?"**; clicking it expands the checkable list inline (Enter still recalls
+      just the one page); Restore reopens the checked members and closes the
+      overlay.
+
+## Cross-record forget consistency (U4 / R12 / AE6)
+
+- [ ] Record A's set lists page B. **Forget B** (What's-indexed → Forget) and wait
+      out the ~6s undo → B is gone from A's set (`r.siblings` no longer lists B),
+      A's own record intact.
+- [ ] Forget B and **Undo within 6s** → B is restored **and** still present in A's
+      set (the scrub is deferred past the undo window).
+- [ ] **Block site → Forget all** on B's domain → B's URLs are scrubbed from every
+      other record's set.
+- [ ] **Block, keep titles** on B's domain → B stays recallable and **remains** a
+      sibling of A (blocklist downgrades, it doesn't delete — no scrub).
+
+## Disclosure (R2)
+
+- [ ] The **What's indexed** panel names the working-set capture (that letting go
+      a tab records its sibling tabs' titles+addresses, query-stripped, sensitive
+      excluded, removed on forget).
