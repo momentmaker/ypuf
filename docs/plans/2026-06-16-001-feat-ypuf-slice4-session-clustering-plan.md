@@ -1,7 +1,7 @@
 ---
 title: "feat: ypuf slice 4 — session clustering + context restore"
 type: feat
-status: active
+status: completed
 date: 2026-06-16
 origin: docs/brainstorms/2026-06-15-ypuf-slice4-session-clustering-requirements.md
 ---
