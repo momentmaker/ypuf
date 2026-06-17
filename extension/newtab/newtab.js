@@ -24,6 +24,8 @@
   const editBtn = document.getElementById('board-edit');
   const minimalNote = document.getElementById('minimal-note');
   const boardSub = document.getElementById('board-sub');
+  const oneLineEl = document.getElementById('board-oneline');
+  const oneLineToggle = document.getElementById('oneline-toggle');
 
   let config = { panels: [], minimalMode: false };
   let editing = false;
@@ -56,6 +58,51 @@
     let date = '';
     try { date = new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }); } catch (e) { /* locale */ }
     boardSub.textContent = date ? `${date} · ${m.line}` : m.line;
+  }
+
+  // --- ambient one-line (U6) ----------------------------------------------
+  // A quiet daily aphorism at the board footer, from um.fz.ax. Opt-in (it's a network
+  // source): the list is cached daily, a line is picked LOCALLY each open, rendered
+  // text-only. Governed like a panel (validate, hardened fetch, grant, disclosure).
+  const ONELINE_URL = 'https://um.fz.ax/self/one-line.md';
+  const ONELINE_TTL = 24 * 60 * 60 * 1000;
+
+  function renderOneLine() {
+    if (!oneLineEl) return;
+    oneLineEl.hidden = true;
+    oneLineEl.textContent = '';
+    if (!config.oneLine || !config.oneLine.enabled) return;
+    panelHasAccess(ONELINE_URL).then((ok) => {
+      if (!ok) return;   // no grant → stays hidden (calm; re-enabling re-requests it)
+      broker.load({ cacheKey: 'panel:oneline', url: ONELINE_URL, ttlMs: ONELINE_TTL, parse: (md) => window.ypuf.oneline.parse(md) })
+        .then((r) => {
+          const lines = r && r.value;
+          if (!Array.isArray(lines) || !lines.length) return;
+          const line = lines[Math.floor(Math.random() * lines.length)]; // fresh pick each open, from the daily cache
+          const text = document.createElement('span');
+          text.className = 'oneline-text';
+          text.textContent = line;                 // text-only, inert (R14)
+          const src = document.createElement('span');
+          src.className = 'oneline-src';
+          src.textContent = 'um.fz.ax';            // disclosure (R16)
+          oneLineEl.append(text, src);
+          oneLineEl.hidden = false;
+          if (r.refresh) r.refresh.catch(() => {}); // background refresh of the daily list
+        }).catch(() => {});
+    });
+  }
+
+  function toggleOneLine() {
+    if (config.oneLine && config.oneLine.enabled) {
+      config.oneLine = { enabled: false };
+      saveConfig(); renderBoard(); renderOneLine();
+      return;
+    }
+    // Enable: request the um.fz.ax grant in-gesture (request-first), then turn it on.
+    grantThenAdd('https://um.fz.ax', () => {
+      config.oneLine = { enabled: true };
+      saveConfig(); renderBoard(); renderOneLine();
+    });
   }
 
   // Cached at load so the add-panel click handler can decide grant-vs-skip
@@ -546,6 +593,10 @@
     docBody.classList.toggle('editing', editing);
     docBody.classList.toggle('minimal', !!config.minimalMode);
     editBtn.hidden = false;
+    if (oneLineToggle) {
+      oneLineToggle.hidden = !editing;
+      oneLineToggle.textContent = (config.oneLine && config.oneLine.enabled) ? 'Remove one-line' : '+ daily one-line';
+    }
 
     if (config.minimalMode) {
       emptyNote.hidden = true;
@@ -708,10 +759,12 @@
       saveConfig();
     }
     renderBoard();
+    renderOneLine();
   }
 
   renderMasthead();   // greet the hour (U4)
   editBtn.addEventListener('click', () => { editing = !editing; renderBoard(); });
+  if (oneLineToggle) oneLineToggle.addEventListener('click', toggleOneLine);
   addBtn.addEventListener('click', openAddPicker);
   window.addEventListener('hashchange', renderBoard);
 
