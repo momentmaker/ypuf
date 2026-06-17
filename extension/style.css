@@ -10,6 +10,15 @@
  * Fonts are self-hosted / system (no external CDN — nothing leaves the machine).
  */
 
+/* Self-hosted display serif for the masthead/headings (Fraunces, SIL OFL — see
+   extension/fonts/. No external CDN: nothing leaves the machine). */
+@font-face {
+  font-family: "Fraunces";
+  src: url("fonts/fraunces.woff2") format("woff2");
+  font-weight: 400 600;
+  font-display: swap;
+}
+
 :root {
   --ink: #1a1613;
   --paper: #f8f5f0;
@@ -23,6 +32,7 @@
   --shadow: rgba(26, 22, 19, 0.06);
   --radius: 10px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Fraunces", "Iowan Old Style", Georgia, ui-serif, serif;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }

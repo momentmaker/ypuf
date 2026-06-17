@@ -16,6 +16,7 @@
 
 (function () {
   const { PROTO, VERSION } = window.ypuf.channel; // single source of the protocol id/version
+  const lanes = window.ypuf.lanes;                // pure lane-placement math (tested in lib/lanes.js)
 
   const docBody = document.body;
   const grid = document.getElementById('board-grid');
@@ -23,12 +24,90 @@
   const addBtn = document.getElementById('add-panel');
   const editBtn = document.getElementById('board-edit');
   const minimalNote = document.getElementById('minimal-note');
+  const boardSub = document.getElementById('board-sub');
+  const oneLineEl = document.getElementById('board-oneline');
+  const oneLineToggle = document.getElementById('oneline-toggle');
 
   let config = { panels: [], minimalMode: false };
   let editing = false;
   let boardBusy = false;   // guards reorder/remove against reentrancy during an async save
+  let dragId = null;       // id of the panel currently being dragged (Trello-style placement)
+  let oneLineSeq = 0;      // supersedes a slow one-line fetch when the footer is re-rendered or toggled off
+  const COLS = 3;          // fixed, unlabeled lanes — arrange-your-desk, not a kanban to manage
+  const colOf = (spec) => lanes.colOf(spec, COLS);
   let mounted = [];   // panel teardown fns; run before each re-render so intervals,
                       // message listeners, and focus handlers never leak.
+  let firstPaint = true; // the gentle card entrance plays once on open, not on every re-render
+
+  // Atmosphere (U4): the board greets the hour. Local clock only — no data, no network.
+  const MOODS = [
+    { from: 5, key: 'dawn', line: 'a fresh morning' },
+    { from: 9, key: 'day', line: 'the day’s open' },
+    { from: 17, key: 'dusk', line: 'a quiet evening' },
+    { from: 21, key: 'night', line: 'a still night' },
+  ];
+  function moodNow() {
+    const h = new Date().getHours();
+    let m = MOODS[MOODS.length - 1];
+    for (const x of MOODS) { if (h >= x.from) m = x; }
+    if (h < MOODS[0].from) m = MOODS[MOODS.length - 1]; // small hours → night
+    return m;
+  }
+  function renderMasthead() {
+    const m = moodNow();
+    docBody.dataset.mood = m.key;
+    if (!boardSub) return;
+    let date = '';
+    try { date = new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }); } catch (e) { /* locale */ }
+    boardSub.textContent = date ? `${date} · ${m.line}` : m.line;
+  }
+
+  // --- ambient one-line (U6) ----------------------------------------------
+  // A quiet daily aphorism at the board footer, from um.fz.ax. Opt-in (it's a network
+  // source): the list is cached daily, a line is picked LOCALLY each open, rendered
+  // text-only. Governed like a panel (validate, hardened fetch, grant, disclosure).
+  const ONELINE_URL = 'https://um.fz.ax/self/one-line.md';
+  const ONELINE_TTL = 24 * 60 * 60 * 1000;
+
+  function renderOneLine() {
+    if (!oneLineEl) return;
+    const mine = ++oneLineSeq;   // a later render or a toggle-off makes this pass stale
+    oneLineEl.hidden = true;
+    oneLineEl.textContent = '';
+    if (!config.oneLine || !config.oneLine.enabled) return;
+    panelHasAccess(ONELINE_URL).then((ok) => {
+      if (!ok || mine !== oneLineSeq) return;   // no grant, or superseded → stays hidden (calm)
+      broker.load({ cacheKey: 'panel:oneline', url: ONELINE_URL, ttlMs: ONELINE_TTL, parse: (md) => window.ypuf.oneline.parse(md) })
+        .then((r) => {
+          if (mine !== oneLineSeq) return;   // a later render/disable won; never double-append
+          const lines = r && r.value;
+          if (!Array.isArray(lines) || !lines.length) return;
+          const line = lines[Math.floor(Math.random() * lines.length)]; // fresh pick each open, from the daily cache
+          const text = document.createElement('span');
+          text.className = 'oneline-text';
+          text.textContent = line;                 // text-only, inert (R14)
+          const src = document.createElement('span');
+          src.className = 'oneline-src';
+          src.textContent = 'um.fz.ax';            // disclosure (R16)
+          oneLineEl.append(text, src);
+          oneLineEl.hidden = false;
+          if (r.refresh) r.refresh.catch(() => {}); // background refresh of the daily list
+        }).catch(() => {});
+    });
+  }
+
+  function toggleOneLine() {
+    if (config.oneLine && config.oneLine.enabled) {
+      config.oneLine = { enabled: false };
+      saveConfig(); renderBoard(); renderOneLine();
+      return;
+    }
+    // Enable: request the um.fz.ax grant in-gesture (request-first), then turn it on.
+    grantThenAdd('https://um.fz.ax', () => {
+      config.oneLine = { enabled: true };
+      saveConfig(); renderBoard(); renderOneLine();
+    });
+  }
 
   // Cached at load so the add-panel click handler can decide grant-vs-skip
   // SYNCHRONOUSLY — calling chrome.permissions.contains inside the click would
@@ -132,6 +211,7 @@
     cell.setAttribute('role', 'region');
     cell.setAttribute('aria-label', label || 'panel');
     cell.dataset.panelId = spec.id || '';
+    cell.dataset.type = (spec && spec.type) || '';   // drives the per-type accent dot (U1/R2)
 
     const head = document.createElement('header');
     head.className = 'panel-head';
@@ -152,6 +232,14 @@
 
   function isHttpUrl(u) {
     try { const p = new URL(u).protocol; return p === 'http:' || p === 'https:'; } catch { return false; }
+  }
+
+  // MV3 favicon (local — the "favicon" permission; never a network request).
+  function faviconUrl(pageUrl) {
+    const u = new URL(chrome.runtime.getURL('/_favicon/'));
+    u.searchParams.set('pageUrl', pageUrl);
+    u.searchParams.set('size', '32');
+    return u.toString();
   }
 
   // A host-permission match pattern from an origin. Match patterns can't carry a
@@ -222,6 +310,11 @@
       const msg = event.data;
       if (!msg || msg.ypuf !== PROTO || msg.v !== VERSION) return;
       if (msg.kind === 'ready') { ready = true; clearTimeout(readyTimer); if (queued) { post(queued); queued = null; } return; }
+      if (msg.kind === 'resize' && Number.isFinite(msg.height)) {
+        // The sandbox reports its content height so the iframe hugs it — no dead space.
+        frame.style.height = Math.min(900, Math.max(28, msg.height)) + 'px';
+        return;
+      }
       const intent = channel.parseIntent(msg);            // validated shape; index re-checked by the caller
       if (intent && typeof onIntent === 'function') onIntent(intent);
     }
@@ -253,12 +346,12 @@
   function editControls(spec) {
     const wrap = document.createElement('div');
     wrap.className = 'panel-controls';
-    const idx = config.panels.findIndex((p) => p.id === spec.id);
-    wrap.append(
-      ctrlBtn('◀', 'Move left', () => movePanel(idx, -1)),
-      ctrlBtn('▶', 'Move right', () => movePanel(idx, 1)),
-      ctrlBtn('✕', 'Remove panel', () => removePanel(spec.id)),
-    );
+    const grip = document.createElement('span');
+    grip.className = 'panel-grip';
+    grip.textContent = '⠿';
+    grip.title = 'Drag to reorder';
+    grip.setAttribute('aria-hidden', 'true');
+    wrap.append(grip, ctrlBtn('✕', 'Remove panel', () => removePanel(spec.id)));
     return wrap;
   }
 
@@ -273,19 +366,24 @@
     return b;
   }
 
-  async function movePanel(idx, delta) {
-    if (boardBusy) return;
-    const to = idx + delta;
-    if (idx < 0 || to < 0 || to >= config.panels.length) return;
-    boardBusy = true;   // a second nudge mid-save would splice a stale index (double-shift)
-    try {
-      const [p] = config.panels.splice(idx, 1);
-      config.panels.splice(to, 0, p);
-      await saveConfig();
-      renderBoard();
-      focusPanel(p.id);
-    } finally { boardBusy = false; }
+  // The lane math lives in lib/lanes.js (pure + tested); the host owns the boardBusy
+  // guard + the save/render/focus epilogue. A second move mid-save would splice a
+  // stale index, so every mutation is serialized behind boardBusy.
+  async function commitMove(id, moved) {
+    if (boardBusy || !moved()) return;   // moved() mutates config.panels; false → nothing changed
+    boardBusy = true;
+    try { await saveConfig(); renderBoard(); focusPanel(id); }
+    finally { boardBusy = false; }
   }
+
+  const reorderInto = (srcId, targetId, before) =>
+    commitMove(srcId, () => srcId !== targetId && lanes.reorderInto(config.panels, srcId, targetId, before, COLS));
+  const moveToLane = (srcId, col) =>                 // drop onto empty lane space → lane end
+    commitMove(srcId, () => lanes.moveToLane(config.panels, srcId, col));
+  const moveAcross = (id, delta) =>                  // keyboard: ◀ ▶ between lanes
+    commitMove(id, () => lanes.moveAcross(config.panels, id, delta, COLS));
+  const moveWithinLane = (id, delta) =>             // keyboard: ▲ ▼ within a lane
+    commitMove(id, () => lanes.moveWithinLane(config.panels, id, delta, COLS));
 
   async function removePanel(id) {
     if (boardBusy) return;
@@ -309,43 +407,92 @@
 
   // --- add-panel flow (inline picker → config form → request-first grant) --
 
+  // The picker is a sibling of the add button (outside the grid), so a board
+  // re-render won't remove it — close it explicitly on submit/cancel/render.
+  function closeAddPicker() {
+    const p = document.querySelector('.add-picker');
+    if (p) p.remove();
+    addBtn.hidden = !editing;
+  }
+
   function openAddPicker() {
+    closeAddPicker();
     const addable = Object.entries(PANEL_TYPES).filter(([, d]) => d.addable);
     const picker = document.createElement('div');
     picker.className = 'add-picker';
+    picker.appendChild(pickerHead('Add a panel'));
     if (!addable.length) {
       const note = document.createElement('p');
       note.className = 'muted';
-      note.textContent = 'No addable panel types yet.';
+      note.textContent = 'No panel types available yet.';
       picker.appendChild(note);
+    } else {
+      const tiles = document.createElement('div');
+      tiles.className = 'add-tiles';
+      for (const [type, def] of addable) tiles.appendChild(addTile(type, def, picker));
+      picker.appendChild(tiles);
     }
-    for (const [type, def] of addable) {
-      picker.appendChild(ctrlBtn(def.label, `Add ${def.label}`, () => openConfigForm(type, def, picker)));
-    }
-    picker.appendChild(ctrlBtn('Cancel', 'Cancel', () => { picker.remove(); addBtn.hidden = false; }));
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'link add-cancel';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', closeAddPicker);
+    picker.appendChild(cancel);
     addBtn.hidden = true;
     addBtn.after(picker);
   }
 
+  function pickerHead(text) {
+    const h = document.createElement('div');
+    h.className = 'add-picker-head';
+    h.textContent = text;
+    return h;
+  }
+
+  function addTile(type, def, picker) {
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'add-tile';
+    tile.dataset.type = type;
+    const name = document.createElement('span');
+    name.className = 'add-tile-name';
+    name.textContent = def.label;
+    const hint = document.createElement('span');
+    hint.className = 'add-tile-hint';
+    hint.textContent = def.hint || '';
+    tile.append(name, hint);
+    tile.addEventListener('click', () => openConfigForm(type, def, picker));
+    return tile;
+  }
+
   function openConfigForm(type, def, picker) {
     picker.textContent = '';
+    picker.appendChild(pickerHead(`Add ${def.label}`));
     const form = document.createElement('div');
     form.className = 'add-form';
     const readConfig = def.buildForm(form);
 
+    const err = document.createElement('p');
+    err.className = 'add-error';
+    err.hidden = true;
+    const actions = document.createElement('div');
+    actions.className = 'add-actions';
     const submit = document.createElement('button');
     submit.type = 'button';
-    submit.className = 'link';
+    submit.className = 'btn-primary';
     submit.textContent = 'Add panel';
-    const err = document.createElement('p');
-    err.className = 'muted add-error';
-    err.hidden = true;
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'link';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', closeAddPicker);
 
     submit.addEventListener('click', () => {
       // Everything up to permissions.request must be SYNCHRONOUS (no await) so the
       // user gesture survives — mirrors popup.js's request-first ordering.
       const instanceConfig = readConfig();
       if (!instanceConfig) { err.textContent = 'Please check the values.'; err.hidden = false; return; }
+      closeAddPicker();   // dismiss the form; the new panel renders into the grid
       if (def.network) {
         // Fire the grant prompt in-gesture; the panel checks access live at mount,
         // so whether granted now or revoked later, it shows the right state.
@@ -355,7 +502,8 @@
       }
     });
 
-    form.append(submit, ctrlBtn('Cancel', 'Cancel', () => { picker.remove(); addBtn.hidden = false; }), err);
+    actions.append(submit, cancel);
+    form.append(actions, err);
     picker.appendChild(form);
   }
 
@@ -406,11 +554,17 @@
 
   function renderBoard() {
     teardownAll();
+    dragId = null; docBody.classList.remove('dragging-active');   // a programmatic re-render mid-drag must not leave stale drag state
+    closeAddPicker();   // never leave a stray add-form across a re-render
     grid.textContent = '';
     minimalNote.hidden = true;
     docBody.classList.toggle('editing', editing);
     docBody.classList.toggle('minimal', !!config.minimalMode);
     editBtn.hidden = false;
+    if (oneLineToggle) {
+      oneLineToggle.hidden = !editing;
+      oneLineToggle.textContent = (config.oneLine && config.oneLine.enabled) ? 'Remove one-line' : '+ daily one-line';
+    }
 
     if (config.minimalMode) {
       emptyNote.hidden = true;
@@ -422,7 +576,40 @@
     const panels = currentPanels();
     emptyNote.hidden = panels.length > 0;
     addBtn.hidden = !editing;
-    for (const spec of panels) mountPanel(spec);
+    const lanes = [];
+    for (let c = 0; c < COLS; c++) {
+      const lane = document.createElement('div');
+      lane.className = 'board-col';
+      lane.dataset.col = String(c);
+      if (editing) makeLaneDroppable(lane, c);
+      grid.appendChild(lane);
+      lanes.push(lane);
+    }
+    for (const spec of panels) mountPanel(spec, lanes[colOf(spec)] || lanes[0]);
+
+    if (firstPaint) {   // gentle one-shot card entrance; removed so re-renders don't re-animate
+      firstPaint = false;
+      docBody.classList.add('intro');
+      setTimeout(() => docBody.classList.remove('intro'), 700);
+    }
+  }
+
+  // A lane is a drop target for empty-space drops (a panel handles its own drop and
+  // stops propagation). Dropping onto empty lane space appends to that lane's end.
+  function makeLaneDroppable(lane, col) {
+    lane.addEventListener('dragover', (e) => {
+      if (dragId == null) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      lane.classList.add('lane-over');
+    });
+    lane.addEventListener('dragleave', (e) => { if (e.target === lane) lane.classList.remove('lane-over'); });
+    lane.addEventListener('drop', (e) => {
+      lane.classList.remove('lane-over');
+      if (dragId == null) return;
+      e.preventDefault();
+      moveToLane(dragId, col);
+    });
   }
 
   function currentPanels() {
@@ -430,13 +617,13 @@
     return config.panels;
   }
 
-  function mountPanel(spec) {
-    if (spec.type === 'selftest') return mountSelfTest(spec);
+  function mountPanel(spec, lane) {
+    if (spec.type === 'selftest') return mountSelfTest(spec, lane);
     const def = PANEL_TYPES[spec.type];
-    if (!def) return mountPlaceholder(spec, spec.type);
+    if (!def) return mountPlaceholder(spec, spec.type, lane);
     const ctx = panelCell(spec, def.label);
-    if (spec.id && editing) makeReorderable(ctx.cell, spec);
-    grid.appendChild(ctx.cell);
+    if (spec.id && editing) makeDraggable(ctx.cell, spec);
+    lane.appendChild(ctx.cell);
     try {
       const teardown = def.mount({ ...ctx, spec, mountSandbox, send, broker, remount: renderBoard });
       if (typeof teardown === 'function') mounted.push(teardown);
@@ -447,28 +634,70 @@
     }
   }
 
-  function mountPlaceholder(spec, label) {
+  function mountPlaceholder(spec, label, lane) {
     const { cell, body } = panelCell(spec, label);
     const p = document.createElement('p');
     p.className = 'muted';
     p.textContent = 'Loading…';
     body.appendChild(p);
-    grid.appendChild(cell);
+    lane.appendChild(cell);
   }
 
-  // Keyboard reorder: a focused panel moves with the arrow keys in edit mode.
-  function makeReorderable(cell, spec) {
+  // Trello-style drag reorder: the whole card is the drag handle in edit mode. A
+  // quiet arrow-key fallback stays for keyboard users. During a drag, iframes are
+  // made pointer-events:none (CSS) so dragover/drop reach the cells beneath them.
+  const clearDropMarks = () => grid.querySelectorAll('.drop-before, .drop-after, .lane-over')
+    .forEach((el) => el.classList.remove('drop-before', 'drop-after', 'lane-over'));
+
+  const insertBefore = (cell, e) => {
+    const r = cell.getBoundingClientRect();
+    return (e.clientY - r.top) < r.height / 2;   // top half → drop above, bottom half → below
+  };
+
+  function makeDraggable(cell, spec) {
+    cell.draggable = true;
     cell.tabIndex = 0;
-    cell.addEventListener('keydown', (e) => {
-      const idx = config.panels.findIndex((p) => p.id === spec.id);
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); movePanel(idx, -1); }
-      else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); movePanel(idx, 1); }
+
+    cell.addEventListener('dragstart', (e) => {
+      dragId = spec.id;
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', spec.id); } catch (err) { /* some targets reject setData */ }
+      cell.classList.add('dragging');
+      docBody.classList.add('dragging-active');
+    });
+    cell.addEventListener('dragend', () => {
+      dragId = null;
+      cell.classList.remove('dragging');
+      docBody.classList.remove('dragging-active');
+      clearDropMarks();
+    });
+    cell.addEventListener('dragover', (e) => {
+      if (dragId == null || dragId === spec.id) return;
+      e.preventDefault();
+      e.stopPropagation();   // this cell is the drop target — don't also light up the lane's empty-space hint
+      e.dataTransfer.dropEffect = 'move';
+      clearDropMarks();
+      cell.classList.add(insertBefore(cell, e) ? 'drop-before' : 'drop-after');
+    });
+    cell.addEventListener('dragleave', () => cell.classList.remove('drop-before', 'drop-after'));
+    cell.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();   // handled here — don't also fire the lane's empty-space drop
+      if (dragId == null || dragId === spec.id) return;
+      reorderInto(dragId, spec.id, insertBefore(cell, e));
+    });
+
+    cell.addEventListener('keydown', (e) => {   // keyboard a11y: ◀▶ change lane, ▲▼ reorder within
+      if (e.key === 'ArrowLeft') { e.preventDefault(); moveAcross(spec.id, -1); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); moveAcross(spec.id, 1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); moveWithinLane(spec.id, -1); }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); moveWithinLane(spec.id, 1); }
     });
   }
 
   // --- U1 isolation proof (open newtab.html#selftest) ----------------------
 
-  function mountSelfTest(spec) {
+  function mountSelfTest(spec, lane) {
     const { cell, body } = panelCell(spec, 'Sandbox self-test');
     const ch = mountSandbox(body, (intent) => {
       console.log('[ypuf] self-test intent received (host validated source):', intent);
@@ -482,7 +711,7 @@
       note: 'Inside the frame: chrome is undefined; fetch() is blocked by CSP.',
       foot: 'sandbox · no chrome.* · no network egress',
     });
-    grid.appendChild(cell);
+    (lane || grid).appendChild(cell);
   }
 
   // --- config + boot -------------------------------------------------------
@@ -492,10 +721,16 @@
   async function loadAndRender() {
     const loaded = await send('board-get-config');
     if (loaded && Array.isArray(loaded.panels)) config = loaded;
+    // One-time migration: panels from before lanes existed get spread across the
+    // columns (round-robin) so the board looks composed rather than all stacked left.
+    if (lanes.migrateCols(config.panels, COLS)) saveConfig();
     renderBoard();
+    renderOneLine();
   }
 
+  renderMasthead();   // greet the hour (U4)
   editBtn.addEventListener('click', () => { editing = !editing; renderBoard(); });
+  if (oneLineToggle) oneLineToggle.addEventListener('click', toggleOneLine);
   addBtn.addEventListener('click', openAddPicker);
   window.addEventListener('hashchange', renderBoard);
 
@@ -530,16 +765,29 @@
       const T = (window.ypuf && window.ypuf.titles) || {};
       const body = ctx.body;
       const handlers = { open: (id) => send('recall-open', { recordId: id }) };
+      let destroyed = false;   // armed by the teardown so late SW replies can't write into a torn-down panel
 
       const search = document.createElement('input');
       search.type = 'search';
       search.className = 'recall-search';
       search.placeholder = 'Recall a let-go page…';
       search.setAttribute('aria-label', 'Recall a let-go page');
+      const reliefWrap = document.createElement('div');
       const results = document.createElement('div');
       const recentWrap = document.createElement('div');
       const snoozeWrap = document.createElement('div');
-      body.append(search, results, recentWrap, snoozeWrap);
+      body.append(reliefWrap, search, results, recentWrap, snoozeWrap);
+
+      // The relief moment (U5/R12): once a day, a calm acknowledgement that what you
+      // let go is safe. The SW gates the claim, so it shows on whichever surface you
+      // open first that day; never a badge or a nag.
+      send('relief-claim').then((resp) => {
+        if (destroyed || !resp || !resp.show) return;
+        const relief = document.createElement('div');
+        relief.className = 'board-relief';
+        relief.textContent = `${resp.count} let go today — all still findable.`;
+        reliefWrap.appendChild(relief);
+      });
 
       function row(it, tags, action) {
         const li = SR.toDom(SR.itemRow(it, tags, T, action), document, handlers);
@@ -572,7 +820,6 @@
         return h;
       }
 
-      let destroyed = false;
       send('list-recent', { limit: 12 }).then((resp) => {
         if (!destroyed) renderList(recentWrap, resp && resp.items, { action: 'open' });
       });
@@ -638,6 +885,7 @@
 
   registerPanelType('rss', {
     label: 'RSS feed',
+    hint: 'latest headlines',
     addable: true,
     network: true,
     buildForm(form) {
@@ -658,7 +906,7 @@
       const channel = window.ypuf.channel;
       const host = cfg.host || hostOfUrl(cfg.url);
       setPanelLabel(ctx, host);                  // R8: each instance labelled by source
-      const foot = `fetches ${host} · the host sees your IP & timing`;
+      const foot = `fetches ${host} · sees your IP + timing`;
 
       let links = [];
       const panel = ctx.mountSandbox(ctx.body, (intent) => {
@@ -677,8 +925,10 @@
         panel.render({ lines: lines.length ? lines : [{ text: note || 'No headlines yet.' }], note: lines.length ? note : '', foot });
       };
 
+      let alive = true;   // armed false by teardown; a late access resolve must not fetch/render a gone panel
       panel.render({ lines: [{ text: 'Loading…' }], foot }); // cold-cache placeholder, never blocks (R11)
       panelHasAccess(cfg.url).then((ok) => {
+        if (!alive) return;   // torn down before access resolved → no post-teardown feed fetch
         if (!ok) {
           // Grant absent (never granted, or revoked after add) → calm "needs access" (R2).
           panel.render({ lines: [{ text: 'ypuf needs access to load this feed.' }], foot });
@@ -694,7 +944,7 @@
           })
           .catch(() => show([], `couldn’t load ${host}`));
       });
-      return () => panel.destroy();
+      return () => { alive = false; panel.destroy(); };
     },
   });
 
@@ -707,14 +957,18 @@
 
   registerPanelType('crypto', {
     label: 'Crypto price',
+    hint: 'live prices',
     addable: true,
     network: true,
     buildForm(form) {
       const input = document.createElement('input');
       input.type = 'text';
-      input.placeholder = 'bitcoin, ethereum';
+      input.placeholder = 'bitcoin, ethereum, solana';
       input.setAttribute('aria-label', 'Token ids (CoinGecko), comma-separated');
-      form.appendChild(input);
+      const hint = document.createElement('p');
+      hint.className = 'muted add-hint';
+      hint.textContent = 'CoinGecko ids, comma-separated — several show in one panel (e.g. "bitcoin", not "BTC").';
+      form.append(input, hint);
       return () => {
         const tokens = input.value.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
         return tokens.length ? { tokens } : null;
@@ -726,7 +980,7 @@
       const tokens = Array.isArray(cfg.tokens) ? cfg.tokens : [];
       const CP = window.ypuf.cryptoProvider;
       setPanelLabel(ctx, tokens.length ? tokens.join(' · ') : 'Crypto');
-      const foot = `via ${CP.label} (ypuf-chosen) · the host sees your IP & timing`;
+      const foot = `via ${CP.label} (ypuf-chosen) · sees your IP + timing`;
       const panel = ctx.mountSandbox(ctx.body, () => {}); // glance only — no intents
 
       const source = {
@@ -737,13 +991,15 @@
       };
 
       const asOf = (ts) => { try { return 'as of ' + new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } };
-      const fmt = (p) => {
-        if (!p || p.unavailable || typeof p.price !== 'number') return `${p ? p.token : '?'} — price unavailable`;
-        const chg = typeof p.change24h === 'number' ? `  ${p.change24h >= 0 ? '+' : ''}${p.change24h.toFixed(2)}%` : '';
-        return `${p.token}  $${p.price.toLocaleString()}${chg}`;
+      const lineOf = (p) => {
+        if (!p || p.unavailable || typeof p.price !== 'number') return { text: `${p ? p.token : '?'} — unavailable` };
+        const text = `${p.token}  $${p.price.toLocaleString()}`;
+        if (typeof p.change24h !== 'number') return { text };
+        const up = p.change24h >= 0;
+        return { text, tail: `${up ? '▲' : '▼'} ${Math.abs(p.change24h).toFixed(2)}%`, tone: up ? 'pos' : 'neg' };
       };
       const draw = (prices, ts) => {
-        const lines = (prices || []).map((p) => ({ text: fmt(p) }));
+        const lines = (prices || []).map(lineOf);
         panel.render({ lines: lines.length ? lines : [{ text: 'price unavailable' }], note: ts ? asOf(ts) : 'price unavailable', foot });
       };
 
@@ -753,10 +1009,12 @@
       // up here so teardown can always clear them, even if access is denied.
       let staged = null;
       let timer = null;
+      let alive = true;   // armed false by teardown; a late access resolve must not install the interval/listeners
       const flush = () => { if (staged) { draw(staged.value, staged.ts); staged = null; } };
       const onVis = () => { if (document.visibilityState === 'visible') flush(); };
 
       panelHasAccess('https://api.coingecko.com').then((ok) => {
+        if (!alive) return;   // torn down before access resolved → install nothing (no leaked interval/fetch)
         if (!ok) {
           panel.render({ lines: [{ text: 'ypuf needs access to fetch prices.' }], foot });
           addGrantAffordance(ctx);
@@ -775,11 +1033,71 @@
       });
 
       return () => {
+        alive = false;
         clearInterval(timer);
         document.removeEventListener('visibilitychange', onVis);
         window.removeEventListener('focus', flush);
         panel.destroy();
       };
+    },
+  });
+
+  // --- Top sites panel ------------------------------------------------------
+  // Most-visited sites via chrome.topSites — local, never transmitted. On-brand:
+  // *measured* importance (most-visited), not *declared* organization (§9). Host-
+  // rendered (first-party, like the ypuf panel); only http(s) sites are openable.
+
+  registerPanelType('topsites', {
+    label: 'Top sites',
+    hint: 'most visited',
+    addable: true,
+    network: false,
+    buildForm(form) {
+      const note = document.createElement('p');
+      note.className = 'muted add-hint';
+      note.textContent = 'Your most-visited sites — local, never leaves your device.';
+      form.appendChild(note);
+      return () => ({});   // no config needed
+    },
+    mount(ctx) {
+      const body = ctx.body;
+      if (!chrome.topSites || !chrome.topSites.get) {
+        body.textContent = 'Top sites is unavailable.';
+        return;
+      }
+      let alive = true;   // a re-render before the async callback fires must not write into a torn-down panel
+      chrome.topSites.get((sites) => {
+        if (!alive || chrome.runtime.lastError) return;
+        body.textContent = '';
+        const list = document.createElement('div');
+        list.className = 'topsites-list';
+        for (const s of (sites || [])) {
+          if (!isHttpUrl(s.url)) continue;               // never render a non-web scheme
+          if (list.children.length >= 8) break;          // a calm glance, not a wall
+          const a = document.createElement('a');
+          a.className = 'topsite';
+          a.href = s.url;
+          const ico = document.createElement('img');
+          ico.className = 'topsite-ico';
+          ico.alt = '';
+          ico.src = faviconUrl(s.url);
+          ico.addEventListener('error', () => ico.remove()); // drop a broken favicon quietly
+          const name = document.createElement('span');
+          name.className = 'topsite-name';
+          name.textContent = s.title || hostOfUrl(s.url); // page-derived → textContent, inert
+          a.append(ico, name);
+          list.appendChild(a);
+        }
+        if (!list.children.length) {
+          const p = document.createElement('p');
+          p.className = 'muted';
+          p.textContent = 'No top sites yet — browse a little.';
+          body.appendChild(p);
+        } else {
+          body.appendChild(list);
+        }
+      });
+      return () => { alive = false; };
     },
   });
 

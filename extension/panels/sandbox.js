@@ -29,19 +29,28 @@
     window.parent.postMessage({ ypuf: PROTO, v: VERSION, kind: 'intent', intent, index }, '*');
   }
 
+  function fillLine(el, line) {
+    el.textContent = (line && typeof line.text === 'string') ? line.text : ''; // inert: markup never parsed
+    if (line && typeof line.tail === 'string' && line.tail) {
+      const tail = document.createElement('span');
+      tail.className = 'tail' + (line.tone === 'pos' ? ' tone-pos' : line.tone === 'neg' ? ' tone-neg' : '');
+      tail.textContent = '  ' + line.tail;        // a coloured second segment, also inert
+      el.appendChild(tail);
+    }
+  }
+
   function lineNode(line) {
-    const text = (line && typeof line.text === 'string') ? line.text : '';
     if (line && Number.isInteger(line.open)) {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'line';
-      b.textContent = text;                       // inert: markup never parsed
+      fillLine(b, line);
       b.addEventListener('click', () => postIntent('open', line.open));
       return b;
     }
     const li = document.createElement('li');
     li.className = 'line';
-    li.textContent = text;
+    fillLine(li, line);
     return li;
   }
 
@@ -65,6 +74,13 @@
       foot.textContent = body.foot;               // disclosure line (R10), inert
       root.appendChild(foot);
     }
+    postHeight();
+  }
+
+  // Report content height so the host can size the iframe to fit — no dead space.
+  function postHeight() {
+    const h = Math.ceil(document.documentElement.scrollHeight);
+    window.parent.postMessage({ ypuf: PROTO, v: VERSION, kind: 'resize', height: h }, '*');
   }
 
   window.addEventListener('message', (event) => {

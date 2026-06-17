@@ -38,3 +38,15 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+---
+
+## Fraunces (display font)
+
+`extension/fonts/fraunces.woff2` (Latin subset) is **Fraunces**, an open-source
+optical serif by The Fraunces Project Authors.
+
+- Copyright 2018 The Fraunces Project Authors (https://github.com/undercasetype/Fraunces)
+- Licensed under the SIL Open Font License, Version 1.1 — https://scripts.sil.org/OFL
+
+Used self-hosted (no external CDN) for the board masthead and headings.

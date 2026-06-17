@@ -41,6 +41,18 @@ test('sanitizeLines coerces non-string text and drops a non-integer open index',
   assert.deepEqual(ch.sanitizeLines(null), []);
 });
 
+test('sanitizeLines carries a toned tail (delta) — only pos/neg tones, tail stays inert text', () => {
+  // a url/html field is dropped; tail + a valid tone survive
+  assert.deepEqual(ch.sanitizeLines([{ text: 'BTC $67k', tail: '▲ 2.30%', tone: 'pos', url: 'x' }]),
+    [{ text: 'BTC $67k', tail: '▲ 2.30%', tone: 'pos' }]);
+  // an unknown tone is dropped; a markup-bearing tail is kept ONLY as inert text (sandbox renders via textContent)
+  assert.deepEqual(ch.sanitizeLines([{ text: 'x', tail: '<img src=x onerror=alert(1)>', tone: 'evil' }]),
+    [{ text: 'x', tail: '<img src=x onerror=alert(1)>' }]);
+  // a non-string tail is coerced to text, never rendered as markup
+  assert.deepEqual(ch.sanitizeLines([{ text: 'x', tail: 5 }]), [{ text: 'x', tail: '5' }]);
+  assert.deepEqual(ch.sanitizeLines([{ text: 'x', tone: 'neg' }]), [{ text: 'x', tone: 'neg' }]);
+});
+
 test('parseIntent accepts a well-formed open intent and rejects everything else', () => {
   assert.deepEqual(ch.parseIntent({ ypuf: 'panel', v: 1, kind: 'intent', intent: 'open', index: 3 }), { intent: 'open', index: 3 });
   assert.equal(ch.parseIntent({ ypuf: 'panel', v: 1, kind: 'render' }), null);     // wrong kind

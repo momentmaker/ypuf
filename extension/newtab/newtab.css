@@ -4,15 +4,26 @@
  * Reuses the warm-paper :root tokens from ../style.css (loaded first). The board
  * is calm by design: no animation, no auto-play, quiet chrome. Panels flow
  * top-to-bottom within up to 3 columns (no hard cap — clutter is governed by
- * behaviour, not a count, R8); feed cells are fixed-height so a long feed can't
- * grow the board into an unbounded scroll.
+ * behaviour, not a count, R8); a sandboxed panel reports its content height so the
+ * iframe hugs it (the feed item-cap keeps a long feed bounded).
  */
 
 body.board {
   width: 100%;
   min-height: 100vh;
-  background: var(--paper);
+  background-color: var(--paper);
+  /* A faint warm vignette + a whisper of paper grain — atmosphere, not noise. */
+  background-image:
+    radial-gradient(120% 95% at 50% 28%, transparent 56%, rgba(26, 22, 19, 0.05) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  background-attachment: fixed;
 }
+
+/* Time-of-day warmth (U4) — subtle shifts within the warm-paper family, from the
+   local clock. Overriding the tokens on <body> cascades to the whole board. */
+body[data-mood="dawn"]  { --paper: #f9f7f2; --warm-gray: #ece6dd; }
+body[data-mood="dusk"]  { --paper: #f6efe5; --warm-gray: #e7ddd0; --card-bg: #fffcf6; }
+body[data-mood="night"] { --paper: #f1eadf; --warm-gray: #e3d9cc; --card-bg: #fffbf4; --ink: #211c16; }
 
 .board-main {
   max-width: 1080px;
@@ -26,7 +37,16 @@ body.board {
   justify-content: space-between;
   margin-bottom: 28px;
 }
-.board-head .wordmark { font-size: 18px; }
+.board-brand { display: flex; flex-direction: column; gap: 7px; }
+.board-head .wordmark {
+  font-family: var(--font-display);
+  font-size: 27px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1;
+}
+/* Living masthead sub-line (U4): the date + a soft mood line keyed to the hour. */
+.board-sub { font-size: 12.5px; color: var(--muted); letter-spacing: 0.01em; line-height: 1.2; }
 
 .board-actions { display: flex; align-items: center; gap: 14px; }
 
@@ -44,40 +64,90 @@ body.board {
 .board-edit:hover { color: var(--ink); border-color: var(--warm-gray); }
 .board.editing .board-edit { color: var(--accent-amber); border-color: var(--accent-amber); }
 
-/* Multi-column flow: up to 3 columns of ≥320px, collapsing to 2/1 as width drops. */
+/* Explicit lanes: panels are placed in — and dragged between — up to 3 columns.
+   Unlabeled (no kanban chrome): arrange-your-desk, not a board to manage. */
 .board-grid {
-  columns: 320px 3;
-  column-gap: 18px;
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+.board-col {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 60px;
+}
+/* In edit mode each lane becomes a quiet drop zone. */
+.board.editing .board-col {
+  border-radius: var(--radius);
+  min-height: 120px;
+  outline: 1px dashed transparent;
+  outline-offset: 4px;
+  transition: outline-color .15s ease, background .15s ease;
+}
+.board-col.lane-over { outline-color: var(--accent-amber); background: rgba(200, 113, 58, 0.05); }
+.board.editing .board-col:empty::after {
+  content: "drop a panel here";
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 30px 8px;
 }
 
 .panel {
-  break-inside: avoid;
-  display: inline-block;
+  display: block;
   width: 100%;
   background: var(--card-bg);
   border: 1px solid var(--warm-gray);
   border-radius: var(--radius);
-  padding: 14px 16px;
+  padding: 15px 17px;
   margin-bottom: 18px;
-  box-shadow: 0 1px 2px var(--shadow);
+  /* Layered depth: a 1px top highlight (object catching light) + a soft cast shadow. */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 1px 2px var(--shadow),
+    0 10px 24px -14px var(--shadow);
 }
+@media (prefers-reduced-motion: no-preference) {
+  .panel { transition: transform .16s ease, box-shadow .16s ease; }
+  /* A gentle one-shot rise on open (U4); removed after first paint so re-renders
+     (drag, edit) don't re-animate. A faint left→right lane stagger. */
+  body.intro .panel { animation: panel-rise .5s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+  body.intro .board-col:nth-child(2) .panel { animation-delay: .06s; }
+  body.intro .board-col:nth-child(3) .panel { animation-delay: .12s; }
+}
+@keyframes panel-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 .panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 11px;
 }
 .panel-title { font-size: 12px; font-weight: 600; color: var(--accent-slate); letter-spacing: 0.02em; }
+/* A quiet per-type accent dot — glance-parseable identity, not coloured chrome (R2). */
+.panel-title::before {
+  content: "";
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+  position: relative; top: -1px;
+  background: var(--warm-gray);
+}
+.panel[data-type="ypuf"]     .panel-title::before { background: var(--accent-amber); }
+.panel[data-type="rss"]      .panel-title::before { background: var(--accent-slate); }
+.panel[data-type="crypto"]   .panel-title::before { background: var(--accent-sage); }
+.panel[data-type="topsites"] .panel-title::before { background: var(--accent-rose); }
 
 /* Feed/price panels render in a sandboxed iframe; ypuf panel renders host-side. */
 .panel-frame {
   width: 100%;
   border: none;
   display: block;
-  /* Fixed-height cell — a long feed is bounded, never an unbounded wall (U4). */
-  height: 200px;
+  height: 60px;             /* initial; the sandbox posts its real content height */
   background: transparent;
 }
 
@@ -97,14 +167,74 @@ body.board {
 .board-empty { color: var(--muted); font-size: 13px; margin: 8px 0 18px; }
 
 /* Edit mode — per-panel controls + inline add picker (U2). */
-.panel-controls { display: flex; gap: 8px; }
+.panel-controls { display: flex; gap: 8px; align-items: center; }
 .panel-ctrl { font-size: 12px; color: var(--muted); }
 .panel-ctrl:hover { color: var(--ink); }
 .panel[tabindex]:focus { outline: 2px solid var(--accent-amber); outline-offset: 2px; }
 
-.add-picker, .add-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 8px 0 18px; }
-.add-form input { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--warm-gray); border-radius: 6px; min-width: 220px; }
-.add-error { color: var(--accent-rose); font-size: 12px; width: 100%; }
+/* Trello-style drag reorder. The whole card is the handle; iframes go
+   pointer-events:none mid-drag so dragover/drop reach the cells beneath them. */
+.board.editing .panel { cursor: grab; }
+.board.editing .panel:active { cursor: grabbing; }
+.panel.dragging {
+  opacity: 0.97;
+  transform: scale(1.015) rotate(-0.5deg);
+  box-shadow: 0 18px 36px -16px rgba(26, 22, 19, 0.24);
+}
+.panel.drop-before { box-shadow: 0 -3px 0 0 var(--accent-amber), 0 1px 2px var(--shadow); }
+.panel.drop-after { box-shadow: 0 3px 0 0 var(--accent-amber), 0 1px 2px var(--shadow); }
+.board.dragging-active .panel-frame { pointer-events: none; }
+.panel-grip { color: var(--muted); cursor: grab; font-size: 13px; line-height: 1; user-select: none; }
+
+/* Add-panel picker + config form — a small crafted card with tiles. */
+.add-picker {
+  background: var(--card-bg);
+  border: 1px solid var(--warm-gray);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin: 10px 0 18px;
+  max-width: 360px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 8px 20px -12px var(--shadow);
+}
+.add-picker-head { font-size: 12px; font-weight: 600; color: var(--accent-slate); letter-spacing: 0.02em; margin-bottom: 12px; }
+.add-tiles { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+.add-tile {
+  flex: 1 1 132px;
+  display: flex; flex-direction: column; gap: 3px;
+  text-align: left;
+  font: inherit;
+  background: var(--paper);
+  border: 1px solid var(--warm-gray);
+  border-radius: 8px;
+  padding: 11px 12px;
+  cursor: pointer;
+}
+.add-tile:hover { border-color: var(--accent-amber); background: var(--card-bg); }
+.add-tile-name { font-size: 13px; font-weight: 600; color: var(--ink); }
+.add-tile-name::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  margin-right: 7px; vertical-align: middle; position: relative; top: -1px; background: var(--warm-gray);
+}
+.add-tile[data-type="rss"] .add-tile-name::before { background: var(--accent-slate); }
+.add-tile[data-type="crypto"] .add-tile-name::before { background: var(--accent-sage); }
+.add-tile-hint { font-size: 11px; color: var(--muted); }
+.add-cancel { color: var(--muted); }
+
+.add-form { display: flex; flex-direction: column; gap: 9px; }
+.add-form input {
+  font: inherit; font-size: 13px; width: 100%;
+  padding: 8px 10px; border: 1px solid var(--warm-gray); border-radius: 8px; background: var(--paper);
+}
+.add-form input:focus { outline: none; border-color: var(--accent-amber); }
+.add-hint { font-size: 11px; color: var(--muted); margin: 0; }
+.add-actions { display: flex; align-items: center; gap: 14px; margin-top: 2px; }
+.btn-primary {
+  font: inherit; font-size: 13px; font-weight: 500;
+  background: var(--accent-amber); color: #fff;
+  border: none; border-radius: 8px; padding: 7px 15px; cursor: pointer;
+}
+.btn-primary:hover { filter: brightness(0.95); }
+.add-error { color: var(--accent-rose); font-size: 12px; margin: 0; }
 
 /* ypuf panel (U3) — recall search + shelf, host-rendered. */
 .recall-search {
@@ -113,11 +243,51 @@ body.board {
   border: 1px solid var(--warm-gray); border-radius: 6px; background: var(--paper);
 }
 .panel .recent-item { padding: 6px 8px; }
+/* The relief moment (U5): a calm once-a-day acknowledgement. */
+.board-relief {
+  background: var(--paper);
+  border: 1px solid var(--warm-gray);
+  border-radius: 8px;
+  padding: 8px 11px;
+  margin-bottom: 11px;
+  font-size: 12.5px;
+  color: var(--accent-sage);
+}
 .panel-group-label { font-size: 11px; color: var(--muted); margin: 10px 2px 3px; }
 .set-restore { margin-top: 4px; }
+
+/* Top sites panel — most-visited as a calm clickable list. */
+.topsites-list { display: flex; flex-direction: column; gap: 2px; }
+.topsite {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 8px; border-radius: 6px;
+  text-decoration: none; color: var(--ink); font-size: 13px;
+}
+.topsite:hover { background: var(--warm-gray); }
+.topsite-ico { width: 16px; height: 16px; border-radius: 3px; flex: none; background: var(--warm-gray); }
+.topsite-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Minimal mode — a near-blank calm page that keeps the engine running (U2). */
 .board.minimal .board-grid,
 .board.minimal .add-panel,
 .board.minimal .board-empty { display: none; }
 .minimal-note { color: var(--muted); font-size: 13px; display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+
+/* Ambient one-line (U6) — a quiet daily aphorism at the foot of the board. */
+.board-oneline {
+  margin: 60px auto 0;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+.oneline-text {
+  font-family: var(--font-display);
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--ink);
+  opacity: 0.78;
+}
+.oneline-src { font-size: 10px; color: var(--muted); letter-spacing: 0.04em; }

@@ -43,7 +43,9 @@
   function sanitizeLines(lines) {
     return (Array.isArray(lines) ? lines : []).map((l) => {
       const line = { text: (l && typeof l.text === 'string') ? l.text : String((l && l.text != null) ? l.text : '') };
-      if (l && Number.isInteger(l.open)) line.open = l.open;   // an index, never a URL
+      if (l && Number.isInteger(l.open)) line.open = l.open;                 // an index, never a URL
+      if (l && l.tail != null) line.tail = (typeof l.tail === 'string') ? l.tail : String(l.tail); // a 2nd text segment (e.g. a delta), inert
+      if (l && (l.tone === 'pos' || l.tone === 'neg')) line.tone = l.tone;   // colour hint only; nothing else survives
       return line;
     });
   }

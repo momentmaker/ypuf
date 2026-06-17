@@ -7,18 +7,28 @@
     /* Inline only (sandbox CSP: style-src 'unsafe-inline'). No remote/self resource
        loads — the sandbox can paint, but it cannot fetch, so it cannot phone home. */
     :root { --ink:#1a1613; --muted:#9a918a; --warm-gray:#e8e2da; --accent-slate:#5a6b7a;
+            --up:#5a7a62; --down:#b35a5a;
             --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; }
     * { margin:0; padding:0; box-sizing:border-box; }
     html,body { background:transparent; color:var(--ink); font-family:var(--font); }
-    .panel { display:flex; flex-direction:column; gap:6px; padding:2px; }
-    .lines { display:flex; flex-direction:column; gap:3px; list-style:none; }
-    .line { font-size:13px; line-height:1.35; color:var(--ink); }
+    .panel { display:flex; flex-direction:column; gap:7px; padding:1px; }
+    /* Cap the scrollable list so a long feed scrolls INSIDE the panel; the note +
+       disclosure foot below stay visible (they don't scroll away). */
+    .lines { display:flex; flex-direction:column; gap:5px; list-style:none;
+             max-height:280px; overflow-y:auto; }
+    .lines::-webkit-scrollbar { width:6px; }
+    .lines::-webkit-scrollbar-thumb { background:var(--warm-gray); border-radius:3px; }
+    .lines::-webkit-scrollbar-track { background:transparent; }
+    .line { font-size:13px; line-height:1.45; color:var(--ink); }
     button.line { font:inherit; text-align:left; background:none; border:none; color:var(--ink);
-                  cursor:pointer; padding:0; width:100%; }
+                  cursor:pointer; padding:0; width:100%; line-height:1.45; }
     button.line:hover { color:var(--accent-slate); text-decoration:underline; }
+    .tail { color:var(--muted); font-variant-numeric:tabular-nums; font-size:12.5px; }
+    .tone-pos { color:var(--up); }
+    .tone-neg { color:var(--down); }
     .note { font-size:11px; color:var(--muted); }
     .foot { font-size:10px; color:var(--muted); border-top:1px solid var(--warm-gray);
-            padding-top:5px; margin-top:2px; }
+            padding-top:7px; margin-top:3px; line-height:1.3; }
   </style>
 </head>
 <body>
