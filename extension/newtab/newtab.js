@@ -132,6 +132,32 @@
     return { cell, head, body };
   }
 
+  // Shared panel helpers (used by the rss/crypto network panels).
+  function hostOfUrl(u) { try { return new URL(u).host; } catch { return u || ''; } }
+
+  function setPanelLabel(ctx, label) {
+    const t = ctx.head && ctx.head.querySelector('.panel-title');
+    if (t) t.textContent = label;
+    if (ctx.cell) ctx.cell.setAttribute('aria-label', label);
+  }
+
+  // A "needs access" panel offers an in-gesture re-grant of just its origin.
+  function addGrantAffordance(ctx) {
+    const cfg = ctx.spec.config || {};
+    let origin;
+    try { origin = new URL(cfg.url).origin; } catch { return; }
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'link';
+    btn.textContent = 'Grant access';
+    btn.addEventListener('click', () => {
+      chrome.permissions.request({ origins: [origin.replace(/\/?$/, '/*')] }, (granted) => {
+        if (!chrome.runtime.lastError && granted) ctx.updateSpec({ needsAccess: false });
+      });
+    });
+    ctx.body.appendChild(btn);
+  }
+
   // --- host-side sandbox channel ------------------------------------------
   // Mounts panels/sandbox.html (served null-origin by the manifest `sandbox`
   // key — no allow-same-origin). We accept only messages whose source IS this
@@ -203,6 +229,14 @@
     await saveConfig();
     renderBoard();
     focusPanel(p.id);
+  }
+
+  async function updatePanelSpec(id, patch) {
+    const p = config.panels.find((x) => x.id === id);
+    if (!p) return;
+    Object.assign(p, patch);
+    await saveConfig();
+    renderBoard();
   }
 
   async function removePanel(id) {
@@ -340,7 +374,7 @@
     const ctx = panelCell(spec, def.label);
     if (spec.id && editing) makeReorderable(ctx.cell, spec);
     grid.appendChild(ctx.cell);
-    def.mount({ ...ctx, spec, mountSandbox, send, broker, remount: renderBoard });
+    def.mount({ ...ctx, spec, mountSandbox, send, broker, remount: renderBoard, updateSpec: (patch) => updatePanelSpec(spec.id, patch) });
   }
 
   function mountPlaceholder(spec, label) {
@@ -506,6 +540,66 @@
         li.appendChild(ctrls);
         return li;
       }
+    },
+  });
+
+  // --- RSS feed panel (U5) -------------------------------------------------
+  // A1 pastes a feed URL; the broker fetches/validates/parses; headlines render
+  // in the sandbox. "Open headline" is an index the host intersects against its
+  // OWN parsed links (pattern 15) before chrome.tabs.create — the panel can never
+  // name a URL the host didn't parse.
+
+  registerPanelType('rss', {
+    label: 'RSS feed',
+    addable: true,
+    network: true,
+    buildForm(form) {
+      const input = document.createElement('input');
+      input.type = 'url';
+      input.placeholder = 'https://example.com/feed.xml';
+      input.setAttribute('aria-label', 'Feed URL');
+      form.appendChild(input);
+      return () => {
+        const v = window.ypuf.sourceurl.validate(input.value.trim());
+        return v.ok ? { url: v.url, host: v.host } : null;   // sync, pre-grant (R12)
+      };
+    },
+    originOf(cfg) { return new URL(cfg.url).origin; },
+    mount(ctx) {
+      const cfg = ctx.spec.config || {};
+      const rss = window.ypuf.rss;
+      const channel = window.ypuf.channel;
+      const host = cfg.host || hostOfUrl(cfg.url);
+      setPanelLabel(ctx, host);                  // R8: each instance labelled by source
+      const foot = `fetches ${host} · the host sees your IP & timing`;
+
+      let links = [];
+      const panel = ctx.mountSandbox(ctx.body, (intent) => {
+        if (intent.intent !== 'open') return;
+        const url = channel.resolveOpen(intent.index, links);
+        if (url) chrome.tabs.create({ url });
+      });
+
+      const show = (items, note) => {
+        links = (items || []).map((it) => it.link || '');
+        const lines = (items || []).map((it, i) => ({ text: it.title, open: links[i] ? i : undefined }));
+        panel.render({ lines: lines.length ? lines : [{ text: note || 'No headlines yet.' }], note: lines.length ? note : '', foot });
+      };
+
+      if (ctx.spec.needsAccess) {
+        panel.render({ lines: [{ text: 'ypuf needs access to load this feed.' }], foot });
+        addGrantAffordance(ctx);
+        return;
+      }
+
+      ctx.broker.load({ cacheKey: 'panel:rss:' + cfg.url, url: cfg.url, ttlMs: 30 * 60 * 1000, parse: (xml) => rss.parse(xml) })
+        .then((r) => {
+          if (r.value && r.value.length) show(r.value, r.stale ? 'updating…' : '');
+          else if (r.value) show([], '');                  // empty feed, fetched ok
+          else show([], `couldn’t load ${host}`);          // cold-fail (R11)
+          if (r.refresh) r.refresh.then((v) => { if (v) show(v, ''); }).catch(() => {});
+        })
+        .catch(() => show([], `couldn’t load ${host}`));
     },
   });
 
