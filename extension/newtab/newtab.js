@@ -27,6 +27,8 @@
 
   let config = { panels: [], minimalMode: false };
   let editing = false;
+  let mounted = [];   // panel teardown fns; run before each re-render so intervals,
+                      // message listeners, and focus handlers never leak.
 
   // Cached at load so the add-panel click handler can decide grant-vs-skip
   // SYNCHRONOUSLY — calling chrome.permissions.contains inside the click would
@@ -342,7 +344,13 @@
 
   // --- board render --------------------------------------------------------
 
+  function teardownAll() {
+    for (const t of mounted) { try { t(); } catch (e) { /* a panel teardown must never block re-render */ } }
+    mounted = [];
+  }
+
   function renderBoard() {
+    teardownAll();
     grid.textContent = '';
     minimalNote.hidden = true;
     docBody.classList.toggle('editing', editing);
@@ -374,7 +382,8 @@
     const ctx = panelCell(spec, def.label);
     if (spec.id && editing) makeReorderable(ctx.cell, spec);
     grid.appendChild(ctx.cell);
-    def.mount({ ...ctx, spec, mountSandbox, send, broker, remount: renderBoard, updateSpec: (patch) => updatePanelSpec(spec.id, patch) });
+    const teardown = def.mount({ ...ctx, spec, mountSandbox, send, broker, remount: renderBoard, updateSpec: (patch) => updatePanelSpec(spec.id, patch) });
+    if (typeof teardown === 'function') mounted.push(teardown);
   }
 
   function mountPlaceholder(spec, label) {
@@ -403,6 +412,7 @@
     const ch = mountSandbox(body, (intent) => {
       console.log('[ypuf] self-test intent received (host validated source):', intent);
     });
+    mounted.push(ch.destroy);
     ch.render({
       lines: [
         { text: 'Hello from the sandboxed panel — rendered as text.' },
@@ -589,7 +599,7 @@
       if (ctx.spec.needsAccess) {
         panel.render({ lines: [{ text: 'ypuf needs access to load this feed.' }], foot });
         addGrantAffordance(ctx);
-        return;
+        return () => panel.destroy();
       }
 
       ctx.broker.load({ cacheKey: 'panel:rss:' + cfg.url, url: cfg.url, ttlMs: 30 * 60 * 1000, parse: (xml) => rss.parse(xml) })
@@ -600,6 +610,87 @@
           if (r.refresh) r.refresh.then((v) => { if (v) show(v, ''); }).catch(() => {});
         })
         .catch(() => show([], `couldn’t load ${host}`));
+      return () => panel.destroy();
+    },
+  });
+
+  // --- Crypto price panel (U6) ---------------------------------------------
+  // Glanceable price + 24h change via a swappable provider (CoinGecko v1). Refresh
+  // is swap-on-refocus: a 60s in-page interval STAGES a new value without redrawing;
+  // it is flushed only on the next refocus (visibilitychange→visible / window focus)
+  // — the one moment the user is provably not mid-glance. An "as of HH:MM" stamp
+  // keeps a left-open board honest; failures keep last-known + "unavailable" (R11).
+
+  registerPanelType('crypto', {
+    label: 'Crypto price',
+    addable: true,
+    network: true,
+    buildForm(form) {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = 'bitcoin, ethereum';
+      input.setAttribute('aria-label', 'Token ids (CoinGecko), comma-separated');
+      form.appendChild(input);
+      return () => {
+        const tokens = input.value.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
+        return tokens.length ? { tokens } : null;
+      };
+    },
+    originOf() { return 'https://api.coingecko.com'; }, // ypuf-chosen infra, not a user source
+    mount(ctx) {
+      const cfg = ctx.spec.config || {};
+      const tokens = Array.isArray(cfg.tokens) ? cfg.tokens : [];
+      const CP = window.ypuf.cryptoProvider;
+      setPanelLabel(ctx, tokens.length ? tokens.join(' · ') : 'Crypto');
+      const foot = `via ${CP.label} (ypuf-chosen) · the host sees your IP & timing`;
+      const panel = ctx.mountSandbox(ctx.body, () => {}); // glance only — no intents
+
+      const source = {
+        cacheKey: 'panel:crypto:' + tokens.join(','),
+        url: CP.buildUrl(tokens),
+        ttlMs: 60 * 1000,
+        parse: (text) => CP.parse(text, tokens),
+      };
+
+      const asOf = (ts) => { try { return 'as of ' + new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } };
+      const fmt = (p) => {
+        if (!p || p.unavailable || typeof p.price !== 'number') return `${p ? p.token : '?'} — price unavailable`;
+        const chg = typeof p.change24h === 'number' ? `  ${p.change24h >= 0 ? '+' : ''}${p.change24h.toFixed(2)}%` : '';
+        return `${p.token}  $${p.price.toLocaleString()}${chg}`;
+      };
+      const draw = (prices, ts) => {
+        const lines = (prices || []).map((p) => ({ text: fmt(p) }));
+        panel.render({ lines: lines.length ? lines : [{ text: 'price unavailable' }], note: ts ? asOf(ts) : 'price unavailable', foot });
+      };
+
+      if (ctx.spec.needsAccess) {
+        panel.render({ lines: [{ text: 'ypuf needs access to fetch prices.' }], foot });
+        addGrantAffordance(ctx);
+        return () => panel.destroy();
+      }
+
+      ctx.broker.load(source).then((r) => {
+        if (r.value) draw(r.value, Date.now());
+        else draw(null, null);
+        if (r.refresh) r.refresh.then((v) => { if (v) draw(v, Date.now()); }).catch(() => {});
+      }).catch(() => draw(null, null));
+
+      // Swap-on-refocus: stage on the interval, flush on the next refocus.
+      let staged = null;
+      const timer = setInterval(() => {
+        ctx.broker.refresh(source).then((v) => { if (v) staged = { value: v, ts: Date.now() }; }).catch(() => {});
+      }, source.ttlMs);
+      const flush = () => { if (staged) { draw(staged.value, staged.ts); staged = null; } };
+      const onVis = () => { if (document.visibilityState === 'visible') flush(); };
+      document.addEventListener('visibilitychange', onVis);
+      window.addEventListener('focus', flush);
+
+      return () => {
+        clearInterval(timer);
+        document.removeEventListener('visibilitychange', onVis);
+        window.removeEventListener('focus', flush);
+        panel.destroy();
+      };
     },
   });
 
