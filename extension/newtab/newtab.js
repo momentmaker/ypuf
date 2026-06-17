@@ -329,33 +329,72 @@
     const addable = Object.entries(PANEL_TYPES).filter(([, d]) => d.addable);
     const picker = document.createElement('div');
     picker.className = 'add-picker';
+    picker.appendChild(pickerHead('Add a panel'));
     if (!addable.length) {
       const note = document.createElement('p');
       note.className = 'muted';
-      note.textContent = 'No addable panel types yet.';
+      note.textContent = 'No panel types available yet.';
       picker.appendChild(note);
+    } else {
+      const tiles = document.createElement('div');
+      tiles.className = 'add-tiles';
+      for (const [type, def] of addable) tiles.appendChild(addTile(type, def, picker));
+      picker.appendChild(tiles);
     }
-    for (const [type, def] of addable) {
-      picker.appendChild(ctrlBtn(def.label, `Add ${def.label}`, () => openConfigForm(type, def, picker)));
-    }
-    picker.appendChild(ctrlBtn('Cancel', 'Cancel', closeAddPicker));
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'link add-cancel';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', closeAddPicker);
+    picker.appendChild(cancel);
     addBtn.hidden = true;
     addBtn.after(picker);
   }
 
+  function pickerHead(text) {
+    const h = document.createElement('div');
+    h.className = 'add-picker-head';
+    h.textContent = text;
+    return h;
+  }
+
+  function addTile(type, def, picker) {
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'add-tile';
+    tile.dataset.type = type;
+    const name = document.createElement('span');
+    name.className = 'add-tile-name';
+    name.textContent = def.label;
+    const hint = document.createElement('span');
+    hint.className = 'add-tile-hint';
+    hint.textContent = def.hint || '';
+    tile.append(name, hint);
+    tile.addEventListener('click', () => openConfigForm(type, def, picker));
+    return tile;
+  }
+
   function openConfigForm(type, def, picker) {
     picker.textContent = '';
+    picker.appendChild(pickerHead(`Add ${def.label}`));
     const form = document.createElement('div');
     form.className = 'add-form';
     const readConfig = def.buildForm(form);
 
+    const err = document.createElement('p');
+    err.className = 'add-error';
+    err.hidden = true;
+    const actions = document.createElement('div');
+    actions.className = 'add-actions';
     const submit = document.createElement('button');
     submit.type = 'button';
-    submit.className = 'link';
+    submit.className = 'btn-primary';
     submit.textContent = 'Add panel';
-    const err = document.createElement('p');
-    err.className = 'muted add-error';
-    err.hidden = true;
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'link';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', closeAddPicker);
 
     submit.addEventListener('click', () => {
       // Everything up to permissions.request must be SYNCHRONOUS (no await) so the
@@ -372,7 +411,8 @@
       }
     });
 
-    form.append(submit, ctrlBtn('Cancel', 'Cancel', closeAddPicker), err);
+    actions.append(submit, cancel);
+    form.append(actions, err);
     picker.appendChild(form);
   }
 
@@ -712,6 +752,7 @@
 
   registerPanelType('rss', {
     label: 'RSS feed',
+    hint: 'latest headlines',
     addable: true,
     network: true,
     buildForm(form) {
@@ -781,6 +822,7 @@
 
   registerPanelType('crypto', {
     label: 'Crypto price',
+    hint: 'live prices',
     addable: true,
     network: true,
     buildForm(form) {
