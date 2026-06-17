@@ -34,7 +34,11 @@
   // SYNCHRONOUSLY — calling chrome.permissions.contains inside the click would
   // consume the user gesture and break the follow-up permissions.request.
   let hasAllUrls = false;
-  chrome.permissions.contains({ origins: ['<all_urls>'] }, (r) => { hasAllUrls = !!r; });
+  const refreshHasAllUrls = () => chrome.permissions.contains({ origins: ['<all_urls>'] }, (r) => { hasAllUrls = !chrome.runtime.lastError && !!r; });
+  refreshHasAllUrls();
+  // Keep the cached flag honest if the grant changes while a board tab stays open.
+  chrome.permissions.onAdded.addListener(refreshHasAllUrls);
+  chrome.permissions.onRemoved.addListener(refreshHasAllUrls);
 
   // --- service-worker bridge ----------------------------------------------
 
@@ -156,6 +160,18 @@
     try { const u = new URL(origin); return `${u.protocol}//${u.hostname}/*`; } catch { return null; }
   }
 
+  // Does this tab currently hold access to a panel's source? Checked live at mount so
+  // a grant revoked AFTER the panel was added surfaces "needs access", not a vague
+  // failure (R2).
+  function panelHasAccess(url) {
+    return new Promise((resolve) => {
+      if (hasAllUrls) { resolve(true); return; }
+      const pattern = originMatchPattern((() => { try { return new URL(url).origin; } catch { return ''; } })());
+      if (!pattern) { resolve(false); return; }
+      chrome.permissions.contains({ origins: [pattern] }, (r) => resolve(!chrome.runtime.lastError && !!r));
+    });
+  }
+
   function setPanelLabel(ctx, label) {
     const t = ctx.head && ctx.head.querySelector('.panel-title');
     if (t) t.textContent = label;
@@ -176,7 +192,7 @@
     btn.addEventListener('click', () => {
       try {
         chrome.permissions.request({ origins: [pattern] }, (granted) => {
-          if (!chrome.runtime.lastError && granted) ctx.updateSpec({ needsAccess: false });
+          if (!chrome.runtime.lastError && granted) ctx.remount(); // re-mount → live access check now passes
         });
       } catch (e) { console.warn('[ypuf] grant request failed', e); }
     });
@@ -271,14 +287,6 @@
     } finally { boardBusy = false; }
   }
 
-  async function updatePanelSpec(id, patch) {
-    const p = config.panels.find((x) => x.id === id);
-    if (!p) return;
-    Object.assign(p, patch);
-    await saveConfig();
-    renderBoard();
-  }
-
   async function removePanel(id) {
     if (boardBusy) return;
     const idx = config.panels.findIndex((p) => p.id === id);
@@ -339,10 +347,11 @@
       const instanceConfig = readConfig();
       if (!instanceConfig) { err.textContent = 'Please check the values.'; err.hidden = false; return; }
       if (def.network) {
-        const origin = def.originOf(instanceConfig);
-        grantThenAdd(origin, (granted) => addPanel(type, instanceConfig, !granted));
+        // Fire the grant prompt in-gesture; the panel checks access live at mount,
+        // so whether granted now or revoked later, it shows the right state.
+        grantThenAdd(def.originOf(instanceConfig), () => addPanel(type, instanceConfig));
       } else {
-        addPanel(type, instanceConfig, false);
+        addPanel(type, instanceConfig);
       }
     });
 
@@ -363,9 +372,9 @@
     } catch (e) { done(false); } // an invalid pattern / lost gesture is a denial, never a thrown click
   }
 
-  async function addPanel(type, instanceConfig, needsAccess) {
+  async function addPanel(type, instanceConfig) {
     const id = `${type}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`; // unique even for same-ms adds
-    config.panels.push({ id, type, config: instanceConfig, needsAccess });
+    config.panels.push({ id, type, config: instanceConfig });
     await saveConfig();
     renderBoard();
     focusPanel(id);
@@ -429,7 +438,7 @@
     if (spec.id && editing) makeReorderable(ctx.cell, spec);
     grid.appendChild(ctx.cell);
     try {
-      const teardown = def.mount({ ...ctx, spec, mountSandbox, send, broker, remount: renderBoard, updateSpec: (patch) => updatePanelSpec(spec.id, patch) });
+      const teardown = def.mount({ ...ctx, spec, mountSandbox, send, broker, remount: renderBoard });
       if (typeof teardown === 'function') mounted.push(teardown);
     } catch (e) {
       // One bad panel (corrupt config, missing dep) must not abort the rest of the board.
@@ -668,21 +677,23 @@
         panel.render({ lines: lines.length ? lines : [{ text: note || 'No headlines yet.' }], note: lines.length ? note : '', foot });
       };
 
-      if (ctx.spec.needsAccess) {
-        panel.render({ lines: [{ text: 'ypuf needs access to load this feed.' }], foot });
-        addGrantAffordance(ctx);
-        return () => panel.destroy();
-      }
-
       panel.render({ lines: [{ text: 'Loading…' }], foot }); // cold-cache placeholder, never blocks (R11)
-      ctx.broker.load({ cacheKey: 'panel:rss:' + cfg.url, url: cfg.url, ttlMs: 30 * 60 * 1000, parse: (xml) => rss.parse(xml) })
-        .then((r) => {
-          if (r.value && r.value.length) show(r.value, r.stale ? 'updating…' : '');
-          else if (r.value) show([], '');                  // empty feed, fetched ok
-          else show([], `couldn’t load ${host}`);          // cold-fail (R11)
-          if (r.refresh) r.refresh.then((v) => { if (v) show(v, ''); }).catch(() => {});
-        })
-        .catch(() => show([], `couldn’t load ${host}`));
+      panelHasAccess(cfg.url).then((ok) => {
+        if (!ok) {
+          // Grant absent (never granted, or revoked after add) → calm "needs access" (R2).
+          panel.render({ lines: [{ text: 'ypuf needs access to load this feed.' }], foot });
+          addGrantAffordance(ctx);
+          return;
+        }
+        ctx.broker.load({ cacheKey: 'panel:rss:' + cfg.url, url: cfg.url, ttlMs: 30 * 60 * 1000, parse: (xml) => rss.parse(xml) })
+          .then((r) => {
+            if (r.value && r.value.length) show(r.value, r.stale ? 'updating…' : '');
+            else if (r.value) show([], '');                  // empty feed, fetched ok
+            else show([], `couldn’t load ${host}`);          // cold-fail (R11)
+            if (r.refresh) r.refresh.then((v) => { if (v) show(v, ''); }).catch(() => {});
+          })
+          .catch(() => show([], `couldn’t load ${host}`));
+      });
       return () => panel.destroy();
     },
   });
@@ -736,28 +747,32 @@
         panel.render({ lines: lines.length ? lines : [{ text: 'price unavailable' }], note: ts ? asOf(ts) : 'price unavailable', foot });
       };
 
-      if (ctx.spec.needsAccess) {
-        panel.render({ lines: [{ text: 'ypuf needs access to fetch prices.' }], foot });
-        addGrantAffordance(ctx);
-        return () => panel.destroy();
-      }
-
       panel.render({ lines: [{ text: 'Loading…' }], foot }); // cold-cache placeholder, never blocks (R11)
-      ctx.broker.load(source).then((r) => {
-        if (r.value) draw(r.value, r.fetchedAt);   // stamp with WHEN it was fetched, not now
-        else draw(null, null);
-        if (r.refresh) r.refresh.then((v) => { if (v) draw(v, Date.now()); }).catch(() => {});
-      }).catch(() => draw(null, null));
 
-      // Swap-on-refocus: stage on the interval, flush on the next refocus.
+      // Swap-on-refocus: stage on the interval, flush on the next refocus. Declared
+      // up here so teardown can always clear them, even if access is denied.
       let staged = null;
-      const timer = setInterval(() => {
-        ctx.broker.refresh(source).then((v) => { if (v) staged = { value: v, ts: Date.now() }; }).catch(() => {});
-      }, source.ttlMs);
+      let timer = null;
       const flush = () => { if (staged) { draw(staged.value, staged.ts); staged = null; } };
       const onVis = () => { if (document.visibilityState === 'visible') flush(); };
-      document.addEventListener('visibilitychange', onVis);
-      window.addEventListener('focus', flush);
+
+      panelHasAccess('https://api.coingecko.com').then((ok) => {
+        if (!ok) {
+          panel.render({ lines: [{ text: 'ypuf needs access to fetch prices.' }], foot });
+          addGrantAffordance(ctx);
+          return;
+        }
+        ctx.broker.load(source).then((r) => {
+          if (r.value) draw(r.value, r.fetchedAt);   // stamp with WHEN it was fetched, not now
+          else draw(null, null);
+          if (r.refresh) r.refresh.then((v) => { if (v) draw(v, Date.now()); }).catch(() => {});
+        }).catch(() => draw(null, null));
+        timer = setInterval(() => {
+          ctx.broker.refresh(source).then((v) => { if (v) staged = { value: v, ts: Date.now() }; }).catch(() => {});
+        }, source.ttlMs);
+        document.addEventListener('visibilitychange', onVis);
+        window.addEventListener('focus', flush);
+      });
 
       return () => {
         clearInterval(timer);
