@@ -230,6 +230,14 @@
     try { const p = new URL(u).protocol; return p === 'http:' || p === 'https:'; } catch { return false; }
   }
 
+  // MV3 favicon (local — the "favicon" permission; never a network request).
+  function faviconUrl(pageUrl) {
+    const u = new URL(chrome.runtime.getURL('/_favicon/'));
+    u.searchParams.set('pageUrl', pageUrl);
+    u.searchParams.set('size', '32');
+    return u.toString();
+  }
+
   // A host-permission match pattern from an origin. Match patterns can't carry a
   // port, so a feed on a non-standard port grants the host across ports.
   function originMatchPattern(origin) {
@@ -1068,6 +1076,63 @@
         window.removeEventListener('focus', flush);
         panel.destroy();
       };
+    },
+  });
+
+  // --- Top sites panel ------------------------------------------------------
+  // Most-visited sites via chrome.topSites — local, never transmitted. On-brand:
+  // *measured* importance (most-visited), not *declared* organization (§9). Host-
+  // rendered (first-party, like the ypuf panel); only http(s) sites are openable.
+
+  registerPanelType('topsites', {
+    label: 'Top sites',
+    hint: 'most visited',
+    addable: true,
+    network: false,
+    buildForm(form) {
+      const note = document.createElement('p');
+      note.className = 'muted add-hint';
+      note.textContent = 'Your most-visited sites — local, never leaves your device.';
+      form.appendChild(note);
+      return () => ({});   // no config needed
+    },
+    mount(ctx) {
+      const body = ctx.body;
+      if (!chrome.topSites || !chrome.topSites.get) {
+        body.textContent = 'Top sites is unavailable.';
+        return;
+      }
+      chrome.topSites.get((sites) => {
+        if (chrome.runtime.lastError) return;
+        body.textContent = '';
+        const list = document.createElement('div');
+        list.className = 'topsites-list';
+        for (const s of (sites || [])) {
+          if (!isHttpUrl(s.url)) continue;               // never render a non-web scheme
+          if (list.children.length >= 8) break;          // a calm glance, not a wall
+          const a = document.createElement('a');
+          a.className = 'topsite';
+          a.href = s.url;
+          const ico = document.createElement('img');
+          ico.className = 'topsite-ico';
+          ico.alt = '';
+          ico.src = faviconUrl(s.url);
+          ico.addEventListener('error', () => ico.remove()); // drop a broken favicon quietly
+          const name = document.createElement('span');
+          name.className = 'topsite-name';
+          name.textContent = s.title || hostOfUrl(s.url); // page-derived → textContent, inert
+          a.append(ico, name);
+          list.appendChild(a);
+        }
+        if (!list.children.length) {
+          const p = document.createElement('p');
+          p.className = 'muted';
+          p.textContent = 'No top sites yet — browse a little.';
+          body.appendChild(p);
+        } else {
+          body.appendChild(list);
+        }
+      });
     },
   });
 

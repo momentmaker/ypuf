@@ -137,9 +137,10 @@ body[data-mood="night"] { --paper: #f1eadf; --warm-gray: #e3d9cc; --card-bg: #ff
   position: relative; top: -1px;
   background: var(--warm-gray);
 }
-.panel[data-type="ypuf"]   .panel-title::before { background: var(--accent-amber); }
-.panel[data-type="rss"]    .panel-title::before { background: var(--accent-slate); }
-.panel[data-type="crypto"] .panel-title::before { background: var(--accent-sage); }
+.panel[data-type="ypuf"]     .panel-title::before { background: var(--accent-amber); }
+.panel[data-type="rss"]      .panel-title::before { background: var(--accent-slate); }
+.panel[data-type="crypto"]   .panel-title::before { background: var(--accent-sage); }
+.panel[data-type="topsites"] .panel-title::before { background: var(--accent-rose); }
 
 /* Feed/price panels render in a sandboxed iframe; ypuf panel renders host-side. */
 .panel-frame {
@@ -254,6 +255,17 @@ body[data-mood="night"] { --paper: #f1eadf; --warm-gray: #e3d9cc; --card-bg: #ff
 }
 .panel-group-label { font-size: 11px; color: var(--muted); margin: 10px 2px 3px; }
 .set-restore { margin-top: 4px; }
+
+/* Top sites panel — most-visited as a calm clickable list. */
+.topsites-list { display: flex; flex-direction: column; gap: 2px; }
+.topsite {
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 8px; border-radius: 6px;
+  text-decoration: none; color: var(--ink); font-size: 13px;
+}
+.topsite:hover { background: var(--warm-gray); }
+.topsite-ico { width: 16px; height: 16px; border-radius: 3px; flex: none; background: var(--warm-gray); }
+.topsite-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Minimal mode — a near-blank calm page that keeps the engine running (U2). */
 .board.minimal .board-grid,
