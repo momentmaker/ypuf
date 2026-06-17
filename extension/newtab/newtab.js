@@ -133,6 +133,7 @@
     cell.setAttribute('role', 'region');
     cell.setAttribute('aria-label', label || 'panel');
     cell.dataset.panelId = spec.id || '';
+    cell.dataset.type = (spec && spec.type) || '';   // drives the per-type accent dot (U1/R2)
 
     const head = document.createElement('header');
     head.className = 'panel-head';
@@ -813,13 +814,15 @@
       };
 
       const asOf = (ts) => { try { return 'as of ' + new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } };
-      const fmt = (p) => {
-        if (!p || p.unavailable || typeof p.price !== 'number') return `${p ? p.token : '?'} — price unavailable`;
-        const chg = typeof p.change24h === 'number' ? `  ${p.change24h >= 0 ? '+' : ''}${p.change24h.toFixed(2)}%` : '';
-        return `${p.token}  $${p.price.toLocaleString()}${chg}`;
+      const lineOf = (p) => {
+        if (!p || p.unavailable || typeof p.price !== 'number') return { text: `${p ? p.token : '?'} — unavailable` };
+        const text = `${p.token}  $${p.price.toLocaleString()}`;
+        if (typeof p.change24h !== 'number') return { text };
+        const up = p.change24h >= 0;
+        return { text, tail: `${up ? '▲' : '▼'} ${Math.abs(p.change24h).toFixed(2)}%`, tone: up ? 'pos' : 'neg' };
       };
       const draw = (prices, ts) => {
-        const lines = (prices || []).map((p) => ({ text: fmt(p) }));
+        const lines = (prices || []).map(lineOf);
         panel.render({ lines: lines.length ? lines : [{ text: 'price unavailable' }], note: ts ? asOf(ts) : 'price unavailable', foot });
       };
 

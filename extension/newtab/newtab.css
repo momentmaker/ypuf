@@ -11,7 +11,12 @@
 body.board {
   width: 100%;
   min-height: 100vh;
-  background: var(--paper);
+  background-color: var(--paper);
+  /* A faint warm vignette + a whisper of paper grain — atmosphere, not noise. */
+  background-image:
+    radial-gradient(120% 95% at 50% 28%, transparent 56%, rgba(26, 22, 19, 0.05) 100%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  background-attachment: fixed;
 }
 
 .board-main {
@@ -26,7 +31,12 @@ body.board {
   justify-content: space-between;
   margin-bottom: 28px;
 }
-.board-head .wordmark { font-size: 18px; }
+.board-head .wordmark {
+  font-family: var(--font-display);
+  font-size: 27px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
 
 .board-actions { display: flex; align-items: center; gap: 14px; }
 
@@ -57,9 +67,16 @@ body.board {
   background: var(--card-bg);
   border: 1px solid var(--warm-gray);
   border-radius: var(--radius);
-  padding: 14px 16px;
+  padding: 15px 17px;
   margin-bottom: 18px;
-  box-shadow: 0 1px 2px var(--shadow);
+  /* Layered depth: a 1px top highlight (object catching light) + a soft cast shadow. */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 1px 2px var(--shadow),
+    0 10px 24px -14px var(--shadow);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .panel { transition: transform .16s ease, box-shadow .16s ease; }
 }
 
 .panel-head {
@@ -67,9 +84,23 @@ body.board {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 11px;
 }
 .panel-title { font-size: 12px; font-weight: 600; color: var(--accent-slate); letter-spacing: 0.02em; }
+/* A quiet per-type accent dot — glance-parseable identity, not coloured chrome (R2). */
+.panel-title::before {
+  content: "";
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+  position: relative; top: -1px;
+  background: var(--warm-gray);
+}
+.panel[data-type="ypuf"]   .panel-title::before { background: var(--accent-amber); }
+.panel[data-type="rss"]    .panel-title::before { background: var(--accent-slate); }
+.panel[data-type="crypto"] .panel-title::before { background: var(--accent-sage); }
 
 /* Feed/price panels render in a sandboxed iframe; ypuf panel renders host-side. */
 .panel-frame {
@@ -105,7 +136,11 @@ body.board {
    pointer-events:none mid-drag so dragover/drop reach the cells beneath them. */
 .board.editing .panel { cursor: grab; }
 .board.editing .panel:active { cursor: grabbing; }
-.panel.dragging { opacity: 0.45; }
+.panel.dragging {
+  opacity: 0.97;
+  transform: scale(1.015) rotate(-0.5deg);
+  box-shadow: 0 18px 36px -16px rgba(26, 22, 19, 0.24);
+}
 .panel.drop-before { box-shadow: 0 -3px 0 0 var(--accent-amber), 0 1px 2px var(--shadow); }
 .panel.drop-after { box-shadow: 0 3px 0 0 var(--accent-amber), 0 1px 2px var(--shadow); }
 .board.dragging-active .panel-frame { pointer-events: none; }
