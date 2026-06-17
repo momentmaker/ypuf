@@ -56,14 +56,18 @@
     return null;
   }
 
-  // Pattern 15: resolve a panel-supplied index against the host's OWN parsed link
-  // set. A forged, out-of-range, or non-integer index resolves to null — the panel
-  // can only ever open a URL the host itself parsed, never one it names.
+  // Pattern 15 + scheme safety: resolve a panel-supplied index against the host's OWN
+  // parsed link set, and only ever yield an http(s) URL. A forged/out-of-range index,
+  // OR a host-parsed link whose scheme is javascript:/data:/file:/chrome:, resolves to
+  // null — the panel can neither open a URL the host didn't parse, nor smuggle a
+  // dangerous scheme into one the host did (feed link bytes are attacker-controlled).
   function resolveOpen(index, links) {
     if (!Array.isArray(links)) return null;
     if (!Number.isInteger(index) || index < 0 || index >= links.length) return null;
     const url = links[index];
-    return (typeof url === 'string' && url) ? url : null;
+    if (typeof url !== 'string' || !url) return null;
+    try { const p = new URL(url).protocol; if (p !== 'http:' && p !== 'https:') return null; } catch { return null; }
+    return url;
   }
 
   const api = { renderEnvelope, sanitizeLines, parseIntent, resolveOpen, PROTO, VERSION };

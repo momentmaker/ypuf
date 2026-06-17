@@ -31,24 +31,6 @@
     return false;
   }
 
-  function isBlockedV6(raw) {
-    let h = raw;
-    if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1);
-    h = h.toLowerCase();
-    if (h === '::1' || h === '::') return true;               // loopback / unspecified
-    if (/^fe[89ab]/.test(h)) return true;                     // link-local fe80::/10
-    if (/^f[cd]/.test(h)) return true;                        // unique-local fc00::/7
-    if (h.includes('::ffff:')) return true;                   // any IPv4-mapped literal (incl. hex-normalised)
-    return false;
-  }
-
-  function isBlockedHost(host) {
-    const v4 = parseIPv4(host);
-    if (v4) return isPrivateV4(v4);
-    if (host.includes(':')) return isBlockedV6(host);
-    return false;
-  }
-
   // validate(input) -> { ok, reason? , url?, origin?, host? }
   function validate(input) {
     let u;
@@ -56,7 +38,13 @@
     if (u.protocol !== 'https:') return { ok: false, reason: 'scheme' };
     const host = u.hostname.toLowerCase();
     if (host === 'localhost' || host.endsWith('.localhost')) return { ok: false, reason: 'loopback' };
-    if (isBlockedHost(host)) return { ok: false, reason: 'private-ip' };
+    // Reject ALL IPv6 literals. Embedded-IPv4 (::ffff:/::compat), 6to4 (2002::), and
+    // NAT64 (64:ff9b::) forms can each smuggle a private target past a hand-rolled
+    // allow-list; no legitimate user RSS/crypto feed is served from a bare IPv6
+    // literal, so blocking the whole class is the safe call (SSRF).
+    if (host.includes(':')) return { ok: false, reason: 'ipv6-literal' };
+    const v4 = parseIPv4(host);
+    if (v4 && isPrivateV4(v4)) return { ok: false, reason: 'private-ip' };
     return { ok: true, url: u.href, origin: u.origin, host: u.hostname };
   }
 

@@ -42,7 +42,6 @@
     label: provider.label,
     buildUrl: (tokens) => provider.buildUrl(tokens),
     parse: (text, tokens) => provider.parse(text, tokens),
-    coingecko,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ypuf = Object.assign(root.ypuf || {}, { cryptoProvider: api });

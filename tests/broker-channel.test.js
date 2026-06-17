@@ -36,6 +36,8 @@ test('sanitizeLines coerces non-string text and drops a non-integer open index',
     { text: 'ok' },
     { text: 'x', open: 2 },
   ]);
+  // open:0 is a valid (falsy) index and must survive — guards against a truthiness simplification.
+  assert.deepEqual(ch.sanitizeLines([{ text: 'first', open: 0 }]), [{ text: 'first', open: 0 }]);
   assert.deepEqual(ch.sanitizeLines(null), []);
 });
 
@@ -60,4 +62,14 @@ test('resolveOpen intersects a panel index against the host-parsed links (patter
   assert.equal(ch.resolveOpen(1.5, links), null);
   assert.equal(ch.resolveOpen(0, null), null);
   assert.equal(ch.resolveOpen(0, []), null);
+});
+
+test('resolveOpen yields only http(s) URLs — a dangerous-scheme host link resolves to null', () => {
+  // Even an in-range index whose host-parsed link carries a non-web scheme is rejected:
+  // feed item links are attacker-controlled bytes, so provenance ≠ safety.
+  for (const bad of ['javascript:alert(1)', 'chrome://settings/', 'data:text/html,x', 'file:///etc/passwd', 'not a url', '']) {
+    assert.equal(ch.resolveOpen(0, [bad]), null, `${bad} should not resolve`);
+  }
+  assert.equal(ch.resolveOpen(0, ['http://ok.test/a']), 'http://ok.test/a');
+  assert.equal(ch.resolveOpen(0, ['https://ok.test/a']), 'https://ok.test/a');
 });

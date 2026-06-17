@@ -1,12 +1,11 @@
 /*
  * ypuf — RSS 2.0 / Atom parser (slice 5 / U5, R13).
  *
- * Pure: takes a feed string, returns [{ title, link, source, time }] of PLAIN
- * STRINGS. Every field is extracted as text and decoded to a literal string — a
- * <title> carrying markup (CDATA `<img onerror=…>` or escaped `&lt;script&gt;`)
- * comes out as the inert literal text, never as DOM. The sandbox renders these via
- * textContent, so the markup can never execute (R13). The parser never produces or
- * re-serialises HTML.
+ * Every field is extracted as text and decoded to a literal string — a <title>
+ * carrying markup (CDATA `<img onerror=…>` or escaped `&lt;script&gt;`) comes out
+ * as inert literal text, never as DOM. The sandbox renders these via textContent,
+ * so the markup can never execute (R13). The parser never produces or re-serialises
+ * HTML.
  *
  * No DOMParser (so it is node-testable in this no-build repo) — a small, careful
  * extractor for the few fields a calm headline panel needs. Built test-first

@@ -37,11 +37,27 @@ test('a public IPv4 host is allowed', () => {
   assert.equal(validate('https://172.32.0.1/x').ok, true);   // just outside 172.16/12
 });
 
-test('loopback / link-local / ULA IPv6 hosts are blocked', () => {
-  for (const u of ['https://[::1]/x', 'https://[fe80::1]/x', 'https://[fc00::1]/x', 'https://[fd12:3456::1]/x', 'https://[::ffff:192.168.0.1]/x']) {
+test('all IPv6 literal hosts are blocked, including embedded-IPv4 / 6to4 / NAT64 bypass forms', () => {
+  for (const u of [
+    'https://[::1]/x', 'https://[fe80::1]/x', 'https://[fc00::1]/x', 'https://[fd12:3456::1]/x',
+    'https://[::ffff:192.168.0.1]/x',   // IPv4-mapped
+    'https://[::7f00:1]/x',             // IPv4-compatible ::127.0.0.1
+    'https://[2002:7f00:1::]/x',        // 6to4 embedding 127.0.0.1
+    'https://[64:ff9b::7f00:1]/x',      // NAT64 embedding 127.0.0.1
+    'https://[2001:db8::1]/x',          // even a "public" literal is rejected (whole class blocked)
+  ]) {
     const r = validate(u);
     assert.equal(r.ok, false, `${u} should be blocked`);
+    assert.equal(r.reason, 'ipv6-literal', `${u} → ipv6-literal`);
   }
+});
+
+test('IP-obfuscation forms are normalised by URL() and still blocked (regression guard)', () => {
+  // These rely on the URL constructor normalising the host before validate sees it;
+  // pinning them guards against a future switch to manual host extraction.
+  assert.equal(validate('https://2130706433/x').reason, 'private-ip');       // decimal 127.0.0.1
+  assert.equal(validate('https://0x7f000001/x').reason, 'private-ip');       // hex 127.0.0.1
+  assert.equal(validate('https://8.8.8.8@192.168.1.1/feed').reason, 'private-ip'); // userinfo bypass → host is 192.168.1.1
 });
 
 test('localhost (and *.localhost) is blocked', () => {

@@ -939,8 +939,10 @@ const boardGetConfig = async () => (await local.get(BOARD_CONFIG_KEY)) || DEFAUL
 
 let boardWriteChain = Promise.resolve();
 function boardSaveConfig(config) {
-  boardWriteChain = boardWriteChain.then(() => local.set(BOARD_CONFIG_KEY, config)).catch(logErr);
-  return boardWriteChain.then(() => ({ ok: true }));
+  const write = boardWriteChain.then(() => local.set(BOARD_CONFIG_KEY, config));
+  boardWriteChain = write.catch(logErr);   // the chain survives a failed write (stays serialized)
+  // …but the caller learns the truth, so a failed save isn't reported as ok.
+  return write.then(() => ({ ok: true }), (e) => ({ ok: false, error: String(e) }));
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

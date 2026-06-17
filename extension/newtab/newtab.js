@@ -15,8 +15,7 @@
 'use strict';
 
 (function () {
-  const PROTO = 'panel';
-  const VERSION = 1;
+  const { PROTO, VERSION } = window.ypuf.channel; // single source of the protocol id/version
 
   const docBody = document.body;
   const grid = document.getElementById('board-grid');
@@ -27,6 +26,7 @@
 
   let config = { panels: [], minimalMode: false };
   let editing = false;
+  let boardBusy = false;   // guards reorder/remove against reentrancy during an async save
   let mounted = [];   // panel teardown fns; run before each re-render so intervals,
                       // message listeners, and focus handlers never leak.
 
@@ -61,14 +61,19 @@
   //   source: { cacheKey, url, ttlMs, parse(rawText) -> value }
   // Cache entry: { value, fetchedAt, fetchingAt? } in chrome.storage.local.
 
-  const FETCH_LOCK_MS = 20000; // cross-tab single-flight window
+  const FETCH_LOCK_MS = 20000;   // cross-tab single-flight window
+  const FETCH_TIMEOUT_MS = 15000; // a hung host must not hold the lock indefinitely
 
   async function brokerRefresh(source) {
     const entry = (await local.get(source.cacheKey)) || {};
     const now = Date.now();
-    // Cross-tab single-flight: if another board tab is mid-fetch, don't stampede.
-    if (entry.fetchingAt && (now - entry.fetchingAt) < FETCH_LOCK_MS) return entry.value;
+    // Cross-tab single-flight: skip only when another tab is mid-fetch AND we already
+    // have a value to serve. On a COLD cache we fetch anyway — a stale lock left by a
+    // tab that closed mid-fetch must not wedge a fresh open at "couldn't load".
+    if (entry.value !== undefined && entry.fetchingAt && (now - entry.fetchingAt) < FETCH_LOCK_MS) return entry.value;
     await local.set(source.cacheKey, Object.assign({}, entry, { fetchingAt: now }));
+    const ctl = new AbortController();
+    const tid = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
     try {
       const v = window.ypuf.sourceurl.validate(source.url);
       if (!v.ok) throw new Error('invalid-source:' + v.reason);
@@ -76,6 +81,7 @@
         credentials: 'omit',            // never send cookies to the feed host (R10)
         referrerPolicy: 'no-referrer',  // never leak the chrome-extension:// URL
         redirect: 'error',              // a validated public host can't 302 to a private IP
+        signal: ctl.signal,             // a slow/hung host aborts at FETCH_TIMEOUT_MS
       });
       if (!res.ok) throw new Error('http-' + res.status);
       const value = source.parse(await res.text());   // text-only struct
@@ -86,20 +92,23 @@
       const keep = (await local.get(source.cacheKey)) || {};
       await local.set(source.cacheKey, { value: keep.value, fetchedAt: keep.fetchedAt });
       throw e;
+    } finally {
+      clearTimeout(tid);
     }
   }
 
   // Stale-while-revalidate: serve fresh from cache; serve stale immediately and
-  // refresh in the background; on a cold cache, await the first fetch.
+  // refresh in the background; on a cold cache, await the first fetch. fetchedAt
+  // rides along so a panel can stamp the value with WHEN it was fetched, not now.
   async function brokerLoad(source) {
     const entry = (await local.get(source.cacheKey)) || {};
     const has = entry.value !== undefined;
     const fresh = has && entry.fetchedAt && (Date.now() - entry.fetchedAt) < source.ttlMs;
-    if (fresh) return { value: entry.value, stale: false };
+    if (fresh) return { value: entry.value, fetchedAt: entry.fetchedAt, stale: false };
     const refreshing = brokerRefresh(source).catch((e) => { console.warn('[ypuf] panel refresh failed', e); return null; });
-    if (has) return { value: entry.value, stale: true, refresh: refreshing };
+    if (has) return { value: entry.value, fetchedAt: entry.fetchedAt, stale: true, refresh: refreshing };
     const value = await refreshing;
-    return { value: value == null ? null : value, stale: false, cold: value == null };
+    return { value: value == null ? null : value, fetchedAt: value == null ? null : Date.now(), stale: false, cold: value == null };
   }
 
   const broker = { load: brokerLoad, refresh: brokerRefresh };
@@ -137,6 +146,16 @@
   // Shared panel helpers (used by the rss/crypto network panels).
   function hostOfUrl(u) { try { return new URL(u).host; } catch { return u || ''; } }
 
+  function isHttpUrl(u) {
+    try { const p = new URL(u).protocol; return p === 'http:' || p === 'https:'; } catch { return false; }
+  }
+
+  // A host-permission match pattern from an origin. Match patterns can't carry a
+  // port, so a feed on a non-standard port grants the host across ports.
+  function originMatchPattern(origin) {
+    try { const u = new URL(origin); return `${u.protocol}//${u.hostname}/*`; } catch { return null; }
+  }
+
   function setPanelLabel(ctx, label) {
     const t = ctx.head && ctx.head.querySelector('.panel-title');
     if (t) t.textContent = label;
@@ -148,14 +167,18 @@
     const cfg = ctx.spec.config || {};
     let origin;
     try { origin = new URL(cfg.url).origin; } catch { return; }
+    const pattern = originMatchPattern(origin);
+    if (!pattern) return;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'link';
     btn.textContent = 'Grant access';
     btn.addEventListener('click', () => {
-      chrome.permissions.request({ origins: [origin.replace(/\/?$/, '/*')] }, (granted) => {
-        if (!chrome.runtime.lastError && granted) ctx.updateSpec({ needsAccess: false });
-      });
+      try {
+        chrome.permissions.request({ origins: [pattern] }, (granted) => {
+          if (!chrome.runtime.lastError && granted) ctx.updateSpec({ needsAccess: false });
+        });
+      } catch (e) { console.warn('[ypuf] grant request failed', e); }
     });
     ctx.body.appendChild(btn);
   }
@@ -172,30 +195,41 @@
     frame.title = 'panel content';
     frame.src = chrome.runtime.getURL('panels/sandbox.html');
 
-    let ready = false;
-    let queued = null;
-
     const channel = window.ypuf.channel;
+    let ready = false;
+    let alive = true;
+    let queued = null;
+    let readyTimer = null;
 
     function handle(event) {
-      if (event.source !== frame.contentWindow) return;   // R9: only THIS frame (live cross-frame check)
+      if (!alive || event.source !== frame.contentWindow) return; // R9 + post-teardown guard
       const msg = event.data;
       if (!msg || msg.ypuf !== PROTO || msg.v !== VERSION) return;
-      if (msg.kind === 'ready') { ready = true; if (queued) { post(queued); queued = null; } return; }
+      if (msg.kind === 'ready') { ready = true; clearTimeout(readyTimer); if (queued) { post(queued); queued = null; } return; }
       const intent = channel.parseIntent(msg);            // validated shape; index re-checked by the caller
       if (intent && typeof onIntent === 'function') onIntent(intent);
     }
     window.addEventListener('message', handle);
 
     function post(renderBody) {
+      // A late async render (broker resolved after teardown/reorder) can't hit a
+      // removed iframe whose contentWindow is now null.
+      if (!alive || !frame.contentWindow) return;
       if (!ready) { queued = renderBody; return; }
       // renderEnvelope reduces lines to {text, open-index} only — no raw URL/HTML
       // ever crosses to the sandbox.
       frame.contentWindow.postMessage(channel.renderEnvelope(renderBody), '*');
     }
 
+    // If the sandbox never signals ready (failed load), show a calm error rather
+    // than an eternal "Loading…".
+    readyTimer = setTimeout(() => { if (alive && !ready) body.textContent = 'Panel couldn’t load.'; }, 6000);
+
     body.appendChild(frame);
-    return { render: post, destroy() { window.removeEventListener('message', handle); frame.remove(); } };
+    return {
+      render: post,
+      destroy() { alive = false; clearTimeout(readyTimer); window.removeEventListener('message', handle); frame.remove(); },
+    };
   }
 
   // --- edit mode: per-panel controls + reorder ----------------------------
@@ -224,13 +258,17 @@
   }
 
   async function movePanel(idx, delta) {
+    if (boardBusy) return;
     const to = idx + delta;
     if (idx < 0 || to < 0 || to >= config.panels.length) return;
-    const [p] = config.panels.splice(idx, 1);
-    config.panels.splice(to, 0, p);
-    await saveConfig();
-    renderBoard();
-    focusPanel(p.id);
+    boardBusy = true;   // a second nudge mid-save would splice a stale index (double-shift)
+    try {
+      const [p] = config.panels.splice(idx, 1);
+      config.panels.splice(to, 0, p);
+      await saveConfig();
+      renderBoard();
+      focusPanel(p.id);
+    } finally { boardBusy = false; }
   }
 
   async function updatePanelSpec(id, patch) {
@@ -242,14 +280,18 @@
   }
 
   async function removePanel(id) {
+    if (boardBusy) return;
     const idx = config.panels.findIndex((p) => p.id === id);
     if (idx < 0) return;
-    config.panels.splice(idx, 1);
-    await saveConfig();
-    renderBoard();
-    // Focus moves to the next panel, or the add affordance if none remain (a11y).
-    const next = config.panels[idx] || config.panels[idx - 1];
-    if (next) focusPanel(next.id); else addBtn.focus();
+    boardBusy = true;
+    try {
+      config.panels.splice(idx, 1);
+      await saveConfig();
+      renderBoard();
+      // Focus moves to the next panel, or the add affordance if none remain (a11y).
+      const next = config.panels[idx] || config.panels[idx - 1];
+      if (next) focusPanel(next.id); else addBtn.focus();
+    } finally { boardBusy = false; }
   }
 
   function focusPanel(id) {
@@ -312,14 +354,17 @@
   // else request the feed origin as the next synchronous statement.
   function grantThenAdd(origin, done) {
     if (hasAllUrls) { done(true); return; }
-    chrome.permissions.request({ origins: [origin.replace(/\/?$/, '/*')] }, (granted) => {
-      if (chrome.runtime.lastError) { done(false); return; }
-      done(!!granted);
-    });
+    const pattern = originMatchPattern(origin);
+    if (!pattern) { done(false); return; }
+    try {
+      chrome.permissions.request({ origins: [pattern] }, (granted) => {
+        done(!chrome.runtime.lastError && !!granted);
+      });
+    } catch (e) { done(false); } // an invalid pattern / lost gesture is a denial, never a thrown click
   }
 
   async function addPanel(type, instanceConfig, needsAccess) {
-    const id = `${type}-${Date.now()}`;
+    const id = `${type}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`; // unique even for same-ms adds
     config.panels.push({ id, type, config: instanceConfig, needsAccess });
     await saveConfig();
     renderBoard();
@@ -345,7 +390,8 @@
   // --- board render --------------------------------------------------------
 
   function teardownAll() {
-    for (const t of mounted) { try { t(); } catch (e) { /* a panel teardown must never block re-render */ } }
+    // A panel teardown must never block re-render, but a failure shouldn't vanish.
+    for (const t of mounted) { try { t(); } catch (e) { console.warn('[ypuf] panel teardown error', e); } }
     mounted = [];
   }
 
@@ -382,8 +428,14 @@
     const ctx = panelCell(spec, def.label);
     if (spec.id && editing) makeReorderable(ctx.cell, spec);
     grid.appendChild(ctx.cell);
-    const teardown = def.mount({ ...ctx, spec, mountSandbox, send, broker, remount: renderBoard, updateSpec: (patch) => updatePanelSpec(spec.id, patch) });
-    if (typeof teardown === 'function') mounted.push(teardown);
+    try {
+      const teardown = def.mount({ ...ctx, spec, mountSandbox, send, broker, remount: renderBoard, updateSpec: (patch) => updatePanelSpec(spec.id, patch) });
+      if (typeof teardown === 'function') mounted.push(teardown);
+    } catch (e) {
+      // One bad panel (corrupt config, missing dep) must not abort the rest of the board.
+      console.warn('[ypuf] panel mount failed', spec.type, e);
+      ctx.body.textContent = 'This panel couldn’t load.';
+    }
   }
 
   function mountPlaceholder(spec, label) {
@@ -437,6 +489,17 @@
   editBtn.addEventListener('click', () => { editing = !editing; renderBoard(); });
   addBtn.addEventListener('click', openAddPicker);
   window.addEventListener('hashchange', renderBoard);
+
+  // Another board tab edited the config — converge so this tab doesn't show stale
+  // state. Don't yank the board out from under an active edit; skip our own writes.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes.boardConfig) return;
+    const next = changes.boardConfig.newValue;
+    if (!next || !Array.isArray(next.panels) || editing || boardBusy) return;
+    if (JSON.stringify(next) === JSON.stringify(config)) return;
+    config = next;
+    renderBoard();
+  });
 
   // The board's panel-registration surface. U5 (rss) and U6 (crypto) register
   // their type defs here, before boot.
@@ -500,8 +563,10 @@
         return h;
       }
 
-      send('list-recent', { limit: 12 }).then((resp) =>
-        renderList(recentWrap, resp && resp.items, { action: 'open' }));
+      let destroyed = false;
+      send('list-recent', { limit: 12 }).then((resp) => {
+        if (!destroyed) renderList(recentWrap, resp && resp.items, { action: 'open' });
+      });
 
       let seq = 0;
       let timer = null;
@@ -512,13 +577,14 @@
           const mine = ++seq;
           if (!q) { results.textContent = ''; return; }
           send('recall-search', { q }).then((resp) => {
-            if (mine !== seq) return;
+            if (destroyed || mine !== seq) return;
             renderList(results, resp && resp.results, { action: 'open' });
           });
         }, 180);
       });
 
       send('snooze-list').then((resp) => {
+        if (destroyed) return;
         snoozeWrap.textContent = '';
         const back = resp && resp.back;
         const snoozed = resp && resp.snoozed;
@@ -550,6 +616,8 @@
         li.appendChild(ctrls);
         return li;
       }
+
+      return () => { destroyed = true; clearTimeout(timer); }; // cancel the debounce + late renders
     },
   });
 
@@ -587,11 +655,15 @@
       const panel = ctx.mountSandbox(ctx.body, (intent) => {
         if (intent.intent !== 'open') return;
         const url = channel.resolveOpen(intent.index, links);
-        if (url) chrome.tabs.create({ url });
+        if (url && isHttpUrl(url)) chrome.tabs.create({ url }); // belt-and-suspenders (links[] is already http(s)-only)
       });
 
       const show = (items, note) => {
-        links = (items || []).map((it) => it.link || '');
+        // Only http(s) headline links are openable. A feed item link of
+        // javascript:/data:/file:/chrome: is attacker-controlled feed bytes and must
+        // never reach chrome.tabs.create — resolveOpen proves provenance (the index
+        // maps to a host-parsed link), this proves the SCHEME is safe.
+        links = (items || []).map((it) => (isHttpUrl(it.link) ? it.link : ''));
         const lines = (items || []).map((it, i) => ({ text: it.title, open: links[i] ? i : undefined }));
         panel.render({ lines: lines.length ? lines : [{ text: note || 'No headlines yet.' }], note: lines.length ? note : '', foot });
       };
@@ -672,7 +744,7 @@
 
       panel.render({ lines: [{ text: 'Loading…' }], foot }); // cold-cache placeholder, never blocks (R11)
       ctx.broker.load(source).then((r) => {
-        if (r.value) draw(r.value, Date.now());
+        if (r.value) draw(r.value, r.fetchedAt);   // stamp with WHEN it was fetched, not now
         else draw(null, null);
         if (r.refresh) r.refresh.then((v) => { if (v) draw(v, Date.now()); }).catch(() => {});
       }).catch(() => draw(null, null));

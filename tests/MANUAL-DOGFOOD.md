@@ -358,6 +358,9 @@ boundary, and the host-permission grants — is verified by hand.
       (validation is automated in `tests/sourceurl.test.js`).
 - [ ] A feed whose item title contains `<img onerror=…>` renders as **inert text**
       (automated in `tests/rss.test.js`; spot-check visually).
+- [ ] A feed whose item **link** is `javascript:…` or `chrome://settings/` renders the
+      headline **non-clickable** and never opens it — the host resolves only http(s)
+      links (automated in `tests/broker-channel.test.js` `resolveOpen` scheme test).
 - [ ] **Deny** the grant when adding → the panel shows a calm **"needs access"**
       state with a **Grant access** button (no silent-empty); granting re-loads it.
 - [ ] An **unreachable** feed shows a quiet "couldn't load `<host>`" and **never
