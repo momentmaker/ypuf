@@ -1,7 +1,7 @@
 ---
 title: "feat: ypuf slice 5 — new-tab panel widget board"
 type: feat
-status: active
+status: completed
 date: 2026-06-16
 origin: docs/brainstorms/2026-06-16-ypuf-slice5-newtab-panel-board-requirements.md
 ---
