@@ -785,9 +785,12 @@
     buildForm(form) {
       const input = document.createElement('input');
       input.type = 'text';
-      input.placeholder = 'bitcoin, ethereum';
+      input.placeholder = 'bitcoin, ethereum, solana';
       input.setAttribute('aria-label', 'Token ids (CoinGecko), comma-separated');
-      form.appendChild(input);
+      const hint = document.createElement('p');
+      hint.className = 'muted add-hint';
+      hint.textContent = 'CoinGecko ids, comma-separated — several show in one panel (e.g. "bitcoin", not "BTC").';
+      form.append(input, hint);
       return () => {
         const tokens = input.value.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
         return tokens.length ? { tokens } : null;

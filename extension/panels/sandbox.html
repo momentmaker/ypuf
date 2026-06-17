@@ -11,7 +11,13 @@
     * { margin:0; padding:0; box-sizing:border-box; }
     html,body { background:transparent; color:var(--ink); font-family:var(--font); }
     .panel { display:flex; flex-direction:column; gap:7px; padding:1px; }
-    .lines { display:flex; flex-direction:column; gap:5px; list-style:none; }
+    /* Cap the scrollable list so a long feed scrolls INSIDE the panel; the note +
+       disclosure foot below stay visible (they don't scroll away). */
+    .lines { display:flex; flex-direction:column; gap:5px; list-style:none;
+             max-height:280px; overflow-y:auto; }
+    .lines::-webkit-scrollbar { width:6px; }
+    .lines::-webkit-scrollbar-thumb { background:var(--warm-gray); border-radius:3px; }
+    .lines::-webkit-scrollbar-track { background:transparent; }
     .line { font-size:13px; line-height:1.45; color:var(--ink); }
     button.line { font:inherit; text-align:left; background:none; border:none; color:var(--ink);
                   cursor:pointer; padding:0; width:100%; line-height:1.45; }

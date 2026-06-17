@@ -114,6 +114,7 @@ body.board {
 .add-picker, .add-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 8px 0 18px; }
 .add-form input { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--warm-gray); border-radius: 6px; min-width: 220px; }
 .add-error { color: var(--accent-rose); font-size: 12px; width: 100%; }
+.add-hint { font-size: 11px; width: 100%; margin: -4px 0 0; }
 
 /* ypuf panel (U3) — recall search + shelf, host-rendered. */
 .recall-search {
