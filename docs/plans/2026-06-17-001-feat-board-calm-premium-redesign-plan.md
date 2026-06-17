@@ -540,10 +540,11 @@ first; A1 reacts before the more behavioral passes.
 - **Code-review follow-ups (PR #9):** the Trello lane-placement math was extracted from
   `newtab.js` into a pure, unit-tested `extension/lib/lanes.js` (`tests/lanes.test.js`) —
   this is the documented compounding-throughline pattern (untested host-glue is where
-  each slice's worst bug hides). Still open: the crypto/rss panels share a pre-existing
-  teardown-before-`panelHasAccess`-resolves listener/interval leak (same class as the
-  top-sites/relief teardown guards added in this PR) — a follow-up should apply the same
-  alive-guard there.
+  each slice's worst bug hides). The pre-existing crypto/rss teardown-before-
+  `panelHasAccess`-resolves leak (a torn-down panel could still install a 60s CoinGecko
+  interval + visibility/focus listeners) was also fixed in this PR with an `alive` guard,
+  matching the top-sites/relief guards — so every async panel mount now bails if torn
+  down before its access check resolves.
 
 ---
 

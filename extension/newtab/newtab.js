@@ -925,8 +925,10 @@
         panel.render({ lines: lines.length ? lines : [{ text: note || 'No headlines yet.' }], note: lines.length ? note : '', foot });
       };
 
+      let alive = true;   // armed false by teardown; a late access resolve must not fetch/render a gone panel
       panel.render({ lines: [{ text: 'Loading…' }], foot }); // cold-cache placeholder, never blocks (R11)
       panelHasAccess(cfg.url).then((ok) => {
+        if (!alive) return;   // torn down before access resolved → no post-teardown feed fetch
         if (!ok) {
           // Grant absent (never granted, or revoked after add) → calm "needs access" (R2).
           panel.render({ lines: [{ text: 'ypuf needs access to load this feed.' }], foot });
@@ -942,7 +944,7 @@
           })
           .catch(() => show([], `couldn’t load ${host}`));
       });
-      return () => panel.destroy();
+      return () => { alive = false; panel.destroy(); };
     },
   });
 
@@ -1007,10 +1009,12 @@
       // up here so teardown can always clear them, even if access is denied.
       let staged = null;
       let timer = null;
+      let alive = true;   // armed false by teardown; a late access resolve must not install the interval/listeners
       const flush = () => { if (staged) { draw(staged.value, staged.ts); staged = null; } };
       const onVis = () => { if (document.visibilityState === 'visible') flush(); };
 
       panelHasAccess('https://api.coingecko.com').then((ok) => {
+        if (!alive) return;   // torn down before access resolved → install nothing (no leaked interval/fetch)
         if (!ok) {
           panel.render({ lines: [{ text: 'ypuf needs access to fetch prices.' }], foot });
           addGrantAffordance(ctx);
@@ -1029,6 +1033,7 @@
       });
 
       return () => {
+        alive = false;
         clearInterval(timer);
         document.removeEventListener('visibilitychange', onVis);
         window.removeEventListener('focus', flush);
