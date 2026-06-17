@@ -27,6 +27,7 @@
   let config = { panels: [], minimalMode: false };
   let editing = false;
   let boardBusy = false;   // guards reorder/remove against reentrancy during an async save
+  let dragId = null;       // id of the panel currently being dragged (Trello-style reorder)
   let mounted = [];   // panel teardown fns; run before each re-render so intervals,
                       // message listeners, and focus handlers never leak.
 
@@ -222,6 +223,11 @@
       const msg = event.data;
       if (!msg || msg.ypuf !== PROTO || msg.v !== VERSION) return;
       if (msg.kind === 'ready') { ready = true; clearTimeout(readyTimer); if (queued) { post(queued); queued = null; } return; }
+      if (msg.kind === 'resize' && Number.isFinite(msg.height)) {
+        // The sandbox reports its content height so the iframe hugs it — no dead space.
+        frame.style.height = Math.min(900, Math.max(28, msg.height)) + 'px';
+        return;
+      }
       const intent = channel.parseIntent(msg);            // validated shape; index re-checked by the caller
       if (intent && typeof onIntent === 'function') onIntent(intent);
     }
@@ -253,12 +259,12 @@
   function editControls(spec) {
     const wrap = document.createElement('div');
     wrap.className = 'panel-controls';
-    const idx = config.panels.findIndex((p) => p.id === spec.id);
-    wrap.append(
-      ctrlBtn('◀', 'Move left', () => movePanel(idx, -1)),
-      ctrlBtn('▶', 'Move right', () => movePanel(idx, 1)),
-      ctrlBtn('✕', 'Remove panel', () => removePanel(spec.id)),
-    );
+    const grip = document.createElement('span');
+    grip.className = 'panel-grip';
+    grip.textContent = '⠿';
+    grip.title = 'Drag to reorder';
+    grip.setAttribute('aria-hidden', 'true');
+    wrap.append(grip, ctrlBtn('✕', 'Remove panel', () => removePanel(spec.id)));
     return wrap;
   }
 
@@ -309,7 +315,16 @@
 
   // --- add-panel flow (inline picker → config form → request-first grant) --
 
+  // The picker is a sibling of the add button (outside the grid), so a board
+  // re-render won't remove it — close it explicitly on submit/cancel/render.
+  function closeAddPicker() {
+    const p = document.querySelector('.add-picker');
+    if (p) p.remove();
+    addBtn.hidden = !editing;
+  }
+
   function openAddPicker() {
+    closeAddPicker();
     const addable = Object.entries(PANEL_TYPES).filter(([, d]) => d.addable);
     const picker = document.createElement('div');
     picker.className = 'add-picker';
@@ -322,7 +337,7 @@
     for (const [type, def] of addable) {
       picker.appendChild(ctrlBtn(def.label, `Add ${def.label}`, () => openConfigForm(type, def, picker)));
     }
-    picker.appendChild(ctrlBtn('Cancel', 'Cancel', () => { picker.remove(); addBtn.hidden = false; }));
+    picker.appendChild(ctrlBtn('Cancel', 'Cancel', closeAddPicker));
     addBtn.hidden = true;
     addBtn.after(picker);
   }
@@ -346,6 +361,7 @@
       // user gesture survives — mirrors popup.js's request-first ordering.
       const instanceConfig = readConfig();
       if (!instanceConfig) { err.textContent = 'Please check the values.'; err.hidden = false; return; }
+      closeAddPicker();   // dismiss the form; the new panel renders into the grid
       if (def.network) {
         // Fire the grant prompt in-gesture; the panel checks access live at mount,
         // so whether granted now or revoked later, it shows the right state.
@@ -355,7 +371,7 @@
       }
     });
 
-    form.append(submit, ctrlBtn('Cancel', 'Cancel', () => { picker.remove(); addBtn.hidden = false; }), err);
+    form.append(submit, ctrlBtn('Cancel', 'Cancel', closeAddPicker), err);
     picker.appendChild(form);
   }
 
@@ -406,6 +422,7 @@
 
   function renderBoard() {
     teardownAll();
+    closeAddPicker();   // never leave a stray add-form across a re-render
     grid.textContent = '';
     minimalNote.hidden = true;
     docBody.classList.toggle('editing', editing);
@@ -435,7 +452,7 @@
     const def = PANEL_TYPES[spec.type];
     if (!def) return mountPlaceholder(spec, spec.type);
     const ctx = panelCell(spec, def.label);
-    if (spec.id && editing) makeReorderable(ctx.cell, spec);
+    if (spec.id && editing) makeDraggable(ctx.cell, spec);
     grid.appendChild(ctx.cell);
     try {
       const teardown = def.mount({ ...ctx, spec, mountSandbox, send, broker, remount: renderBoard });
@@ -456,14 +473,70 @@
     grid.appendChild(cell);
   }
 
-  // Keyboard reorder: a focused panel moves with the arrow keys in edit mode.
-  function makeReorderable(cell, spec) {
+  // Trello-style drag reorder: the whole card is the drag handle in edit mode. A
+  // quiet arrow-key fallback stays for keyboard users. During a drag, iframes are
+  // made pointer-events:none (CSS) so dragover/drop reach the cells beneath them.
+  const clearDropMarks = () => grid.querySelectorAll('.drop-before, .drop-after')
+    .forEach((el) => el.classList.remove('drop-before', 'drop-after'));
+
+  const insertBefore = (cell, e) => {
+    const r = cell.getBoundingClientRect();
+    return (e.clientY - r.top) < r.height / 2;   // top half → drop above, bottom half → below
+  };
+
+  function makeDraggable(cell, spec) {
+    cell.draggable = true;
     cell.tabIndex = 0;
-    cell.addEventListener('keydown', (e) => {
+
+    cell.addEventListener('dragstart', (e) => {
+      dragId = spec.id;
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', spec.id); } catch (err) { /* some targets reject setData */ }
+      cell.classList.add('dragging');
+      docBody.classList.add('dragging-active');
+    });
+    cell.addEventListener('dragend', () => {
+      dragId = null;
+      cell.classList.remove('dragging');
+      docBody.classList.remove('dragging-active');
+      clearDropMarks();
+    });
+    cell.addEventListener('dragover', (e) => {
+      if (dragId == null || dragId === spec.id) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      clearDropMarks();
+      cell.classList.add(insertBefore(cell, e) ? 'drop-before' : 'drop-after');
+    });
+    cell.addEventListener('dragleave', () => cell.classList.remove('drop-before', 'drop-after'));
+    cell.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (dragId == null || dragId === spec.id) return;
+      reorderPanel(dragId, spec.id, insertBefore(cell, e));
+    });
+
+    cell.addEventListener('keydown', (e) => {   // keyboard a11y fallback
       const idx = config.panels.findIndex((p) => p.id === spec.id);
       if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); movePanel(idx, -1); }
       else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); movePanel(idx, 1); }
     });
+  }
+
+  async function reorderPanel(srcId, targetId, before) {
+    if (boardBusy || srcId === targetId) return;
+    boardBusy = true;
+    try {
+      const from = config.panels.findIndex((p) => p.id === srcId);
+      if (from < 0) return;
+      const [moved] = config.panels.splice(from, 1);
+      let to = config.panels.findIndex((p) => p.id === targetId);
+      if (to < 0) { config.panels.splice(from, 0, moved); return; }   // target vanished — undo
+      if (!before) to += 1;
+      config.panels.splice(to, 0, moved);
+      await saveConfig();
+      renderBoard();
+      focusPanel(srcId);
+    } finally { boardBusy = false; }
   }
 
   // --- U1 isolation proof (open newtab.html#selftest) ----------------------
@@ -658,7 +731,7 @@
       const channel = window.ypuf.channel;
       const host = cfg.host || hostOfUrl(cfg.url);
       setPanelLabel(ctx, host);                  // R8: each instance labelled by source
-      const foot = `fetches ${host} · the host sees your IP & timing`;
+      const foot = `fetches ${host} · sees your IP + timing`;
 
       let links = [];
       const panel = ctx.mountSandbox(ctx.body, (intent) => {
@@ -726,7 +799,7 @@
       const tokens = Array.isArray(cfg.tokens) ? cfg.tokens : [];
       const CP = window.ypuf.cryptoProvider;
       setPanelLabel(ctx, tokens.length ? tokens.join(' · ') : 'Crypto');
-      const foot = `via ${CP.label} (ypuf-chosen) · the host sees your IP & timing`;
+      const foot = `via ${CP.label} (ypuf-chosen) · sees your IP + timing`;
       const panel = ctx.mountSandbox(ctx.body, () => {}); // glance only — no intents
 
       const source = {

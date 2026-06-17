@@ -4,8 +4,8 @@
  * Reuses the warm-paper :root tokens from ../style.css (loaded first). The board
  * is calm by design: no animation, no auto-play, quiet chrome. Panels flow
  * top-to-bottom within up to 3 columns (no hard cap — clutter is governed by
- * behaviour, not a count, R8); feed cells are fixed-height so a long feed can't
- * grow the board into an unbounded scroll.
+ * behaviour, not a count, R8); a sandboxed panel reports its content height so the
+ * iframe hugs it (the feed item-cap keeps a long feed bounded).
  */
 
 body.board {
@@ -76,8 +76,7 @@ body.board {
   width: 100%;
   border: none;
   display: block;
-  /* Fixed-height cell — a long feed is bounded, never an unbounded wall (U4). */
-  height: 200px;
+  height: 60px;             /* initial; the sandbox posts its real content height */
   background: transparent;
 }
 
@@ -97,10 +96,20 @@ body.board {
 .board-empty { color: var(--muted); font-size: 13px; margin: 8px 0 18px; }
 
 /* Edit mode — per-panel controls + inline add picker (U2). */
-.panel-controls { display: flex; gap: 8px; }
+.panel-controls { display: flex; gap: 8px; align-items: center; }
 .panel-ctrl { font-size: 12px; color: var(--muted); }
 .panel-ctrl:hover { color: var(--ink); }
 .panel[tabindex]:focus { outline: 2px solid var(--accent-amber); outline-offset: 2px; }
+
+/* Trello-style drag reorder. The whole card is the handle; iframes go
+   pointer-events:none mid-drag so dragover/drop reach the cells beneath them. */
+.board.editing .panel { cursor: grab; }
+.board.editing .panel:active { cursor: grabbing; }
+.panel.dragging { opacity: 0.45; }
+.panel.drop-before { box-shadow: 0 -3px 0 0 var(--accent-amber), 0 1px 2px var(--shadow); }
+.panel.drop-after { box-shadow: 0 3px 0 0 var(--accent-amber), 0 1px 2px var(--shadow); }
+.board.dragging-active .panel-frame { pointer-events: none; }
+.panel-grip { color: var(--muted); cursor: grab; font-size: 13px; line-height: 1; user-select: none; }
 
 .add-picker, .add-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 8px 0 18px; }
 .add-form input { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--warm-gray); border-radius: 6px; min-width: 220px; }

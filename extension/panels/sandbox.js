@@ -65,6 +65,13 @@
       foot.textContent = body.foot;               // disclosure line (R10), inert
       root.appendChild(foot);
     }
+    postHeight();
+  }
+
+  // Report content height so the host can size the iframe to fit — no dead space.
+  function postHeight() {
+    const h = Math.ceil(document.documentElement.scrollHeight);
+    window.parent.postMessage({ ypuf: PROTO, v: VERSION, kind: 'resize', height: h }, '*');
   }
 
   window.addEventListener('message', (event) => {
