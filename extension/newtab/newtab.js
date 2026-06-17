@@ -27,7 +27,9 @@
   let config = { panels: [], minimalMode: false };
   let editing = false;
   let boardBusy = false;   // guards reorder/remove against reentrancy during an async save
-  let dragId = null;       // id of the panel currently being dragged (Trello-style reorder)
+  let dragId = null;       // id of the panel currently being dragged (Trello-style placement)
+  const COLS = 3;          // fixed, unlabeled lanes — arrange-your-desk, not a kanban to manage
+  const colOf = (spec) => { const c = Number(spec && spec.col); return (Number.isInteger(c) && c >= 0 && c < COLS) ? c : 0; };
   let mounted = [];   // panel teardown fns; run before each re-render so intervals,
                       // message listeners, and focus handlers never leak.
 
@@ -280,17 +282,67 @@
     return b;
   }
 
-  async function movePanel(idx, delta) {
-    if (boardBusy) return;
-    const to = idx + delta;
-    if (idx < 0 || to < 0 || to >= config.panels.length) return;
-    boardBusy = true;   // a second nudge mid-save would splice a stale index (double-shift)
+  // Within-lane order is the order same-lane panels appear in the flat config.panels
+  // array; a panel's lane is spec.col. So a move = set col + reposition in the flat
+  // array. A second move mid-save would splice a stale index, so guard with boardBusy.
+
+  async function reorderInto(srcId, targetId, before) {
+    if (boardBusy || srcId === targetId) return;
+    boardBusy = true;
     try {
-      const [p] = config.panels.splice(idx, 1);
-      config.panels.splice(to, 0, p);
-      await saveConfig();
-      renderBoard();
-      focusPanel(p.id);
+      const src = config.panels.find((p) => p.id === srcId);
+      const target = config.panels.find((p) => p.id === targetId);
+      if (!src || !target) return;
+      src.col = colOf(target);                              // drop into the target's lane
+      config.panels.splice(config.panels.indexOf(src), 1);
+      let to = config.panels.indexOf(target);
+      if (!before) to += 1;
+      config.panels.splice(to, 0, src);
+      await saveConfig(); renderBoard(); focusPanel(srcId);
+    } finally { boardBusy = false; }
+  }
+
+  async function moveToLane(srcId, col) {            // drop onto empty lane space → lane end
+    if (boardBusy) return;
+    boardBusy = true;
+    try {
+      const src = config.panels.find((p) => p.id === srcId);
+      if (!src) return;
+      src.col = col;
+      config.panels.splice(config.panels.indexOf(src), 1);
+      config.panels.push(src);                       // last in the flat array → bottom of its lane
+      await saveConfig(); renderBoard(); focusPanel(srcId);
+    } finally { boardBusy = false; }
+  }
+
+  async function moveAcross(id, delta) {             // keyboard: ◀ ▶ between lanes
+    if (boardBusy) return;
+    boardBusy = true;
+    try {
+      const src = config.panels.find((p) => p.id === id);
+      if (!src) return;
+      const to = Math.max(0, Math.min(COLS - 1, colOf(src) + delta));
+      if (to === colOf(src)) return;
+      src.col = to;
+      await saveConfig(); renderBoard(); focusPanel(id);
+    } finally { boardBusy = false; }
+  }
+
+  async function moveWithinLane(id, delta) {         // keyboard: ▲ ▼ within a lane
+    if (boardBusy) return;
+    boardBusy = true;
+    try {
+      const src = config.panels.find((p) => p.id === id);
+      if (!src) return;
+      const lane = config.panels.filter((p) => colOf(p) === colOf(src));
+      const j = lane.indexOf(src) + delta;
+      if (j < 0 || j >= lane.length) return;
+      const target = lane[j];
+      config.panels.splice(config.panels.indexOf(src), 1);
+      let to = config.panels.indexOf(target);
+      if (delta > 0) to += 1;
+      config.panels.splice(to, 0, src);
+      await saveConfig(); renderBoard(); focusPanel(id);
     } finally { boardBusy = false; }
   }
 
@@ -480,7 +532,34 @@
     const panels = currentPanels();
     emptyNote.hidden = panels.length > 0;
     addBtn.hidden = !editing;
-    for (const spec of panels) mountPanel(spec);
+    const lanes = [];
+    for (let c = 0; c < COLS; c++) {
+      const lane = document.createElement('div');
+      lane.className = 'board-col';
+      lane.dataset.col = String(c);
+      if (editing) makeLaneDroppable(lane, c);
+      grid.appendChild(lane);
+      lanes.push(lane);
+    }
+    for (const spec of panels) mountPanel(spec, lanes[colOf(spec)] || lanes[0]);
+  }
+
+  // A lane is a drop target for empty-space drops (a panel handles its own drop and
+  // stops propagation). Dropping onto empty lane space appends to that lane's end.
+  function makeLaneDroppable(lane, col) {
+    lane.addEventListener('dragover', (e) => {
+      if (dragId == null) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      lane.classList.add('lane-over');
+    });
+    lane.addEventListener('dragleave', (e) => { if (e.target === lane) lane.classList.remove('lane-over'); });
+    lane.addEventListener('drop', (e) => {
+      lane.classList.remove('lane-over');
+      if (dragId == null) return;
+      e.preventDefault();
+      moveToLane(dragId, col);
+    });
   }
 
   function currentPanels() {
@@ -488,13 +567,13 @@
     return config.panels;
   }
 
-  function mountPanel(spec) {
-    if (spec.type === 'selftest') return mountSelfTest(spec);
+  function mountPanel(spec, lane) {
+    if (spec.type === 'selftest') return mountSelfTest(spec, lane);
     const def = PANEL_TYPES[spec.type];
-    if (!def) return mountPlaceholder(spec, spec.type);
+    if (!def) return mountPlaceholder(spec, spec.type, lane);
     const ctx = panelCell(spec, def.label);
     if (spec.id && editing) makeDraggable(ctx.cell, spec);
-    grid.appendChild(ctx.cell);
+    lane.appendChild(ctx.cell);
     try {
       const teardown = def.mount({ ...ctx, spec, mountSandbox, send, broker, remount: renderBoard });
       if (typeof teardown === 'function') mounted.push(teardown);
@@ -505,20 +584,20 @@
     }
   }
 
-  function mountPlaceholder(spec, label) {
+  function mountPlaceholder(spec, label, lane) {
     const { cell, body } = panelCell(spec, label);
     const p = document.createElement('p');
     p.className = 'muted';
     p.textContent = 'Loading…';
     body.appendChild(p);
-    grid.appendChild(cell);
+    lane.appendChild(cell);
   }
 
   // Trello-style drag reorder: the whole card is the drag handle in edit mode. A
   // quiet arrow-key fallback stays for keyboard users. During a drag, iframes are
   // made pointer-events:none (CSS) so dragover/drop reach the cells beneath them.
-  const clearDropMarks = () => grid.querySelectorAll('.drop-before, .drop-after')
-    .forEach((el) => el.classList.remove('drop-before', 'drop-after'));
+  const clearDropMarks = () => grid.querySelectorAll('.drop-before, .drop-after, .lane-over')
+    .forEach((el) => el.classList.remove('drop-before', 'drop-after', 'lane-over'));
 
   const insertBefore = (cell, e) => {
     const r = cell.getBoundingClientRect();
@@ -552,37 +631,22 @@
     cell.addEventListener('dragleave', () => cell.classList.remove('drop-before', 'drop-after'));
     cell.addEventListener('drop', (e) => {
       e.preventDefault();
+      e.stopPropagation();   // handled here — don't also fire the lane's empty-space drop
       if (dragId == null || dragId === spec.id) return;
-      reorderPanel(dragId, spec.id, insertBefore(cell, e));
+      reorderInto(dragId, spec.id, insertBefore(cell, e));
     });
 
-    cell.addEventListener('keydown', (e) => {   // keyboard a11y fallback
-      const idx = config.panels.findIndex((p) => p.id === spec.id);
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); movePanel(idx, -1); }
-      else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); movePanel(idx, 1); }
+    cell.addEventListener('keydown', (e) => {   // keyboard a11y: ◀▶ change lane, ▲▼ reorder within
+      if (e.key === 'ArrowLeft') { e.preventDefault(); moveAcross(spec.id, -1); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); moveAcross(spec.id, 1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); moveWithinLane(spec.id, -1); }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); moveWithinLane(spec.id, 1); }
     });
-  }
-
-  async function reorderPanel(srcId, targetId, before) {
-    if (boardBusy || srcId === targetId) return;
-    boardBusy = true;
-    try {
-      const from = config.panels.findIndex((p) => p.id === srcId);
-      if (from < 0) return;
-      const [moved] = config.panels.splice(from, 1);
-      let to = config.panels.findIndex((p) => p.id === targetId);
-      if (to < 0) { config.panels.splice(from, 0, moved); return; }   // target vanished — undo
-      if (!before) to += 1;
-      config.panels.splice(to, 0, moved);
-      await saveConfig();
-      renderBoard();
-      focusPanel(srcId);
-    } finally { boardBusy = false; }
   }
 
   // --- U1 isolation proof (open newtab.html#selftest) ----------------------
 
-  function mountSelfTest(spec) {
+  function mountSelfTest(spec, lane) {
     const { cell, body } = panelCell(spec, 'Sandbox self-test');
     const ch = mountSandbox(body, (intent) => {
       console.log('[ypuf] self-test intent received (host validated source):', intent);
@@ -596,7 +660,7 @@
       note: 'Inside the frame: chrome is undefined; fetch() is blocked by CSP.',
       foot: 'sandbox · no chrome.* · no network egress',
     });
-    grid.appendChild(cell);
+    (lane || grid).appendChild(cell);
   }
 
   // --- config + boot -------------------------------------------------------
@@ -606,6 +670,12 @@
   async function loadAndRender() {
     const loaded = await send('board-get-config');
     if (loaded && Array.isArray(loaded.panels)) config = loaded;
+    // One-time migration: panels from before lanes existed get spread across the
+    // columns (round-robin) so the board looks composed rather than all stacked left.
+    if (config.panels.some((p) => !Number.isInteger(p.col))) {
+      config.panels.forEach((p, i) => { if (!Number.isInteger(p.col)) p.col = i % COLS; });
+      saveConfig();
+    }
     renderBoard();
   }
 

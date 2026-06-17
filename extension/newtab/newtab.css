@@ -54,15 +54,38 @@ body.board {
 .board-edit:hover { color: var(--ink); border-color: var(--warm-gray); }
 .board.editing .board-edit { color: var(--accent-amber); border-color: var(--accent-amber); }
 
-/* Multi-column flow: up to 3 columns of ≥320px, collapsing to 2/1 as width drops. */
+/* Explicit lanes: panels are placed in — and dragged between — up to 3 columns.
+   Unlabeled (no kanban chrome): arrange-your-desk, not a board to manage. */
 .board-grid {
-  columns: 320px 3;
-  column-gap: 18px;
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+.board-col {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 60px;
+}
+/* In edit mode each lane becomes a quiet drop zone. */
+.board.editing .board-col {
+  border-radius: var(--radius);
+  min-height: 120px;
+  outline: 1px dashed transparent;
+  outline-offset: 4px;
+  transition: outline-color .15s ease, background .15s ease;
+}
+.board-col.lane-over { outline-color: var(--accent-amber); background: rgba(200, 113, 58, 0.05); }
+.board.editing .board-col:empty::after {
+  content: "drop a panel here";
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 30px 8px;
 }
 
 .panel {
-  break-inside: avoid;
-  display: inline-block;
+  display: block;
   width: 100%;
   background: var(--card-bg);
   border: 1px solid var(--warm-gray);
