@@ -19,6 +19,12 @@ body.board {
   background-attachment: fixed;
 }
 
+/* Time-of-day warmth (U4) — subtle shifts within the warm-paper family, from the
+   local clock. Overriding the tokens on <body> cascades to the whole board. */
+body[data-mood="dawn"]  { --paper: #f9f7f2; --warm-gray: #ece6dd; }
+body[data-mood="dusk"]  { --paper: #f6efe5; --warm-gray: #e7ddd0; --card-bg: #fffcf6; }
+body[data-mood="night"] { --paper: #f1eadf; --warm-gray: #e3d9cc; --card-bg: #fffbf4; --ink: #211c16; }
+
 .board-main {
   max-width: 1080px;
   margin: 0 auto;
@@ -31,12 +37,16 @@ body.board {
   justify-content: space-between;
   margin-bottom: 28px;
 }
+.board-brand { display: flex; flex-direction: column; gap: 1px; }
 .board-head .wordmark {
   font-family: var(--font-display);
   font-size: 27px;
   font-weight: 500;
   letter-spacing: -0.015em;
+  line-height: 1.1;
 }
+/* Living masthead sub-line (U4): the date + a soft mood line keyed to the hour. */
+.board-sub { font-size: 12.5px; color: var(--muted); letter-spacing: 0.01em; }
 
 .board-actions { display: flex; align-items: center; gap: 14px; }
 
@@ -100,7 +110,13 @@ body.board {
 }
 @media (prefers-reduced-motion: no-preference) {
   .panel { transition: transform .16s ease, box-shadow .16s ease; }
+  /* A gentle one-shot rise on open (U4); removed after first paint so re-renders
+     (drag, edit) don't re-animate. A faint left→right lane stagger. */
+  body.intro .panel { animation: panel-rise .5s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+  body.intro .board-col:nth-child(2) .panel { animation-delay: .06s; }
+  body.intro .board-col:nth-child(3) .panel { animation-delay: .12s; }
 }
+@keyframes panel-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 .panel-head {
   display: flex;
@@ -226,6 +242,16 @@ body.board {
   border: 1px solid var(--warm-gray); border-radius: 6px; background: var(--paper);
 }
 .panel .recent-item { padding: 6px 8px; }
+/* The relief moment (U5): a calm once-a-day acknowledgement. */
+.board-relief {
+  background: var(--paper);
+  border: 1px solid var(--warm-gray);
+  border-radius: 8px;
+  padding: 8px 11px;
+  margin-bottom: 11px;
+  font-size: 12.5px;
+  color: var(--accent-sage);
+}
 .panel-group-label { font-size: 11px; color: var(--muted); margin: 10px 2px 3px; }
 .set-restore { margin-top: 4px; }
 

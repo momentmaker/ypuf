@@ -23,6 +23,7 @@
   const addBtn = document.getElementById('add-panel');
   const editBtn = document.getElementById('board-edit');
   const minimalNote = document.getElementById('minimal-note');
+  const boardSub = document.getElementById('board-sub');
 
   let config = { panels: [], minimalMode: false };
   let editing = false;
@@ -32,6 +33,30 @@
   const colOf = (spec) => { const c = Number(spec && spec.col); return (Number.isInteger(c) && c >= 0 && c < COLS) ? c : 0; };
   let mounted = [];   // panel teardown fns; run before each re-render so intervals,
                       // message listeners, and focus handlers never leak.
+  let firstPaint = true; // the gentle card entrance plays once on open, not on every re-render
+
+  // Atmosphere (U4): the board greets the hour. Local clock only — no data, no network.
+  const MOODS = [
+    { from: 5, key: 'dawn', line: 'a fresh morning' },
+    { from: 9, key: 'day', line: 'the day’s open' },
+    { from: 17, key: 'dusk', line: 'a quiet evening' },
+    { from: 21, key: 'night', line: 'a still night' },
+  ];
+  function moodNow() {
+    const h = new Date().getHours();
+    let m = MOODS[MOODS.length - 1];
+    for (const x of MOODS) { if (h >= x.from) m = x; }
+    if (h < MOODS[0].from) m = MOODS[MOODS.length - 1]; // small hours → night
+    return m;
+  }
+  function renderMasthead() {
+    const m = moodNow();
+    docBody.dataset.mood = m.key;
+    if (!boardSub) return;
+    let date = '';
+    try { date = new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }); } catch (e) { /* locale */ }
+    boardSub.textContent = date ? `${date} · ${m.line}` : m.line;
+  }
 
   // Cached at load so the add-panel click handler can decide grant-vs-skip
   // SYNCHRONOUSLY — calling chrome.permissions.contains inside the click would
@@ -542,6 +567,12 @@
       lanes.push(lane);
     }
     for (const spec of panels) mountPanel(spec, lanes[colOf(spec)] || lanes[0]);
+
+    if (firstPaint) {   // gentle one-shot card entrance; removed so re-renders don't re-animate
+      firstPaint = false;
+      docBody.classList.add('intro');
+      setTimeout(() => docBody.classList.remove('intro'), 700);
+    }
   }
 
   // A lane is a drop target for empty-space drops (a panel handles its own drop and
@@ -679,6 +710,7 @@
     renderBoard();
   }
 
+  renderMasthead();   // greet the hour (U4)
   editBtn.addEventListener('click', () => { editing = !editing; renderBoard(); });
   addBtn.addEventListener('click', openAddPicker);
   window.addEventListener('hashchange', renderBoard);
@@ -720,10 +752,22 @@
       search.className = 'recall-search';
       search.placeholder = 'Recall a let-go page…';
       search.setAttribute('aria-label', 'Recall a let-go page');
+      const reliefWrap = document.createElement('div');
       const results = document.createElement('div');
       const recentWrap = document.createElement('div');
       const snoozeWrap = document.createElement('div');
-      body.append(search, results, recentWrap, snoozeWrap);
+      body.append(reliefWrap, search, results, recentWrap, snoozeWrap);
+
+      // The relief moment (U5/R12): once a day, a calm acknowledgement that what you
+      // let go is safe. The SW gates the claim, so it shows on whichever surface you
+      // open first that day; never a badge or a nag.
+      send('relief-claim').then((resp) => {
+        if (!resp || !resp.show) return;
+        const relief = document.createElement('div');
+        relief.className = 'board-relief';
+        relief.textContent = `${resp.count} let go today — all still findable.`;
+        reliefWrap.appendChild(relief);
+      });
 
       function row(it, tags, action) {
         const li = SR.toDom(SR.itemRow(it, tags, T, action), document, handlers);
