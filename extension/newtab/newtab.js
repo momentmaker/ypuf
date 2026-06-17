@@ -602,6 +602,7 @@
         return () => panel.destroy();
       }
 
+      panel.render({ lines: [{ text: 'Loading…' }], foot }); // cold-cache placeholder, never blocks (R11)
       ctx.broker.load({ cacheKey: 'panel:rss:' + cfg.url, url: cfg.url, ttlMs: 30 * 60 * 1000, parse: (xml) => rss.parse(xml) })
         .then((r) => {
           if (r.value && r.value.length) show(r.value, r.stale ? 'updating…' : '');
@@ -669,6 +670,7 @@
         return () => panel.destroy();
       }
 
+      panel.render({ lines: [{ text: 'Loading…' }], foot }); // cold-cache placeholder, never blocks (R11)
       ctx.broker.load(source).then((r) => {
         if (r.value) draw(r.value, Date.now());
         else draw(null, null);
