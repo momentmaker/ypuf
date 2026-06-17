@@ -37,16 +37,16 @@ body[data-mood="night"] { --paper: #f1eadf; --warm-gray: #e3d9cc; --card-bg: #ff
   justify-content: space-between;
   margin-bottom: 28px;
 }
-.board-brand { display: flex; flex-direction: column; gap: 1px; }
+.board-brand { display: flex; flex-direction: column; gap: 7px; }
 .board-head .wordmark {
   font-family: var(--font-display);
   font-size: 27px;
   font-weight: 500;
   letter-spacing: -0.015em;
-  line-height: 1.1;
+  line-height: 1;
 }
 /* Living masthead sub-line (U4): the date + a soft mood line keyed to the hour. */
-.board-sub { font-size: 12.5px; color: var(--muted); letter-spacing: 0.01em; }
+.board-sub { font-size: 12.5px; color: var(--muted); letter-spacing: 0.01em; line-height: 1.2; }
 
 .board-actions { display: flex; align-items: center; gap: 14px; }
 
