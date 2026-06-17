@@ -21,7 +21,9 @@ applies_when:
   - Snapshotting derived state (a working set) live at an event instead of banking the signal
   - Forgetting a record whose identity is embedded as a reference inside other records
   - Restoring user-selected items by validating the request against SW-owned state
-tags: [chrome-mv3, service-worker, indexeddb, content-script, privacy, message-passing, no-build, minisearch, alarms, offscreen, concurrency, background-mutation, scheduling, session-clustering, snapshot-at-event, context-restore, working-set]
+  - Building the extension's first network surface that fetches a remote or user-supplied URL and renders it
+  - Rendering page-influenced or remote content without granting it the host's privileges
+tags: [chrome-mv3, service-worker, indexeddb, content-script, privacy, message-passing, no-build, minisearch, alarms, offscreen, concurrency, background-mutation, scheduling, session-clustering, snapshot-at-event, context-restore, working-set, sandbox, iframe-isolation, broker, ssrf, csp, network-egress, single-flight, swr-cache, postmessage, text-only-render]
 ---
 
 # MV3 patterns for a local, privacy-first content-indexing extension
@@ -48,6 +50,12 @@ restore) added patterns 12-15: snapshotting a tab's working set live at let-go,
 scrubbing forgotten pages out of *other* records' embedded sets, a memoized-init
 deferred-work hole, and a restore-time authorization check. Every one surfaced in
 implementation review, not planning — the same seam, the same lesson.
+
+Slice 5 (the new-tab panel board) added pattern 16 — the extension's first
+*network* surface (user-added RSS feeds + a crypto panel) — and widened the seam
+from SW↔page↔storage to also host↔sandbox↔network. Its worst finding was again
+host-glue: attacker-controlled feed `<link>` bytes reaching `chrome.tabs.create`
+past a provenance check that wasn't a safety check.
 
 ## Guidance
 
@@ -282,6 +290,63 @@ arbitrary one. This extends SW-as-broker (pattern 1) from "trust only our own
 contexts" to the finer "even from our own contexts, validate caller-supplied
 identifiers against state the SW owns."
 
+### 16. Network egress: a sandboxed render surface + a privileged broker that validates the URL and renders text-only
+
+Slice 5 (the new-tab panel board) is the extension's first surface that reaches the
+network — user-added RSS feeds and a crypto-price panel. The privacy wedge that was
+conventional everywhere else (the SW is trusted, the page is not) becomes a
+*structural* boundary here, built from coordinated guards so no single lapse inverts
+it:
+
+- **The render surface has no capability, by construction.** Network panels run in a
+  sandboxed iframe (`sandbox` manifest key, `allow-scripts`, **no**
+  `allow-same-origin` → a null origin with no `chrome.*`, no storage, no reach into
+  the parent). Its CSP **removes network egress** (`default-src 'none'; connect-src
+  'none'; img-src 'none'`) — the panel can paint but cannot `fetch`/`XHR`/`<img>`
+  home. Isolation means the capability is *absent*, not merely unused.
+- **One privileged broker does all the I/O.** The board-host page (extension origin,
+  holds the host grant) validates the source URL, fetches, parses to a **text-only**
+  struct, caches, and `postMessage`s only `{text, open-index}` to the panel; the SW
+  stays off the network path. This is SW-as-broker (pattern 1) re-cast as
+  host-as-broker for a context the SW can't serve.
+- **Validate the fetched URL at the boundary (SSRF).** A pure validator (`https`
+  only; reject `javascript:`/`data:`/`file:`; block private/loopback/link-local IPv4
+  and **all** IPv6 literals; `fetch(..., {redirect:'error'})` so a validated public
+  host can't 302 to a private IP). Hand-rolled IP allow-listing is where the bypass
+  hides — decimal/hex/octal IPv4 are normalized by `new URL`, but IPv6 embedded-v4 /
+  6to4 / NAT64 forms are not, so blocking the whole IPv6-literal class is the safe call.
+- **Harden the fetch and the channel.** `credentials:'omit'` + `referrerPolicy:
+  'no-referrer'` so the host learns neither a cookie nor the `chrome-extension://`
+  URL; an `AbortController` timeout so a hung host can't wedge the single-flight lock;
+  the host validates `event.source === the panel's own iframe.contentWindow` (a live
+  cross-frame check no pure test can make).
+- **Render text-only on _both_ surfaces — including the privileged one.** The sandbox
+  renders via `textContent`; but the host-rendered ypuf panel does too, because recall
+  *titles are page-influenced* (built from `document.title`). The most privileged
+  context renders the one byte-class the threat model is tempted to wave through, so
+  the text-only guarantee is extracted into a node-testable helper and asserted.
+
+The cache reuses the serialize/single-flight shape (patterns 7/8): a `{fetchingAt}`
+lock beside a success-only `{value, fetchedAt}` entry, stale-while-revalidate, the
+cold path bypassing a stale lock so a tab that died mid-fetch can't wedge the next open.
+
+**Provenance is not safety** — pattern 16's sharpest edge, and slice 5's P1. Restore-
+intersect (pattern 15) generalizes to the panel boundary: a panel→host "open headline
+N" carries only an *index*, which the host intersects against its own parsed link set,
+so the panel can't name a URL the host didn't parse. But that proves only *where the
+URL came from*, not that it's *safe to open*. The code review caught it: a malicious
+feed item `<link>` is attacker-controlled bytes, and a feed linking to
+`chrome://settings/` or `javascript:…` passed the index-intersect and reached
+`chrome.tabs.create` on one click. The fix put a scheme gate **inside the tested
+kernel** (`channel.resolveOpen` yields an http(s) URL or null), so the guarantee is
+asserted, not merely present. Index-intersection answers "did the host parse this?";
+the scheme gate answers "is this openable?" — a boundary needs both.
+
+This extends patterns 1 (broker), 6 (always-answer the channel), 8 (decoupled
+serialized side effects), and 15 (validate caller-supplied identifiers against owned
+state) into the network-egress dimension — and adds the rule that an identifier's
+*provenance* and its *safety* are separate checks.
+
 ## Why This Matters
 
 Each of these is a real failure mode that shipped past unit tests and was only
@@ -316,11 +381,23 @@ yet the review's P1 lived exactly where the deferred forget-scrub met the memoiz
 service-worker init: warm-session forgets never ran the scrub, so a restore could
 reopen a page the user had erased. As in slices 2 and 3, the fix generalized an
 existing idea (drive deferred work from the consuming read path, not a
-once-per-lifetime init) rather than adding machinery. Four slices, four
-highest-severity findings, every one in the SW glue and none reachable by a
-pure-module test — so review attention belongs disproportionately at the
-SW↔page↔storage boundary, where listener registration, promise memoization, alarm
-timing, and shared-storage mutation create failure modes no pure-function test
+once-per-lifetime init) rather than adding machinery.
+
+Slice 5 (the panel board) opened a genuinely new seam — the first network surface —
+and the pattern held once more. The pure kernels (the URL/SSRF validator, the
+RSS/crypto parsers, the envelope/intent channel) were fully unit-tested, yet the
+Tier-2 review's P1 lived in the host glue: a malicious feed `<link>` is
+attacker-controlled bytes, and the index-intersect that proved a link's *provenance*
+(the host parsed it) was mistaken for proof of its *safety*, so a feed linking to
+`chrome://settings/` or `javascript:…` reached `chrome.tabs.create`. The fix again
+generalized an existing idea — restore-intersect (pattern 15) extended to the panel
+boundary, with a scheme gate moved *into* the tested kernel so the guarantee is
+asserted. Five slices, five highest-severity findings, every one in the host/SW glue
+and none reachable by a pure-module test — and the seam has only widened, from
+SW↔page↔storage to also host↔sandbox↔network (egress, SSRF, cross-frame
+postMessage). Review attention belongs disproportionately at that boundary, where
+listener registration, promise memoization, alarm timing, shared-storage mutation,
+and now URL validation + text-only egress create failure modes no pure-function test
 will surface.
 
 ## When to Apply
@@ -366,16 +443,27 @@ will surface.
 - **Restore-intersect (15):** `extension/lib/cluster.js` `restorePlan` (intersect
   requested URLs against stored siblings) with `extension/background.js`
   `restoreSet`/`reopenUrl`.
+- **Network-panel isolation (16):** `extension/panels/sandbox.{html,js}` (null-origin
+  render surface, egress-blocking CSP) + `extension/newtab/newtab.js` (the board-host
+  broker: validate → hardened fetch → text-only parse → SWR + single-flight cache →
+  `postMessage`), with `extension/lib/sourceurl.js` (https/SSRF validator),
+  `extension/lib/channel.js` `resolveOpen` (index-intersect **+ http(s) scheme gate**),
+  and `extension/lib/shelf-render.js` (text-only host render). The
+  `permissions.onRemoved` gate on `<all_urls>` keeps a per-origin feed-grant revoke
+  from disabling auto-let-go.
 
 ## Related
 
 - Plans: `docs/plans/2026-06-14-001-feat-ypuf-slice1-recall-shelf-plan.md`,
   `docs/plans/2026-06-15-001-feat-ypuf-slice2-auto-let-go-plan.md`,
   `docs/plans/2026-06-15-002-feat-ypuf-slice3-snooze-plan.md`,
-  `docs/plans/2026-06-16-001-feat-ypuf-slice4-session-clustering-plan.md`
+  `docs/plans/2026-06-16-001-feat-ypuf-slice4-session-clustering-plan.md`,
+  `docs/plans/2026-06-16-002-feat-ypuf-slice5-newtab-panel-board-plan.md`
 - Origins: `docs/brainstorms/2026-06-14-ypuf-v1-sequence-and-slice1-requirements.md`,
   `docs/brainstorms/2026-06-15-ypuf-slice2-auto-let-go-requirements.md`,
   `docs/brainstorms/2026-06-15-ypuf-slice3-snooze-requirements.md`,
-  `docs/brainstorms/2026-06-15-ypuf-slice4-session-clustering-requirements.md`
+  `docs/brainstorms/2026-06-15-ypuf-slice4-session-clustering-requirements.md`,
+  `docs/brainstorms/2026-06-16-ypuf-slice5-newtab-panel-board-requirements.md`
 - PRs: momentmaker/ypuf#1 (slice 1), momentmaker/ypuf#2 (slice 2),
-  momentmaker/ypuf#4 (slice 3), momentmaker/ypuf#6 (slice 4)
+  momentmaker/ypuf#4 (slice 3), momentmaker/ypuf#6 (slice 4),
+  momentmaker/ypuf#8 (slice 5)
