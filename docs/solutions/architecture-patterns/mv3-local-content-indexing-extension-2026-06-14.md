@@ -1,7 +1,7 @@
 ---
 title: MV3 patterns for a local, privacy-first content-indexing extension
 date: 2026-06-14
-last_updated: 2026-06-16
+last_updated: 2026-06-17
 category: docs/solutions/architecture-patterns
 module: extension (service worker, lib, overlay, popup)
 problem_type: architecture_pattern
@@ -23,7 +23,9 @@ applies_when:
   - Restoring user-selected items by validating the request against SW-owned state
   - Building the extension's first network surface that fetches a remote or user-supplied URL and renders it
   - Rendering page-influenced or remote content without granting it the host's privileges
-tags: [chrome-mv3, service-worker, indexeddb, content-script, privacy, message-passing, no-build, minisearch, alarms, offscreen, concurrency, background-mutation, scheduling, session-clustering, snapshot-at-event, context-restore, working-set, sandbox, iframe-isolation, broker, ssrf, csp, network-egress, single-flight, swr-cache, postmessage, text-only-render]
+  - Mounting a UI panel whose real work (timers, listeners, fetch, render) sits behind an async permission gate
+  - Extracting pure decision/transformation logic out of untested Chrome/DOM host glue so it can be unit-tested
+tags: [chrome-mv3, service-worker, indexeddb, content-script, privacy, message-passing, no-build, minisearch, alarms, offscreen, concurrency, background-mutation, scheduling, session-clustering, snapshot-at-event, context-restore, working-set, sandbox, iframe-isolation, broker, ssrf, csp, network-egress, single-flight, swr-cache, postmessage, text-only-render, lifecycle-guard, teardown, generation-token, host-glue-extraction, drag-and-drop]
 ---
 
 # MV3 patterns for a local, privacy-first content-indexing extension
@@ -56,6 +58,15 @@ Slice 5 (the new-tab panel board) added pattern 16 — the extension's first
 from SW↔page↔storage to also host↔sandbox↔network. Its worst finding was again
 host-glue: attacker-controlled feed `<link>` bytes reaching `chrome.tabs.create`
 past a provenance check that wasn't a safety check.
+
+Slice 5's redesign (the "warm desk" pass — Trello-style drag-placement, a daily
+one-line, a top-sites panel) ran its own Tier-2 review and the throughline held a
+sixth time: its headline findings were a stale async re-show and a *pre-existing*
+panel-teardown leak — both host-glue lifecycle bugs invisible to the (passing)
+pure-module tests. It added pattern 17 (guarding async-gated mounts) and — for the
+first time — pattern 18: rather than only *noting* that bugs hide in untested glue,
+it *extracted* the glue's pure core (the lane math) into a tested module. The
+counter-move to the throughline, finally written down as a move.
 
 ## Guidance
 
@@ -347,6 +358,58 @@ serialized side effects), and 15 (validate caller-supplied identifiers against o
 state) into the network-egress dimension — and adds the rule that an identifier's
 *provenance* and its *safety* are separate checks.
 
+### 17. Async-gated panel mounts: arm an `alive` flag in teardown so a late resolve can't leak (or write through) what it installs
+
+A board panel's `mount` returns its teardown **synchronously**, but does the real
+work behind an async gate — `panelHasAccess(origin).then(() => { install a refresh
+setInterval; add visibilitychange/focus listeners; kick a fetch; render })`. If the
+board re-renders before that gate resolves — an edit-mode toggle, a drag, a
+cross-tab `storage.onChanged`, a `hashchange` — `teardownAll()` runs the teardown
+**first**, clearing handles that are still `null`, and *then* the `.then` installs
+the timers/listeners with no one left to clear them. In the redesign review this was
+a pre-existing P1: the crypto panel leaked a 60s CoinGecko `setInterval` plus two
+window/document listeners that outlived the panel (ongoing fetches forever); the RSS
+panel fired a wasted post-teardown feed fetch. The fix is a one-line discipline —
+`let alive = true;` in the mount, set `alive = false` as the *first* statement of the
+teardown, and bail at the top of the async callback (`if (!alive) return;`). Note the
+sandbox's own `post()` already guarded late *renders* (`if (!alive ||
+!frame.contentWindow) return;`) — but that only covers the render path; the
+interval/listener/fetch **installation** needs its own guard.
+
+A sibling case needs a *counter*, not a flag: a **re-runnable** render that can be
+superseded mid-flight (the opt-in one-line: enable → async fetch → toggle off, or two
+rapid enables racing) must capture a generation token at entry (`const mine =
+++seq`) and bail in each `.then` when `mine !== seq`, so a stale fetch can't re-show a
+disabled element or stack a duplicate. The rule of thumb: **a teardown that fires once
+uses a boolean; a render that can overlap itself uses a monotonic token.** Both are
+the lifecycle dimension of the same host-glue seam — and both were invisible to the
+pure-module tests, which never mount, tear down, or re-enter.
+
+### 18. Extract the pure core out of untested host glue — the throughline, finally as a move
+
+Patterns 1-16 *observe* that every slice's worst finding lives in host/SW glue no
+pure-module test can reach. The redesign **acted** on it. The Trello lane-placement
+math — which column a panel is in, the splice arithmetic for reorder-into-lane /
+move-across-lanes / move-within-lane, the round-robin migration of pre-lanes configs —
+lived inline in `newtab.js`, entangled with `chrome.storage` saves and DOM
+re-renders, and was the one genuinely new behavior surface with **zero** coverage:
+exactly where the throughline predicts the bug. The move: pull the array math into a
+pure `lib/lanes.js` (the no-build UMD/DI shape, pattern 5) whose functions take
+`(panels, …args)` and return *whether they changed anything*; leave the orchestration
+(the `boardBusy` reentrancy guard, `saveConfig`/`renderBoard`/`focusPanel`) in the
+host behind a thin `commitMove(id, () => lanes.move…())` wrapper that runs the
+epilogue only when the pure move reports a change. Nine unit tests then pin the splice
+indices, the clamp-on-out-of-range-`col` degradation, and the migration — the part
+most likely to silently lose a panel — while the host keeps only what genuinely needs
+chrome/DOM. Coverage went 161 → 170 with the seam's riskiest math now asserted.
+
+The rule: when host glue contains pure decision or transformation logic, the lesson
+isn't "review the glue harder," it's **"move the decidable core out where a test can
+hold it, and keep only the truly-coupled orchestration inside."** A boolean
+`changed` return is what lets the pure core stay pure (it makes no I/O decision) while
+the host still knows whether to persist — the same split that kept the four move
+operations from each re-implementing the guard/save/render epilogue.
+
 ## Why This Matters
 
 Each of these is a real failure mode that shipped past unit tests and was only
@@ -400,6 +463,19 @@ listener registration, promise memoization, alarm timing, shared-storage mutatio
 and now URL validation + text-only egress create failure modes no pure-function test
 will surface.
 
+Slice 5's redesign closed the loop. The Tier-2 review's strongest signal was four
+independent reviewers converging on one stale-async re-show in the one-line footer,
+and the deepest finding was a *pre-existing* teardown leak (a torn-down crypto panel
+still installing a 60s fetch interval) — both, once again, in the host glue, both
+green under the pure-module suite. But this pass did something the first five didn't:
+it turned the throughline into prevention. The lane-placement math — the one new
+surface the lesson flagged in advance — was extracted into a pure, nine-test
+`lib/lanes.js` (pattern 18) *before* it could become the sixth headline bug. The same
+review also generalized the teardown guard (pattern 17) across every async panel
+mount. The takeaway is no longer only "review attention belongs at the glue"; it is
+"when the glue holds decidable logic, **move that logic out** — the seam keeps its
+orchestration, the test suite gets the decision, and the predicted bug never lands."
+
 ## When to Apply
 
 - Any Chrome MV3 extension that reads/persists page content or user data locally.
@@ -451,6 +527,16 @@ will surface.
   and `extension/lib/shelf-render.js` (text-only host render). The
   `permissions.onRemoved` gate on `<all_urls>` keeps a per-origin feed-grant revoke
   from disabling auto-let-go.
+- **Async-gated mount guard (17):** `extension/newtab/newtab.js` — the `alive` flag in
+  the crypto, RSS, and top-sites panel mounts (set false in teardown, checked at the top
+  of the `panelHasAccess(...).then`), and the `oneLineSeq` generation token in
+  `renderOneLine` (a re-runnable render guarded against supersession). Mirrors the
+  sandbox's own `post()` late-render guard in `mountSandbox`.
+- **Host-glue extraction (18):** `extension/lib/lanes.js` (pure `colOf`/`reorderInto`/
+  `moveToLane`/`moveAcross`/`moveWithinLane`/`migrateCols`, each returning a `changed`
+  boolean) with `tests/lanes.test.js` (9 cases), consumed by `newtab.js` via the
+  `commitMove(id, moved)` wrapper that owns the `boardBusy` guard + save/render/focus
+  epilogue.
 
 ## Related
 
@@ -458,12 +544,14 @@ will surface.
   `docs/plans/2026-06-15-001-feat-ypuf-slice2-auto-let-go-plan.md`,
   `docs/plans/2026-06-15-002-feat-ypuf-slice3-snooze-plan.md`,
   `docs/plans/2026-06-16-001-feat-ypuf-slice4-session-clustering-plan.md`,
-  `docs/plans/2026-06-16-002-feat-ypuf-slice5-newtab-panel-board-plan.md`
+  `docs/plans/2026-06-16-002-feat-ypuf-slice5-newtab-panel-board-plan.md`,
+  `docs/plans/2026-06-17-001-feat-board-calm-premium-redesign-plan.md`
 - Origins: `docs/brainstorms/2026-06-14-ypuf-v1-sequence-and-slice1-requirements.md`,
   `docs/brainstorms/2026-06-15-ypuf-slice2-auto-let-go-requirements.md`,
   `docs/brainstorms/2026-06-15-ypuf-slice3-snooze-requirements.md`,
   `docs/brainstorms/2026-06-15-ypuf-slice4-session-clustering-requirements.md`,
-  `docs/brainstorms/2026-06-16-ypuf-slice5-newtab-panel-board-requirements.md`
+  `docs/brainstorms/2026-06-16-ypuf-slice5-newtab-panel-board-requirements.md`,
+  `docs/brainstorms/2026-06-17-ypuf-board-calm-premium-redesign-requirements.md`
 - PRs: momentmaker/ypuf#1 (slice 1), momentmaker/ypuf#2 (slice 2),
   momentmaker/ypuf#4 (slice 3), momentmaker/ypuf#6 (slice 4),
-  momentmaker/ypuf#8 (slice 5)
+  momentmaker/ypuf#8 (slice 5), momentmaker/ypuf#9 (slice 5 redesign)
