@@ -277,7 +277,7 @@
     const ctx = panelCell(spec, def.label);
     if (spec.id && editing) makeReorderable(ctx.cell, spec);
     grid.appendChild(ctx.cell);
-    def.mount(spec, { ...ctx, mountSandbox, send });
+    def.mount({ ...ctx, spec, mountSandbox, send, remount: renderBoard });
   }
 
   function mountPlaceholder(spec, label) {
@@ -331,10 +331,119 @@
   addBtn.addEventListener('click', openAddPicker);
   window.addEventListener('hashchange', renderBoard);
 
-  // The board's panel-registration surface. U3 (ypuf), U5 (rss), and U6 (crypto)
-  // register their type defs here, before boot.
+  // The board's panel-registration surface. U5 (rss) and U6 (crypto) register
+  // their type defs here, before boot.
   window.ypuf = Object.assign(window.ypuf || {}, {
     board: { registerPanelType, mountSandbox, send },
+  });
+
+  // --- ypuf panel (U3): recall/shelf/back-now, host-rendered ---------------
+  // Reuses the shipped SW messages (zero new SW data work) and lib/shelf-render.js
+  // for the text-only row builders. Page-influenced titles → textContent is
+  // load-bearing here, not cosmetic (see shelf-render.js / KTD).
+
+  registerPanelType('ypuf', {
+    label: 'ypuf — recall',
+    addable: false,          // present by default (R3); not added via the picker
+    network: false,
+    mount(ctx) {
+      const SR = window.ypuf.shelfRender;
+      const T = (window.ypuf && window.ypuf.titles) || {};
+      const body = ctx.body;
+      const handlers = { open: (id) => send('recall-open', { recordId: id }) };
+
+      const search = document.createElement('input');
+      search.type = 'search';
+      search.className = 'recall-search';
+      search.placeholder = 'Recall a let-go page…';
+      search.setAttribute('aria-label', 'Recall a let-go page');
+      const results = document.createElement('div');
+      const recentWrap = document.createElement('div');
+      const snoozeWrap = document.createElement('div');
+      body.append(search, results, recentWrap, snoozeWrap);
+
+      function row(it, tags, action) {
+        const li = SR.toDom(SR.itemRow(it, tags, T, action), document, handlers);
+        // Set-bearing recall items offer a one-tap "bring back the set" (the
+        // granular checkbox restore stays in the popup); restore-set intersects
+        // the requested URLs against the record's stored siblings in the SW.
+        if (it.siblings && it.siblings.length) {
+          const urls = it.siblings.map((s) => s.url);
+          const restore = document.createElement('button');
+          restore.type = 'button';
+          restore.className = 'link set-restore';
+          restore.textContent = `bring back the set? (${it.siblings.length})`;
+          restore.addEventListener('click', () => send('restore-set', { recordId: it.id, urls }));
+          li.appendChild(restore);
+        }
+        return li;
+      }
+
+      function renderList(target, items, action) {
+        target.textContent = '';
+        for (const it of (items || [])) {
+          target.appendChild(row(it, [T.timeAgo ? T.timeAgo(it.timestamp) : ''], action));
+        }
+      }
+
+      function group(label) {
+        const h = document.createElement('div');
+        h.className = 'panel-group-label';
+        h.textContent = label;
+        return h;
+      }
+
+      send('list-recent', { limit: 12 }).then((resp) =>
+        renderList(recentWrap, resp && resp.items, { action: 'open' }));
+
+      let seq = 0;
+      let timer = null;
+      search.addEventListener('input', () => {
+        const q = search.value.trim();
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          const mine = ++seq;
+          if (!q) { results.textContent = ''; return; }
+          send('recall-search', { q }).then((resp) => {
+            if (mine !== seq) return;
+            renderList(results, resp && resp.results, { action: 'open' });
+          });
+        }, 180);
+      });
+
+      send('snooze-list').then((resp) => {
+        snoozeWrap.textContent = '';
+        const back = resp && resp.back;
+        const snoozed = resp && resp.snoozed;
+        if (back && back.length) {
+          snoozeWrap.appendChild(group('Back now'));
+          renderListInto(snoozeWrap, back, { action: 'open' });
+        }
+        if (snoozed && snoozed.length) {
+          snoozeWrap.appendChild(group('Snoozed'));
+          for (const it of snoozed) snoozeWrap.appendChild(snoozedRow(it));
+        }
+      });
+
+      function renderListInto(target, items, action) {
+        const ul = document.createElement('ul');
+        ul.className = 'recent';
+        for (const it of items) ul.appendChild(row(it, [T.timeAgo ? T.timeAgo(it.returnAt || it.timestamp) : ''], action));
+        target.appendChild(ul);
+      }
+
+      function snoozedRow(it) {
+        const li = SR.toDom(SR.itemRow(it, ['snoozed'], T, null), document, {});
+        const ctrls = document.createElement('div');
+        ctrls.className = 'snooze-controls';
+        const wake = document.createElement('button');
+        wake.type = 'button'; wake.className = 'link'; wake.textContent = 'Wake';
+        wake.addEventListener('click', () => send('snooze-wake', { recordId: it.id }).then(() => ctx.remount && ctx.remount()));
+        ctrls.appendChild(wake);
+        li.appendChild(ctrls);
+        return li;
+      }
+    },
   });
 
   loadAndRender();

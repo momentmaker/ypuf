@@ -106,6 +106,16 @@ body.board {
 .add-form input { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--warm-gray); border-radius: 6px; min-width: 220px; }
 .add-error { color: var(--accent-rose); font-size: 12px; width: 100%; }
 
+/* ypuf panel (U3) — recall search + shelf, host-rendered. */
+.recall-search {
+  font: inherit; font-size: 13px; width: 100%;
+  padding: 6px 9px; margin-bottom: 8px;
+  border: 1px solid var(--warm-gray); border-radius: 6px; background: var(--paper);
+}
+.panel .recent-item { padding: 6px 8px; }
+.panel-group-label { font-size: 11px; color: var(--muted); margin: 10px 2px 3px; }
+.set-restore { margin-top: 4px; }
+
 /* Minimal mode — a near-blank calm page that keeps the engine running (U2). */
 .board.minimal .board-grid,
 .board.minimal .add-panel,
