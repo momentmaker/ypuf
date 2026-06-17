@@ -50,6 +50,11 @@ Traces to the origin requirements doc (R1–R16). Grouping by the four pillars +
   gentle recall surfacing; recall is the board's center of gravity.
 - **One-line:** R14 a quiet bottom aphorism from `um.fz.ax/self/one-line.md` (text-only)
   · R15 cache the list daily + pick locally per tab · R16 pattern-16 network governance.
+- **Top sites (post-plan, A1-requested during dogfooding):** R17 a *most-visited* sites
+  panel (Brave-style) — **measured** importance, not **declared** organization, so it
+  holds the §9 line. Local-only (`chrome.topSites`), http(s)-filtered, page-derived
+  titles rendered `textContent`-inert, favicons via the local MV3 `_favicon` endpoint
+  (no network). See U7.
 
 **Origin actors:** A1 (the dogfooding board user).
 **Origin acceptance examples:** AE1 (R8), AE2 (R3), AE3 (R4,R10), AE4 (R14,R15),
@@ -181,8 +186,10 @@ WHILE BOARD OPEN
         <display-face>.woff2     # self-hosted masthead/heading face (R6)
       lib/
         oneline.js               # pure markdown-list parser (R15), test-first
+        lanes.js                 # pure lane-placement math (extracted from newtab.js; code-review follow-up)
     tests/
       oneline.test.js
+      lanes.test.js
 
 (Everything else modifies existing slice-5 files.)
 
@@ -433,6 +440,47 @@ daily-cached aphorism, text-only, opt-in, grant-gated, with disclosure; endpoint
 
 ---
 
+### U7. Top sites panel (added post-plan, A1-requested)
+
+**Goal:** A calm "most-visited sites" panel (the thing Brave puts on its new tab),
+on-brand because it surfaces *measured* importance rather than *declared* organization.
+
+**Requirements:** R17
+
+**Dependencies:** none (a panel type like rss/crypto, but `network: false`)
+
+**Files:**
+- Modify: `extension/manifest.json` (add the `topSites` + `favicon` permissions),
+  `extension/newtab/newtab.js` (register the `topsites` panel type),
+  `extension/newtab/newtab.css` (the top-sites list styles)
+- Test: `tests/MANUAL-DOGFOOD.md`
+
+**Approach:** Register a `topsites` panel type (host-rendered, first-party — like the
+ypuf panel, not the sandbox). `mount` calls `chrome.topSites.get`, filters to `http(s)`
+URLs only (`isHttpUrl`), caps the list (~8 — a glance, not a wall), renders each as an
+anchor with the page title (`textContent`, inert) + a favicon from the local MV3
+`_favicon` endpoint (`chrome.runtime.getURL('/_favicon/?pageUrl=…&size=32')` — a local
+lookup, never a network fetch). A broken favicon drops itself quietly; an unavailable
+`chrome.topSites` degrades to a calm message.
+
+**Privacy posture (load-bearing):** `chrome.topSites` returns the user's most-visited
+URLs — browsing-history-adjacent data. It **stays on-device**: the panel is `network:
+false`, the favicons are the local `_favicon` lookup, and nothing about top sites is
+fetched, transmitted, or written to a network source. Only `http(s)` schemes are ever
+rendered/openable (no `javascript:`/`chrome:`/`data:`). This is consistent with
+CONTEXT §7 (privacy) and §9 (measured, not declared, importance).
+
+**Test scenarios:**
+- `Test expectation: MANUAL-DOGFOOD`: the panel shows your most-visited sites with
+  favicons; clicking one navigates; a fresh profile shows the "browse a little" empty
+  state; the favicon load makes no request to a third-party host (check the Network tab);
+  with `chrome.topSites` unavailable, the panel shows a calm unavailable message.
+
+**Verification:** The panel surfaces most-visited sites, local-only, http(s)-only,
+text-only titles; no network egress; calm at rest.
+
+---
+
 ## System-Wide Impact
 
 - **Interaction graph:** all new behavior lives in the board host (`newtab.js`) + CSS +
@@ -442,9 +490,15 @@ daily-cached aphorism, text-only, opt-in, grant-gated, with disclosure; endpoint
 - **Security boundary:** unchanged and reused. The one-line is "another network source"
   under pattern 16 (validate → hardened fetch → text-only → cache → disclosure → opt-in
   grant). The colored-delta line (U2) keeps the text-only guarantee — the channel test
-  asserts the new `tail`/`tone` fields can't smuggle markup.
+  asserts the new `tail`/`tone` fields can't smuggle markup. The top-sites panel (U7)
+  adds **no** network surface: `topSites` + `favicon` are local APIs (the favicon is the
+  local `_favicon` lookup), and the panel is `network: false`.
+- **Permissions:** two new local permissions — `topSites` (U7) and `favicon` (U7
+  favicons). Both are on-device reads; neither opens a network or host-permission surface.
 - **Privacy:** the only network addition is the opt-in one-line; everything else
-  (time-of-day, craft, materiality, masthead, soul) is local/CSS. No external font CDN.
+  (time-of-day, craft, materiality, masthead, soul, top sites) is local/CSS. Top sites is
+  browsing-history-adjacent but stays 100% on-device, http(s)-filtered, text-only. No
+  external font CDN.
 - **Unchanged invariants:** the recall/let-go engine, the SW broker, the 100%-local
   recall data, the slice-5 network governance, and the calm/no-interrupt rule are all
   preserved. Every motion is responsive-only + reduced-motion-safe.
@@ -483,6 +537,13 @@ first; A1 reacts before the more behavioral passes.
   structured-but-text-only line schema, or the cache-daily-pick-locally network shape).
 - No backend, no telemetry. The only new runtime behavior is the opt-in one-line fetch.
 - Update `tests/MANUAL-DOGFOOD.md` with a redesign section (each unit's checklist).
+- **Code-review follow-ups (PR #9):** the Trello lane-placement math was extracted from
+  `newtab.js` into a pure, unit-tested `extension/lib/lanes.js` (`tests/lanes.test.js`) —
+  this is the documented compounding-throughline pattern (untested host-glue is where
+  each slice's worst bug hides). Still open: the crypto/rss panels share a pre-existing
+  teardown-before-`panelHasAccess`-resolves listener/interval leak (same class as the
+  top-sites/relief teardown guards added in this PR) — a follow-up should apply the same
+  alive-guard there.
 
 ---
 

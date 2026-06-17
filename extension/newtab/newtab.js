@@ -16,6 +16,7 @@
 
 (function () {
   const { PROTO, VERSION } = window.ypuf.channel; // single source of the protocol id/version
+  const lanes = window.ypuf.lanes;                // pure lane-placement math (tested in lib/lanes.js)
 
   const docBody = document.body;
   const grid = document.getElementById('board-grid');
@@ -33,7 +34,7 @@
   let dragId = null;       // id of the panel currently being dragged (Trello-style placement)
   let oneLineSeq = 0;      // supersedes a slow one-line fetch when the footer is re-rendered or toggled off
   const COLS = 3;          // fixed, unlabeled lanes — arrange-your-desk, not a kanban to manage
-  const colOf = (spec) => { const c = Number(spec && spec.col); return (Number.isInteger(c) && c >= 0 && c < COLS) ? c : 0; };
+  const colOf = (spec) => lanes.colOf(spec, COLS);
   let mounted = [];   // panel teardown fns; run before each re-render so intervals,
                       // message listeners, and focus handlers never leak.
   let firstPaint = true; // the gentle card entrance plays once on open, not on every re-render
@@ -365,69 +366,24 @@
     return b;
   }
 
-  // Within-lane order is the order same-lane panels appear in the flat config.panels
-  // array; a panel's lane is spec.col. So a move = set col + reposition in the flat
-  // array. A second move mid-save would splice a stale index, so guard with boardBusy.
-
-  async function reorderInto(srcId, targetId, before) {
-    if (boardBusy || srcId === targetId) return;
+  // The lane math lives in lib/lanes.js (pure + tested); the host owns the boardBusy
+  // guard + the save/render/focus epilogue. A second move mid-save would splice a
+  // stale index, so every mutation is serialized behind boardBusy.
+  async function commitMove(id, moved) {
+    if (boardBusy || !moved()) return;   // moved() mutates config.panels; false → nothing changed
     boardBusy = true;
-    try {
-      const src = config.panels.find((p) => p.id === srcId);
-      const target = config.panels.find((p) => p.id === targetId);
-      if (!src || !target) return;
-      src.col = colOf(target);                              // drop into the target's lane
-      config.panels.splice(config.panels.indexOf(src), 1);
-      let to = config.panels.indexOf(target);
-      if (!before) to += 1;
-      config.panels.splice(to, 0, src);
-      await saveConfig(); renderBoard(); focusPanel(srcId);
-    } finally { boardBusy = false; }
+    try { await saveConfig(); renderBoard(); focusPanel(id); }
+    finally { boardBusy = false; }
   }
 
-  async function moveToLane(srcId, col) {            // drop onto empty lane space → lane end
-    if (boardBusy) return;
-    boardBusy = true;
-    try {
-      const src = config.panels.find((p) => p.id === srcId);
-      if (!src) return;
-      src.col = col;
-      config.panels.splice(config.panels.indexOf(src), 1);
-      config.panels.push(src);                       // last in the flat array → bottom of its lane
-      await saveConfig(); renderBoard(); focusPanel(srcId);
-    } finally { boardBusy = false; }
-  }
-
-  async function moveAcross(id, delta) {             // keyboard: ◀ ▶ between lanes
-    if (boardBusy) return;
-    boardBusy = true;
-    try {
-      const src = config.panels.find((p) => p.id === id);
-      if (!src) return;
-      const to = Math.max(0, Math.min(COLS - 1, colOf(src) + delta));
-      if (to === colOf(src)) return;
-      src.col = to;
-      await saveConfig(); renderBoard(); focusPanel(id);
-    } finally { boardBusy = false; }
-  }
-
-  async function moveWithinLane(id, delta) {         // keyboard: ▲ ▼ within a lane
-    if (boardBusy) return;
-    boardBusy = true;
-    try {
-      const src = config.panels.find((p) => p.id === id);
-      if (!src) return;
-      const lane = config.panels.filter((p) => colOf(p) === colOf(src));
-      const j = lane.indexOf(src) + delta;
-      if (j < 0 || j >= lane.length) return;
-      const target = lane[j];
-      config.panels.splice(config.panels.indexOf(src), 1);
-      let to = config.panels.indexOf(target);
-      if (delta > 0) to += 1;
-      config.panels.splice(to, 0, src);
-      await saveConfig(); renderBoard(); focusPanel(id);
-    } finally { boardBusy = false; }
-  }
+  const reorderInto = (srcId, targetId, before) =>
+    commitMove(srcId, () => srcId !== targetId && lanes.reorderInto(config.panels, srcId, targetId, before, COLS));
+  const moveToLane = (srcId, col) =>                 // drop onto empty lane space → lane end
+    commitMove(srcId, () => lanes.moveToLane(config.panels, srcId, col));
+  const moveAcross = (id, delta) =>                  // keyboard: ◀ ▶ between lanes
+    commitMove(id, () => lanes.moveAcross(config.panels, id, delta, COLS));
+  const moveWithinLane = (id, delta) =>             // keyboard: ▲ ▼ within a lane
+    commitMove(id, () => lanes.moveWithinLane(config.panels, id, delta, COLS));
 
   async function removePanel(id) {
     if (boardBusy) return;
@@ -767,10 +723,7 @@
     if (loaded && Array.isArray(loaded.panels)) config = loaded;
     // One-time migration: panels from before lanes existed get spread across the
     // columns (round-robin) so the board looks composed rather than all stacked left.
-    if (config.panels.some((p) => !Number.isInteger(p.col))) {
-      config.panels.forEach((p, i) => { if (!Number.isInteger(p.col)) p.col = i % COLS; });
-      saveConfig();
-    }
+    if (lanes.migrateCols(config.panels, COLS)) saveConfig();
     renderBoard();
     renderOneLine();
   }

@@ -79,6 +79,11 @@ feel like a dashboard to manage?**
   host grant for `um.fz.ax` (short-circuited by `<all_urls>`), success-only cache, and a
   quiet disclosure that the board fetches `um.fz.ax`. Opt-in posture (it's a network
   source) — see Open Questions.
+- **R17. (added post-brainstorm, during dogfooding)** A **most-visited sites** panel
+  (Brave-style). On-brand because it surfaces *measured* importance, not *declared*
+  organization (holds the §9 line — see AE6). 100% local: `chrome.topSites`, http(s)-only
+  render, page-titles `textContent`-inert, favicons via the local MV3 `_favicon` lookup
+  (no network). Browsing-history-adjacent but never leaves the device. Planned as U7.
 
 ## Acceptance examples
 - **AE1.** Opening the board at 9am vs 9pm shows a perceptibly warmer/lower palette in
