@@ -1,0 +1,123 @@
+/*
+ * ypuf — new-tab panel board (slice 5).
+ *
+ * Reuses the warm-paper :root tokens from ../style.css (loaded first). The board
+ * is calm by design: no animation, no auto-play, quiet chrome. Panels flow
+ * top-to-bottom within up to 3 columns (no hard cap — clutter is governed by
+ * behaviour, not a count, R8); feed cells are fixed-height so a long feed can't
+ * grow the board into an unbounded scroll.
+ */
+
+body.board {
+  width: 100%;
+  min-height: 100vh;
+  background: var(--paper);
+}
+
+.board-main {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 48px 24px 64px;
+}
+
+.board-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 28px;
+}
+.board-head .wordmark { font-size: 18px; }
+
+.board-actions { display: flex; align-items: center; gap: 14px; }
+
+/* Quiet, persistent edit affordance — the board's one piece of resting chrome (U2). */
+.board-edit {
+  font: inherit;
+  font-size: 13px;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+}
+.board-edit:hover { color: var(--ink); border-color: var(--warm-gray); }
+.board.editing .board-edit { color: var(--accent-amber); border-color: var(--accent-amber); }
+
+/* Multi-column flow: up to 3 columns of ≥320px, collapsing to 2/1 as width drops. */
+.board-grid {
+  columns: 320px 3;
+  column-gap: 18px;
+}
+
+.panel {
+  break-inside: avoid;
+  display: inline-block;
+  width: 100%;
+  background: var(--card-bg);
+  border: 1px solid var(--warm-gray);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  box-shadow: 0 1px 2px var(--shadow);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.panel-title { font-size: 12px; font-weight: 600; color: var(--accent-slate); letter-spacing: 0.02em; }
+
+/* Feed/price panels render in a sandboxed iframe; ypuf panel renders host-side. */
+.panel-frame {
+  width: 100%;
+  border: none;
+  display: block;
+  /* Fixed-height cell — a long feed is bounded, never an unbounded wall (U4). */
+  height: 200px;
+  background: transparent;
+}
+
+.add-panel {
+  font: inherit;
+  font-size: 13px;
+  background: none;
+  border: 1px dashed var(--warm-gray);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  margin-top: 6px;
+}
+.add-panel:hover { color: var(--ink); border-color: var(--accent-amber); }
+
+.board-empty { color: var(--muted); font-size: 13px; margin: 8px 0 18px; }
+
+/* Edit mode — per-panel controls + inline add picker (U2). */
+.panel-controls { display: flex; gap: 8px; }
+.panel-ctrl { font-size: 12px; color: var(--muted); }
+.panel-ctrl:hover { color: var(--ink); }
+.panel[tabindex]:focus { outline: 2px solid var(--accent-amber); outline-offset: 2px; }
+
+.add-picker, .add-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 8px 0 18px; }
+.add-form input { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--warm-gray); border-radius: 6px; min-width: 220px; }
+.add-error { color: var(--accent-rose); font-size: 12px; width: 100%; }
+
+/* ypuf panel (U3) — recall search + shelf, host-rendered. */
+.recall-search {
+  font: inherit; font-size: 13px; width: 100%;
+  padding: 6px 9px; margin-bottom: 8px;
+  border: 1px solid var(--warm-gray); border-radius: 6px; background: var(--paper);
+}
+.panel .recent-item { padding: 6px 8px; }
+.panel-group-label { font-size: 11px; color: var(--muted); margin: 10px 2px 3px; }
+.set-restore { margin-top: 4px; }
+
+/* Minimal mode — a near-blank calm page that keeps the engine running (U2). */
+.board.minimal .board-grid,
+.board.minimal .add-panel,
+.board.minimal .board-empty { display: none; }
+.minimal-note { color: var(--muted); font-size: 13px; display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }

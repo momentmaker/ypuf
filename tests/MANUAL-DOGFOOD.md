@@ -15,8 +15,8 @@ math) is covered by `node --test`. The behavior below depends on real
 - [ ] Loads with **no service-worker console errors** (click "service worker"
       under the extension to open its console).
 - [ ] The toolbar icon opens the popup.
-- [ ] Opening a new tab shows Chrome's **default** new-tab page (ypuf does not
-      override it).
+- [ ] Opening a new tab shows the **ypuf panel board** (slice 5) — the ypuf recall
+      panel is present by default. (See the Slice 5 section for the full board.)
 
 ## Let-go capture (U5 / F1)
 
@@ -296,3 +296,100 @@ The behavior below needs real `chrome.tabs` + the popup/overlay DOM.
 - [ ] The **What's indexed** panel names the working-set capture (that letting go
       a tab records its sibling tabs' titles+addresses, query-stripped, sensitive
       excluded, removed on forget).
+
+---
+
+# Slice 5 — new-tab panel board
+
+The pure kernels (URL validation, RSS/crypto parsing, the channel envelope/intent
+logic, the text-only shelf render) are covered by `node --test`. The chrome-surface
+behavior below — the new-tab override, the sandbox isolation, the live host↔sandbox
+boundary, and the host-permission grants — is verified by hand.
+
+## Board shell + isolation proof (U1 / R9 / AE1, AE4)
+
+- [ ] A new tab renders the calm board with **no console errors**; the ypuf recall
+      panel is present by default.
+- [ ] Open `chrome-extension://<id>/newtab/newtab.html#selftest`. In the sandbox
+      panel, the line **renders as text** — the `<img onerror=…>` does **not** fire.
+- [ ] In that page's console, select the sandbox iframe context and confirm
+      **`chrome` is `undefined`** and **`window.parent !== window`**.
+- [ ] In the sandbox context, `fetch('https://example.com')` and
+      `new Image().src='https://example.com/x.png'` are **blocked by CSP** (no
+      network request leaves — check the Network tab). This is the egress wall.
+- [ ] **Forged-intent drop:** from the page console, post a message as if from a
+      stray frame — `window.postMessage({ypuf:'panel',v:1,kind:'intent',intent:'open',index:0},'*')`
+      — and confirm the host does **not** act on it (the live `event.source` check
+      rejects any source that is not the panel's own `contentWindow`).
+
+## Board config + edit mode (U2 / R3, R7)
+
+- [ ] Click **Edit board** → per-panel controls + an **add a panel** affordance
+      appear; exiting hides them. The edit affordance is discoverable but quiet.
+- [ ] Add a panel → it **persists** across new-tab opens (reopen a new tab).
+- [ ] In edit mode, **reorder** a panel with the ◀ ▶ buttons and with the arrow
+      keys when the panel is focused; **remove** a panel → focus moves to the next
+      panel (or the add affordance if none remain).
+- [ ] Open **two** new-tab pages, reorder in one, reload the other → no lost-write
+      (the SW is the single writer).
+
+## ypuf recall panel (U3 / R4 / AE1)
+
+- [ ] The ypuf panel shows recent let-go items + the back-now/snoozed groups;
+      clicking a row **opens** it; recall search returns + opens a result.
+- [ ] A let-go page whose **title contains markup** renders **inert** in the panel
+      (host-rendered, `textContent`) — covered automatically by
+      `tests/shelf-render.test.js`, spot-check visually.
+- [ ] A set-bearing row shows **"bring back the set? (N)"** → clicking it reopens
+      the set (intersected against the record's stored siblings in the SW).
+
+## RSS feed panel (U5 / R5, R8, R10, R12, R13 / AE2, AE6, AE10, AE11)
+
+- [ ] **Edit → add a panel → RSS feed**, paste a real feed URL → the grant prompt
+      fires **in the same click** (or is skipped if `<all_urls>` is already held);
+      headlines appear, labelled by **source host**.
+- [ ] Click a headline → it **opens** in a new tab (the host resolves the index
+      against its own parsed links).
+- [ ] Add a **second** feed → a second labelled panel; remove one, the other stays.
+- [ ] The panel footer always shows the **disclosure** ("fetches `<host>` · the
+      host sees your IP & timing").
+- [ ] Adding a feed URL of `http://…`, `https://192.168.1.1/feed`,
+      `https://localhost/x`, or `javascript:…` is **rejected** by the add form
+      (validation is automated in `tests/sourceurl.test.js`).
+- [ ] A feed whose item title contains `<img onerror=…>` renders as **inert text**
+      (automated in `tests/rss.test.js`; spot-check visually).
+- [ ] A feed whose item **link** is `javascript:…` or `chrome://settings/` renders the
+      headline **non-clickable** and never opens it — the host resolves only http(s)
+      links (automated in `tests/broker-channel.test.js` `resolveOpen` scheme test).
+- [ ] **Deny** the grant when adding → the panel shows a calm **"needs access"**
+      state with a **Grant access** button (no silent-empty); granting re-loads it.
+- [ ] An **unreachable** feed shows a quiet "couldn't load `<host>`" and **never
+      blocks the board**.
+
+## Crypto price panel (U6 / R6, R10, R11 / AE3, AE6)
+
+- [ ] **Add → Crypto price**, enter `bitcoin, ethereum` → a glanceable price + 24h
+      change appears with an **"as of HH:MM"** stamp; footer names **CoinGecko
+      (ypuf-chosen)**.
+- [ ] **Swap-on-refocus:** leave the board open, switch to another tab for >60s,
+      switch back → the price **updates on refocus** (not while you were staring at
+      it). It does **not** flicker/update in place while continuously viewed.
+- [ ] Provider down / rate-limited (e.g. add a bogus token id) → the panel keeps
+      **last-known** + "price unavailable", **no error badge**.
+
+## Cache, cold-start, calm (U4, U7 / R11)
+
+- [ ] First add of a panel shows a calm **"Loading…"** placeholder, never a blank
+      or a blocked board.
+- [ ] Reopen a new tab **within the TTL** (RSS ~30 min, crypto ~60s) → the panel
+      serves from cache with **no new network request** (check the Network tab).
+- [ ] No animation / auto-play anywhere; the board is quiet at rest.
+
+## Minimal mode + grant lifecycle (U2 / R1)
+
+- [ ] Toggle **minimal mode** → a near-blank calm page with a **Show board** exit
+      and a link to **chrome://extensions** for restoring Chrome's native new tab.
+- [ ] With **auto-let-go on** (holds `<all_urls>`), adding a network panel needs
+      **no new grant** (short-circuit).
+- [ ] Revoke a **feed's** per-origin permission in chrome://extensions →
+      auto-let-go **stays on** (only revoking `<all_urls>` disables it).
