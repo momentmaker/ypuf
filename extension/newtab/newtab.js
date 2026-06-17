@@ -44,6 +44,64 @@
     });
   }
 
+  // Panel cache lives in chrome.storage.local (survives restart; the board host is
+  // privileged so it reads/writes directly). Never holds recall data — only fetched
+  // public-feed text — so a future global privacy-clear must reach it, page-forget
+  // need not (plan: deferred).
+  const local = {
+    get: (k) => chrome.storage.local.get(k).then((o) => o[k]),
+    set: (k, v) => chrome.storage.local.set({ [k]: v }),
+  };
+
+  // --- network broker (U4) -------------------------------------------------
+  // The single fetch/validate/parse/cache path for network panels. A panel NEVER
+  // fetches — it hands the broker a source and gets back parsed text-only data.
+  //   source: { cacheKey, url, ttlMs, parse(rawText) -> value }
+  // Cache entry: { value, fetchedAt, fetchingAt? } in chrome.storage.local.
+
+  const FETCH_LOCK_MS = 20000; // cross-tab single-flight window
+
+  async function brokerRefresh(source) {
+    const entry = (await local.get(source.cacheKey)) || {};
+    const now = Date.now();
+    // Cross-tab single-flight: if another board tab is mid-fetch, don't stampede.
+    if (entry.fetchingAt && (now - entry.fetchingAt) < FETCH_LOCK_MS) return entry.value;
+    await local.set(source.cacheKey, Object.assign({}, entry, { fetchingAt: now }));
+    try {
+      const v = window.ypuf.sourceurl.validate(source.url);
+      if (!v.ok) throw new Error('invalid-source:' + v.reason);
+      const res = await fetch(v.url, {
+        credentials: 'omit',            // never send cookies to the feed host (R10)
+        referrerPolicy: 'no-referrer',  // never leak the chrome-extension:// URL
+        redirect: 'error',              // a validated public host can't 302 to a private IP
+      });
+      if (!res.ok) throw new Error('http-' + res.status);
+      const value = source.parse(await res.text());   // text-only struct
+      await local.set(source.cacheKey, { value, fetchedAt: Date.now() }); // success-only; drop the lock
+      return value;
+    } catch (e) {
+      // Failure: keep last-known value, drop the lock so a later open can retry.
+      const keep = (await local.get(source.cacheKey)) || {};
+      await local.set(source.cacheKey, { value: keep.value, fetchedAt: keep.fetchedAt });
+      throw e;
+    }
+  }
+
+  // Stale-while-revalidate: serve fresh from cache; serve stale immediately and
+  // refresh in the background; on a cold cache, await the first fetch.
+  async function brokerLoad(source) {
+    const entry = (await local.get(source.cacheKey)) || {};
+    const has = entry.value !== undefined;
+    const fresh = has && entry.fetchedAt && (Date.now() - entry.fetchedAt) < source.ttlMs;
+    if (fresh) return { value: entry.value, stale: false };
+    const refreshing = brokerRefresh(source).catch((e) => { console.warn('[ypuf] panel refresh failed', e); return null; });
+    if (has) return { value: entry.value, stale: true, refresh: refreshing };
+    const value = await refreshing;
+    return { value: value == null ? null : value, stale: false, cold: value == null };
+  }
+
+  const broker = { load: brokerLoad, refresh: brokerRefresh };
+
   // --- panel type registry (ypuf U3, rss U5, crypto U6) -------------------
   // A type def: { label, addable, network, buildForm(formEl)->readConfig(),
   //               originOf(cfg)->'https://host', mount(spec, ctx)->{destroy} }
@@ -89,18 +147,23 @@
     let ready = false;
     let queued = null;
 
+    const channel = window.ypuf.channel;
+
     function handle(event) {
-      if (event.source !== frame.contentWindow) return;   // R9: only THIS frame
+      if (event.source !== frame.contentWindow) return;   // R9: only THIS frame (live cross-frame check)
       const msg = event.data;
       if (!msg || msg.ypuf !== PROTO || msg.v !== VERSION) return;
       if (msg.kind === 'ready') { ready = true; if (queued) { post(queued); queued = null; } return; }
-      if (msg.kind === 'intent' && typeof onIntent === 'function') onIntent(msg);
+      const intent = channel.parseIntent(msg);            // validated shape; index re-checked by the caller
+      if (intent && typeof onIntent === 'function') onIntent(intent);
     }
     window.addEventListener('message', handle);
 
     function post(renderBody) {
       if (!ready) { queued = renderBody; return; }
-      frame.contentWindow.postMessage({ ypuf: PROTO, v: VERSION, kind: 'render', body: renderBody }, '*');
+      // renderEnvelope reduces lines to {text, open-index} only — no raw URL/HTML
+      // ever crosses to the sandbox.
+      frame.contentWindow.postMessage(channel.renderEnvelope(renderBody), '*');
     }
 
     body.appendChild(frame);
@@ -277,7 +340,7 @@
     const ctx = panelCell(spec, def.label);
     if (spec.id && editing) makeReorderable(ctx.cell, spec);
     grid.appendChild(ctx.cell);
-    def.mount({ ...ctx, spec, mountSandbox, send, remount: renderBoard });
+    def.mount({ ...ctx, spec, mountSandbox, send, broker, remount: renderBoard });
   }
 
   function mountPlaceholder(spec, label) {
@@ -334,7 +397,7 @@
   // The board's panel-registration surface. U5 (rss) and U6 (crypto) register
   // their type defs here, before boot.
   window.ypuf = Object.assign(window.ypuf || {}, {
-    board: { registerPanelType, mountSandbox, send },
+    board: { registerPanelType, mountSandbox, send, broker },
   });
 
   // --- ypuf panel (U3): recall/shelf/back-now, host-rendered ---------------
