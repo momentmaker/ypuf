@@ -31,6 +31,7 @@
   let editing = false;
   let boardBusy = false;   // guards reorder/remove against reentrancy during an async save
   let dragId = null;       // id of the panel currently being dragged (Trello-style placement)
+  let oneLineSeq = 0;      // supersedes a slow one-line fetch when the footer is re-rendered or toggled off
   const COLS = 3;          // fixed, unlabeled lanes — arrange-your-desk, not a kanban to manage
   const colOf = (spec) => { const c = Number(spec && spec.col); return (Number.isInteger(c) && c >= 0 && c < COLS) ? c : 0; };
   let mounted = [];   // panel teardown fns; run before each re-render so intervals,
@@ -69,13 +70,15 @@
 
   function renderOneLine() {
     if (!oneLineEl) return;
+    const mine = ++oneLineSeq;   // a later render or a toggle-off makes this pass stale
     oneLineEl.hidden = true;
     oneLineEl.textContent = '';
     if (!config.oneLine || !config.oneLine.enabled) return;
     panelHasAccess(ONELINE_URL).then((ok) => {
-      if (!ok) return;   // no grant → stays hidden (calm; re-enabling re-requests it)
+      if (!ok || mine !== oneLineSeq) return;   // no grant, or superseded → stays hidden (calm)
       broker.load({ cacheKey: 'panel:oneline', url: ONELINE_URL, ttlMs: ONELINE_TTL, parse: (md) => window.ypuf.oneline.parse(md) })
         .then((r) => {
+          if (mine !== oneLineSeq) return;   // a later render/disable won; never double-append
           const lines = r && r.value;
           if (!Array.isArray(lines) || !lines.length) return;
           const line = lines[Math.floor(Math.random() * lines.length)]; // fresh pick each open, from the daily cache
@@ -595,6 +598,7 @@
 
   function renderBoard() {
     teardownAll();
+    dragId = null; docBody.classList.remove('dragging-active');   // a programmatic re-render mid-drag must not leave stale drag state
     closeAddPicker();   // never leave a stray add-form across a re-render
     grid.textContent = '';
     minimalNote.hidden = true;
@@ -714,6 +718,7 @@
     cell.addEventListener('dragover', (e) => {
       if (dragId == null || dragId === spec.id) return;
       e.preventDefault();
+      e.stopPropagation();   // this cell is the drop target — don't also light up the lane's empty-space hint
       e.dataTransfer.dropEffect = 'move';
       clearDropMarks();
       cell.classList.add(insertBefore(cell, e) ? 'drop-before' : 'drop-after');
@@ -807,6 +812,7 @@
       const T = (window.ypuf && window.ypuf.titles) || {};
       const body = ctx.body;
       const handlers = { open: (id) => send('recall-open', { recordId: id }) };
+      let destroyed = false;   // armed by the teardown so late SW replies can't write into a torn-down panel
 
       const search = document.createElement('input');
       search.type = 'search';
@@ -823,7 +829,7 @@
       // let go is safe. The SW gates the claim, so it shows on whichever surface you
       // open first that day; never a badge or a nag.
       send('relief-claim').then((resp) => {
-        if (!resp || !resp.show) return;
+        if (destroyed || !resp || !resp.show) return;
         const relief = document.createElement('div');
         relief.className = 'board-relief';
         relief.textContent = `${resp.count} let go today — all still findable.`;
@@ -861,7 +867,6 @@
         return h;
       }
 
-      let destroyed = false;
       send('list-recent', { limit: 12 }).then((resp) => {
         if (!destroyed) renderList(recentWrap, resp && resp.items, { action: 'open' });
       });
@@ -1102,8 +1107,9 @@
         body.textContent = 'Top sites is unavailable.';
         return;
       }
+      let alive = true;   // a re-render before the async callback fires must not write into a torn-down panel
       chrome.topSites.get((sites) => {
-        if (chrome.runtime.lastError) return;
+        if (!alive || chrome.runtime.lastError) return;
         body.textContent = '';
         const list = document.createElement('div');
         list.className = 'topsites-list';
@@ -1133,6 +1139,7 @@
           body.appendChild(list);
         }
       });
+      return () => { alive = false; };
     },
   });
 
