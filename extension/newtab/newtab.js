@@ -62,8 +62,10 @@
   }
   const cycleTheme = () => setTheme(theme.next(currentTheme()));
 
-  // U7 fills this in (panel theming); a no-op until then so applyTheme stays stable.
-  function postThemeToPanels() {}
+  // U7: propagate the active theme into every mounted sandboxed panel (a live-frame
+  // registry — mounted[] holds only teardown fns, so panels register their postTheme here).
+  const panelFrames = new Set();
+  function postThemeToPanels(mode) { panelFrames.forEach((p) => { if (p.postTheme) p.postTheme(mode); }); }
   let refreshThemeControl = null;   // set by the settings theme control when the overlay is open
   const boardSub = document.getElementById('board-sub');
   const oneLineEl = document.getElementById('board-oneline');
@@ -603,7 +605,7 @@
       if (!alive || event.source !== frame.contentWindow) return; // R9 + post-teardown guard
       const msg = event.data;
       if (!msg || msg.ypuf !== PROTO || msg.v !== VERSION) return;
-      if (msg.kind === 'ready') { ready = true; clearTimeout(readyTimer); if (queued) { post(queued); queued = null; } return; }
+      if (msg.kind === 'ready') { ready = true; clearTimeout(readyTimer); if (queued) { post(queued); queued = null; } postTheme(currentTheme()); return; }
       if (msg.kind === 'resize' && Number.isFinite(msg.height)) {
         // The sandbox reports its content height so the iframe hugs it — no dead space.
         frame.style.height = Math.min(900, Math.max(28, msg.height)) + 'px';
@@ -624,15 +626,29 @@
       frame.contentWindow.postMessage(channel.renderEnvelope(renderBody), '*');
     }
 
+    // Theme (U7): post the active mode to this frame; not-yet-ready frames get the
+    // current theme on their own 'ready', so a no-op here is safe.
+    function postTheme(mode) {
+      if (!alive || !frame.contentWindow || !ready) return;
+      const env = channel.themeEnvelope(mode);
+      if (env) frame.contentWindow.postMessage(env, '*');
+    }
+
     // If the sandbox never signals ready (failed load), show a calm error rather
     // than an eternal "Loading…".
     readyTimer = setTimeout(() => { if (alive && !ready) body.textContent = 'Panel couldn’t load.'; }, 6000);
 
     body.appendChild(frame);
-    return {
+    const api = {
       render: post,
-      destroy() { alive = false; clearTimeout(readyTimer); window.removeEventListener('message', handle); frame.remove(); },
+      postTheme,
+      destroy() {
+        alive = false; clearTimeout(readyTimer); window.removeEventListener('message', handle);
+        frame.remove(); panelFrames.delete(api);
+      },
     };
+    panelFrames.add(api);
+    return api;
   }
 
   // --- edit mode: per-panel controls + reorder ----------------------------

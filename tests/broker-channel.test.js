@@ -85,3 +85,15 @@ test('resolveOpen yields only http(s) URLs — a dangerous-scheme host link reso
   assert.equal(ch.resolveOpen(0, ['http://ok.test/a']), 'http://ok.test/a');
   assert.equal(ch.resolveOpen(0, ['https://ok.test/a']), 'https://ok.test/a');
 });
+
+test('themeEnvelope builds a valid theme message only for a known mode', () => {
+  for (const m of ['light', 'dark', 'star']) {
+    assert.deepEqual(ch.themeEnvelope(m), { ypuf: 'panel', v: 1, kind: 'theme', mode: m });
+  }
+});
+
+test('themeEnvelope rejects an unknown/garbled mode (the host never posts it)', () => {
+  for (const bad of ['', 'garbage', 'STAR', null, undefined, 42, 'dark; rm -rf']) {
+    assert.equal(ch.themeEnvelope(bad), null, `${bad} should not build an envelope`);
+  }
+});
