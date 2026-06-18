@@ -109,6 +109,12 @@
    dark + star grounds (component rules may still override with their own offset). */
 :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
+/* Themed scrollbars on the host surfaces too — a subtle --warm-gray thumb instead of the
+   bright OS default on the dark/star ground (color-scheme handles the rest). */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: var(--warm-gray); border-radius: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {

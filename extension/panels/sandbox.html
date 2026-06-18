@@ -21,9 +21,12 @@
        disclosure foot below stay visible (they don't scroll away). */
     .lines { display:flex; flex-direction:column; gap:5px; list-style:none;
              max-height:280px; overflow-y:auto; }
-    .lines::-webkit-scrollbar { width:6px; }
-    .lines::-webkit-scrollbar-thumb { background:var(--warm-gray); border-radius:3px; }
-    .lines::-webkit-scrollbar-track { background:transparent; }
+    /* Style EVERY scrollbar in the sandbox (the inner .lines list AND the iframe's own
+       document scrollbar) so a themed --warm-gray thumb replaces the bright OS default —
+       color-scheme alone doesn't reliably theme the always-on macOS scrollbar in an iframe. */
+    ::-webkit-scrollbar { width:7px; height:7px; }
+    ::-webkit-scrollbar-thumb { background:var(--warm-gray); border-radius:4px; }
+    ::-webkit-scrollbar-track { background:transparent; }
     .line { font-size:13px; line-height:1.45; color:var(--ink); }
     button.line { font:inherit; text-align:left; background:none; border:none; color:var(--ink);
                   cursor:pointer; padding:0; width:100%; line-height:1.45; }
