@@ -346,6 +346,11 @@ boundary, and the host-permission grants — is verified by hand.
 - [ ] In edit mode, **reorder** a panel with the ◀ ▶ buttons and with the arrow
       keys when the panel is focused; **remove** a panel → focus moves to the next
       panel (or the add affordance if none remain).
+- [ ] In edit mode, an **RSS or Crypto** panel shows a **gear (configure)** control →
+      clicking it reopens the form **pre-filled** with the current feed / tickers; editing
+      and **Save changes** updates that panel **in place** (no remove + re-add), persists,
+      and re-requests access if an RSS feed's origin changed. Non-configurable panels
+      (Top sites) show no gear.
 - [ ] Open **two** new-tab pages, reorder in one, reload the other → no lost-write
       (the SW is the single writer).
 
@@ -364,6 +369,11 @@ boundary, and the host-permission grants — is verified by hand.
       clicking it strikes the row + swaps to **undo** for ~6s, then removes it.
       Clicking **undo** within the window restores the page. (Forget also scrubs
       the page from any working-set siblings — same `forget-page` path as the popup.)
+- [ ] **Protect/unprotect toggle:** the hover-revealed **shield** (a check-shield) and
+      **trash** sit in matched, aligned boxes (no size mismatch). Clicking the shield
+      **protects** the site (shield lights sage); clicking it **again unprotects** it
+      (un-lights). An already-protected site's row shows the shield **lit on render**, and
+      the change agrees with the popup's **Protected sites** list.
 
 ## RSS feed panel (U5 / R5, R8, R10, R12, R13 / AE2, AE6, AE10, AE11)
 

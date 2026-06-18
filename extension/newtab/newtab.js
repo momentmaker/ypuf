@@ -220,10 +220,12 @@
   // currentColor so they inherit the affordance's calm/hover/accent color.
   const SVGNS = 'http://www.w3.org/2000/svg';
   const ICONS = {
-    trash: [['path', { d: 'M3 4.5h10' }], ['path', { d: 'M5.6 4.5v-1a1 1 0 011-1h2.8a1 1 0 011 1v1' }],
-            ['path', { d: 'M4.7 4.5l.5 8a1 1 0 001 .95h3.6a1 1 0 001-.95l.5-8' }]],
+    trash: [['path', { d: 'M3 4.6h10' }], ['path', { d: 'M6.3 4.6V3.3a1 1 0 011-1h1.4a1 1 0 011 1v1.3' }],
+            ['path', { d: 'M4.3 4.6l.6 8.1a1.2 1.2 0 001.2 1.1h3.8a1.2 1.2 0 001.2-1.1l.6-8.1' }],
+            ['path', { d: 'M6.6 7v3.9M9.4 7v3.9' }]],
     pencil: [['path', { d: 'M10.7 2.7l2.6 2.6' }], ['path', { d: 'M3 13l.7-2.7 7.3-7.3 2.6 2.6-7.3 7.3z' }]],
-    shield: [['path', { d: 'M8 2l5 2v4c0 3-2.2 5.2-5 6-2.8-.8-5-3-5-6V4z' }]],
+    shield: [['path', { d: 'M8 2.4l4.6 1.7v3.9c0 3-1.9 5.2-4.6 6-2.7-.8-4.6-3-4.6-6V4.1z' }],
+             ['path', { d: 'M5.9 8.1l1.5 1.5 2.7-3' }]],
     gear: [['circle', { cx: 8, cy: 8, r: 2.2 }],
            ['path', { d: 'M8 1.6v1.6M8 12.8v1.6M14.4 8h-1.6M3.2 8H1.6M12.5 3.5l-1.1 1.1M4.6 11.4l-1.1 1.1M12.5 12.5l-1.1-1.1M4.6 4.6L3.5 3.5' }]],
     close: [['path', { d: 'M4 4l8 8M12 4l-8 8' }]],
@@ -802,7 +804,14 @@
     grip.textContent = '⠿';
     grip.title = 'Drag to reorder';
     grip.setAttribute('aria-hidden', 'true');
-    wrap.append(grip, ctrlBtn('✕', 'Remove panel', () => removePanel(spec.id)));
+    wrap.appendChild(grip);
+    const def = PANEL_TYPES[spec.type];
+    if (def && def.reconfigurable) {   // configurable types get an in-place edit (tickers / feed)
+      const cfgBtn = ctrlBtn('', 'Configure panel', () => openReconfigureForm(spec, def));
+      cfgBtn.append(icon('gear'));
+      wrap.appendChild(cfgBtn);
+    }
+    wrap.appendChild(ctrlBtn('✕', 'Remove panel', () => removePanel(spec.id)));
     return wrap;
   }
 
@@ -916,12 +925,14 @@
     return tile;
   }
 
-  function openConfigForm(type, def, picker) {
+  // Shared form body for both add (openConfigForm) and edit-in-place (openReconfigureForm):
+  // builds the type's fields (pre-filled from `current` when reconfiguring) + submit/cancel.
+  function buildConfigForm(picker, def, opts) {
     picker.textContent = '';
-    picker.appendChild(pickerHead(`Add ${def.label}`));
+    picker.appendChild(pickerHead(opts.headText));
     const form = document.createElement('div');
     form.className = 'add-form';
-    const readConfig = def.buildForm(form);
+    const readConfig = def.buildForm(form, opts.current || null);
 
     const err = document.createElement('p');
     err.className = 'add-error';
@@ -931,7 +942,7 @@
     const submit = document.createElement('button');
     submit.type = 'button';
     submit.className = 'btn-primary';
-    submit.textContent = 'Add panel';
+    submit.textContent = opts.submitText;
     const cancel = document.createElement('button');
     cancel.type = 'button';
     cancel.className = 'link';
@@ -943,19 +954,54 @@
       // user gesture survives — mirrors popup.js's request-first ordering.
       const instanceConfig = readConfig();
       if (!instanceConfig) { err.textContent = 'Please check the values.'; err.hidden = false; return; }
-      closeAddPicker();   // dismiss the form; the new panel renders into the grid
-      if (def.network) {
-        // Fire the grant prompt in-gesture; the panel checks access live at mount,
-        // so whether granted now or revoked later, it shows the right state.
-        grantThenAdd(def.originOf(instanceConfig), () => addPanel(type, instanceConfig));
-      } else {
-        addPanel(type, instanceConfig);
-      }
+      opts.onSubmit(instanceConfig);
     });
 
     actions.append(submit, cancel);
     form.append(actions, err);
     picker.appendChild(form);
+  }
+
+  function openConfigForm(type, def, picker) {
+    buildConfigForm(picker, def, {
+      headText: `Add ${def.label}`, submitText: 'Add panel', current: null,
+      onSubmit: (cfg) => {
+        closeAddPicker();   // dismiss the form; the new panel renders into the grid
+        // Fire the grant prompt in-gesture; the panel checks access live at mount,
+        // so whether granted now or revoked later, it shows the right state.
+        if (def.network) grantThenAdd(def.originOf(cfg), () => addPanel(type, cfg));
+        else addPanel(type, cfg);
+      },
+    });
+  }
+
+  // Edit a placed panel's config in Edit mode (change crypto tickers / RSS feed). Reuses
+  // the add form pre-filled, then swaps the panel's config in place — no remove + re-add.
+  function openReconfigureForm(spec, def) {
+    closeAddPicker();
+    const picker = document.createElement('div');
+    picker.className = 'add-picker';
+    buildConfigForm(picker, def, {
+      headText: `Configure ${def.label}`, submitText: 'Save changes', current: spec.config || {},
+      onSubmit: (cfg) => {
+        closeAddPicker();
+        // The feed/origin may have changed (RSS) → re-request in-gesture; crypto's origin
+        // is fixed, so grantThenAdd short-circuits on the cached grant.
+        if (def.network) grantThenAdd(def.originOf(cfg), () => updatePanelConfig(spec.id, cfg));
+        else updatePanelConfig(spec.id, cfg);
+      },
+    });
+    addBtn.hidden = true;
+    addBtn.after(picker);
+  }
+
+  async function updatePanelConfig(id, newConfig) {
+    if (boardBusy) return;
+    const p = config.panels.find((x) => x.id === id);
+    if (!p) return;
+    boardBusy = true;
+    try { p.config = newConfig; await saveConfig(); renderBoard(); focusPanel(id); }
+    finally { boardBusy = false; }
   }
 
   // Request-first: short-circuit synchronously off the cached <all_urls> grant,
@@ -1488,6 +1534,24 @@
         digestWrap.appendChild(line);
       });
 
+      // Reflect the never-touch set on each row's shield: lit when the site is already
+      // protected, and the shield toggles protect ⇄ allow-auto-close (mirrors the popup's
+      // Protected-sites removal). Fetched once at mount; the toggle keeps it in sync.
+      let protectedHosts = new Set();
+      const isProtected = (host) => !!host && protectedHosts.has(host);
+      function markProtect(btn) {
+        const lit = isProtected(btn.dataset.host);
+        btn.classList.toggle('protected', lit);
+        btn.title = lit ? 'Protected — click to allow auto-close' : 'Never-touch this site';
+        btn.setAttribute('aria-label', lit ? 'Site protected — click to unprotect' : 'Never let this site go');
+      }
+      const syncProtectMarks = () => body.querySelectorAll('.recall-protect').forEach(markProtect);
+      send('protected-list').then((resp) => {
+        if (destroyed || !resp || !Array.isArray(resp.items)) return;
+        protectedHosts = new Set(resp.items);
+        syncProtectMarks();
+      }).catch(() => {});
+
       function row(it, tags, action) {
         const li = SR.toDom(SR.itemRow(it, tags, T, action), document, handlers);
         // Set-bearing recall items offer a one-tap "bring back the set" (the
@@ -1506,22 +1570,25 @@
         return li;
       }
 
-      // One-tap never-touch (U4): protect this page's site so auto-let-go never closes
-      // it. Hover/focus-reveals as a calm pair with forget. Uses the row's STORED host.
+      // One-tap never-touch (U4): the shield toggles this page's site between protected
+      // (auto-let-go never closes it) and not. Hover/focus-reveals as a calm pair with
+      // forget. Uses the row's STORED host; lit state comes from the never-touch set.
       function addProtect(li, it) {
         const host = it.host || hostOfUrl(it.url || '');
         const protect = document.createElement('button');
         protect.type = 'button';
         protect.className = 'recall-protect icon-btn';
+        protect.dataset.host = host || '';
         protect.append(icon('shield'));
-        protect.setAttribute('aria-label', 'Never let this site go'); protect.title = 'Never-touch this site';
+        markProtect(protect);
         protect.addEventListener('click', (e) => {
           e.stopPropagation();
           if (!host) return;
-          send('protect-add', { host }).then((resp) => {
-            if (destroyed || !resp || !resp.ok) return;   // panel torn down before the SW replied
-            protect.classList.add('protected'); protect.title = 'Protected — never auto-closed';
-            protect.setAttribute('aria-label', 'Site protected');
+          const wasProtected = isProtected(host);
+          send(wasProtected ? 'protect-remove' : 'protect-add', { host }).then((resp) => {
+            if (destroyed || !resp || !resp.ok) return;   // panel torn down or the SW rejected
+            if (wasProtected) protectedHosts.delete(host); else protectedHosts.add(host);
+            markProtect(protect);
           }).catch(() => {});
         });
         li.appendChild(protect);
@@ -1652,12 +1719,14 @@
     label: 'RSS feed',
     hint: 'latest headlines',
     addable: true,
+    reconfigurable: true,
     network: true,
-    buildForm(form) {
+    buildForm(form, current) {
       const input = document.createElement('input');
       input.type = 'url';
       input.placeholder = 'https://example.com/feed.xml';
       input.setAttribute('aria-label', 'Feed URL');
+      if (current && current.url) input.value = current.url;
       form.appendChild(input);
       return () => {
         const v = window.ypuf.sourceurl.validate(input.value.trim());
@@ -1724,12 +1793,14 @@
     label: 'Crypto price',
     hint: 'live prices',
     addable: true,
+    reconfigurable: true,
     network: true,
-    buildForm(form) {
+    buildForm(form, current) {
       const input = document.createElement('input');
       input.type = 'text';
       input.placeholder = 'bitcoin, ethereum, solana';
       input.setAttribute('aria-label', 'Token ids (CoinGecko), comma-separated');
+      if (current && Array.isArray(current.tokens)) input.value = current.tokens.join(', ');
       const hint = document.createElement('p');
       hint.className = 'muted add-hint';
       hint.textContent = 'CoinGecko ids, comma-separated — several show in one panel (e.g. "bitcoin", not "BTC").';
