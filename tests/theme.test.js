@@ -40,8 +40,10 @@ test('resolveInitial: with no stored mode, follow prefers-color-scheme; star is 
   assert.equal(theme.resolveInitial(null, true), 'dark');
   assert.equal(theme.resolveInitial(null, false), 'light');
   assert.equal(theme.resolveInitial(undefined, true), 'dark');
-  // a garbage stored value is not a valid mode → treated as unset → prefers-color-scheme
+  // a garbage / empty stored value is not a valid mode → treated as unset → prefers-color-scheme
   assert.equal(theme.resolveInitial('garbage', true), 'dark');
+  assert.equal(theme.resolveInitial('', true), 'dark');
+  assert.equal(theme.resolveInitial('', false), 'light');
   // star is only ever reached via an explicit stored choice, never from prefersDark
   assert.notEqual(theme.resolveInitial(null, true), 'star');
 });

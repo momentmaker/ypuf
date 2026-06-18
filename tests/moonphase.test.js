@@ -34,3 +34,21 @@ test('phaseName buckets the cycle into the 8 lunar names (and wraps at the end)'
   assert.equal(moon.phaseName(0.875), 'Waning Crescent');
   assert.equal(moon.phaseName(0.99), 'New Moon');   // wraps back to new
 });
+
+test('phaseName flips exactly at each of the 8 bucket boundaries', () => {
+  const e = 1e-6;
+  const pairs = [
+    [0.0625, 'New Moon', 'Waxing Crescent'],
+    [0.1875, 'Waxing Crescent', 'First Quarter'],
+    [0.3125, 'First Quarter', 'Waxing Gibbous'],
+    [0.4375, 'Waxing Gibbous', 'Full Moon'],
+    [0.5625, 'Full Moon', 'Waning Gibbous'],
+    [0.6875, 'Waning Gibbous', 'Last Quarter'],
+    [0.8125, 'Last Quarter', 'Waning Crescent'],
+    [0.9375, 'Waning Crescent', 'New Moon'],
+  ];
+  for (const [b, before, at] of pairs) {
+    assert.equal(moon.phaseName(b - e), before, `just below ${b}`);
+    assert.equal(moon.phaseName(b), at, `at ${b}`);
+  }
+});

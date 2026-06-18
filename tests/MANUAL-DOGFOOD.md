@@ -569,3 +569,8 @@ boundary, and the host-permission grants — is verified by hand.
 - [ ] **Native scrollbars + form controls follow the theme** (`color-scheme`): a scrolling
       panel/popup/board shows a dark scrollbar in dark/star (not a bright system bar), and the
       snooze date-time picker renders dark too.
+- [ ] **Theme is durable** (chrome.storage source of truth): set dark, then clear the
+      page's localStorage (DevTools → Application) and reopen a new tab — it comes back
+      dark (reconciled from chrome.storage), not reset to light.
+- [ ] **No panel flash on mount**: on a dark/star board, adding/reloading an RSS or crypto
+      panel shows it themed from its first painted frame (no light-content flash).

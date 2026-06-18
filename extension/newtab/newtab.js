@@ -36,6 +36,8 @@
   // Light/dark/star, applied pre-paint by lib/theme-preinit.js; this wires the cycling
   // moon-phase toggle, persists to localStorage (synchronous, shared across extension
   // pages, local-only), and converges other open surfaces via the `storage` event.
+  // chrome.storage.local is the durable source of truth; localStorage is a synchronous
+  // mirror the pre-paint bootstrap reads (FOUC-free). Both are local-only, never transmitted.
   const THEME_KEY = 'ypuf-theme';
   const currentTheme = () => theme.normalize(document.documentElement.getAttribute('data-theme'));
 
@@ -43,10 +45,12 @@
     if (!themeToggle) return;
     const mode = currentTheme();
     const star = mode === 'star';
-    moonrender.render(themeToggle, { star, phase: star ? 0 : moonphase.phase(new Date()) });
+    const phase = star ? 0 : moonphase.phase(new Date());
+    moonrender.render(themeToggle, { star, phase });
     const nextMode = theme.next(mode);
+    const phaseName = star ? 'star' : moonphase.phaseName(phase);
     themeToggle.setAttribute('aria-label', `Theme: ${mode} — switch to ${nextMode}`);
-    themeToggle.title = `Theme: ${mode} (click for ${nextMode})`;
+    themeToggle.title = `Theme: ${mode} (${phaseName}) · click for ${nextMode}`;
   }
 
   function applyTheme(mode) {
@@ -58,9 +62,29 @@
   function setTheme(mode) {
     const m = theme.normalize(mode);
     try { localStorage.setItem(THEME_KEY, m); } catch (e) { /* storage blocked */ }
+    try { chrome.storage.local.set({ [THEME_KEY]: m }); } catch (e) { /* durable write best-effort */ }
     applyTheme(m);
   }
   const cycleTheme = () => setTheme(theme.next(currentTheme()));
+
+  // Boot reconcile: the durable chrome.storage value wins; resolveInitial applies the
+  // first-run prefers-color-scheme rule. Re-seeds the localStorage mirror so a cleared
+  // mirror (but surviving durable store) recovers without a flash on the *next* open.
+  function reconcileTheme() {
+    let mirror = null; try { mirror = localStorage.getItem(THEME_KEY); } catch (e) { /* blocked */ }
+    try {
+      chrome.storage.local.get(THEME_KEY, (o) => {
+        if (chrome.runtime.lastError) return;
+        const durable = o && o[THEME_KEY];
+        const prefersDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        const stored = theme.MODES.indexOf(durable) >= 0 ? durable : mirror;
+        const resolved = theme.resolveInitial(stored, prefersDark);
+        if (resolved !== currentTheme()) applyTheme(resolved);
+        try { localStorage.setItem(THEME_KEY, resolved); } catch (e) { /* blocked */ }
+        if (durable !== resolved) { try { chrome.storage.local.set({ [THEME_KEY]: resolved }); } catch (e) { /* best-effort */ } }
+      });
+    } catch (e) { /* chrome.storage unavailable */ }
+  }
 
   // U7: propagate the active theme into every mounted sandboxed panel (a live-frame
   // registry — mounted[] holds only teardown fns, so panels register their postTheme here).
@@ -262,6 +286,7 @@
   // settings surface gets the named choice (vs the masthead's glyph toggle). Reflects
   // external theme changes (toggle/storage) while the overlay is open.
   function buildThemeControl(container) {
+    refreshThemeControl = null;   // drop any prior overlay's closure before registering this one
     const g = settingsGroup('Appearance');
     const seg = document.createElement('div'); seg.className = 'segmented';
     seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', 'Theme');
@@ -605,7 +630,9 @@
       if (!alive || event.source !== frame.contentWindow) return; // R9 + post-teardown guard
       const msg = event.data;
       if (!msg || msg.ypuf !== PROTO || msg.v !== VERSION) return;
-      if (msg.kind === 'ready') { ready = true; clearTimeout(readyTimer); if (queued) { post(queued); queued = null; } postTheme(currentTheme()); return; }
+      // Theme BEFORE the queued render so the panel paints its content already-themed —
+      // no one-frame flash of light-mode content on a dark/star board.
+      if (msg.kind === 'ready') { ready = true; clearTimeout(readyTimer); postTheme(currentTheme()); if (queued) { post(queued); queued = null; } return; }
       if (msg.kind === 'resize' && Number.isFinite(msg.height)) {
         // The sandbox reports its content height so the iframe hugs it — no dead space.
         frame.style.height = Math.min(900, Math.max(28, msg.height)) + 'px';
@@ -1067,6 +1094,7 @@
   window.addEventListener('storage', (e) => {
     if (e.key === THEME_KEY && e.newValue) applyTheme(e.newValue);
   });
+  reconcileTheme();   // durable chrome.storage ⇄ pre-paint mirror, after first paint
 
   addBtn.addEventListener('click', openAddPicker);
   window.addEventListener('hashchange', renderBoard);

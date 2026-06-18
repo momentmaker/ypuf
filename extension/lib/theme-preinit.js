@@ -14,6 +14,7 @@
   'use strict';
   try {
     var t = localStorage.getItem('ypuf-theme');
+    // The allow-list is inlined (theme.js hasn't loaded yet) — keep it in sync with theme.js MODES.
     if (t !== 'light' && t !== 'dark' && t !== 'star') {
       t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
     }

@@ -21,6 +21,16 @@
     return e;
   };
 
+  // The decidable two-disc geometry (pure, exported for tests): the illuminated fraction
+  // and the shadow disc's x-offset that reveals the lit limb (waxing left → right, waning
+  // mirrored). f=0 at new (shadow centred → all dark), f=1 at full (shadow off-disc → all lit).
+  function geometry(phase) {
+    const f = (1 - Math.cos(2 * Math.PI * phase)) / 2;
+    const waning = phase >= 0.5;
+    const shadowX = 16 + (waning ? 1 : -1) * (26 * f);
+    return { f, waning, shadowX };
+  }
+
   function starGlyph() {
     const cx = 16, cy = 16, R = 13, r = 5.4, pts = [];
     for (let i = 0; i < 10; i++) {
@@ -39,18 +49,18 @@
     if (opts.star) {
       svg.appendChild(starGlyph());
     } else {
-      const r = 13, phase = opts.phase || 0;
-      const f = (1 - Math.cos(2 * Math.PI * phase)) / 2;   // illuminated fraction (0 new … 1 full)
-      const waning = phase >= 0.5;
-      const shadowX = 16 + (waning ? 1 : -1) * (26 * f);   // displace the shadow to reveal the lit limb
+      const r = 13;
+      const { shadowX } = geometry(opts.phase || 0);
+      // The shadow (unlit) disc is filled with the surface behind the toggle. --toggle-bg
+      // lets a non-paper host override it; it falls back to --paper (the masthead/shelf bg).
       svg.appendChild(node('circle', { cx: 16, cy: 16, r, fill: 'currentColor' }));
-      svg.appendChild(node('circle', { cx: shadowX.toFixed(1), cy: 16, r, fill: 'var(--paper)' }));
+      svg.appendChild(node('circle', { cx: shadowX.toFixed(1), cy: 16, r, fill: 'var(--toggle-bg, var(--paper))' }));
       svg.appendChild(node('circle', { cx: 16, cy: 16, r, fill: 'none', stroke: 'currentColor', 'stroke-width': '1.2', 'stroke-opacity': '0.55' }));
     }
     container.appendChild(svg);
   }
 
-  const api = { render };
+  const api = { render, geometry };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ypuf = Object.assign(root.ypuf || {}, { moonrender: api });
 })(typeof self !== 'undefined' ? self : globalThis);

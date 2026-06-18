@@ -20,7 +20,7 @@
 (function () {
   const PROTO = 'panel';
   const VERSION = 1;
-  const THEME_MODES = ['light', 'dark', 'star'];   // re-validate inbound theme (defense in depth)
+  const THEME_MODES = ['light', 'dark', 'star'];   // re-validate inbound theme (defense in depth); mirrors lib/theme.js + lib/channel.js — keep in sync
   const root = document.getElementById('root');
 
   function postIntent(intent, index) {

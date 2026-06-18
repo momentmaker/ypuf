@@ -21,6 +21,8 @@
 
   const PROTO = 'panel';
   const VERSION = 1;
+  // Mirrors lib/theme.js MODES + panels/sandbox.js — kept local because channel.js also
+  // loads in the SW (where theme.js doesn't) and the sandbox is a separate origin. Keep in sync.
   const THEME_MODES = ['light', 'dark', 'star'];
 
   const isEnvelope = (msg) => !!msg && msg.ypuf === PROTO && msg.v === VERSION;
