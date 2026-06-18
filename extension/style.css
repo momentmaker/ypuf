@@ -61,7 +61,7 @@
   --focus-ring: #c8713a;   /* high-contrast against light paper */
   --on-accent: #fff;       /* button foreground on --accent-amber */
   --card-highlight: rgba(255, 255, 255, 0.7);   /* the top-edge light-catch on cards */
-  --radius: 10px;
+  --radius: 10px;   /* legacy default — still used by components U10 deliberately left un-repolished (btn-letgo, relief, add-panel/picker, lane edit) */
   /* Polish radius scale (U10): rows · cards · overlays. */
   --r-sm: 8px;
   --r-md: 12px;

@@ -40,15 +40,9 @@
     try { chrome.storage.local.set({ [THEME_KEY]: m }); } catch (e) { /* durable write best-effort */ }
     applyTheme(m);
   }
-  function spinToggle() {
-    if (!themeToggle) return;
-    themeToggle.classList.remove('spin');
-    void themeToggle.offsetWidth;   // restart the keyframes on a rapid re-click
-    themeToggle.classList.add('spin');
-  }
   if (themeToggle) {
     renderThemeToggle();
-    themeToggle.addEventListener('click', () => { setTheme(theme.next(currentTheme())); spinToggle(); });
+    themeToggle.addEventListener('click', () => { setTheme(theme.next(currentTheme())); moonrender.spinToggle(themeToggle); });
   }
   window.addEventListener('storage', (e) => {
     if (e.key === THEME_KEY && e.newValue) applyTheme(e.newValue);
@@ -235,6 +229,7 @@
     hintBuf = '';
     const layer = document.createElement('div');
     layer.className = 'hint-layer';
+    layer.setAttribute('aria-hidden', 'true');   // floating badges are coordinate artifacts, not content
     hintTargets.forEach((row, i) => {
       const r = row.el.getBoundingClientRect();
       const badge = document.createElement('span');
@@ -247,10 +242,15 @@
     });
     document.body.appendChild(layer);
     hintsActive = true;
+    // The fixed badges are pinned to enter-time viewport coords; scrolling the shelf would
+    // slide the rows out from under them (body.popup is the scroll container). Dismiss on
+    // any scroll — calm + predictable, like a typo. capture:true catches the body scroll.
+    window.addEventListener('scroll', exitHints, { capture: true, passive: true });
   }
 
   function exitHints() {
     hintsActive = false; hintBuf = ''; hintTargets = []; hintLabels = [];
+    window.removeEventListener('scroll', exitHints, { capture: true });
     const layer = document.querySelector('.hint-layer');
     if (layer) layer.remove();
   }

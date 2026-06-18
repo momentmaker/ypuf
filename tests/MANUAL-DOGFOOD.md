@@ -628,7 +628,8 @@ boundary, and the host-permission grants — is verified by hand.
 - [ ] In the popup, pressing **`f`** badges every visible recall row with a letter; typing
       the letter opens that page (same amber badge style as the board). `Esc` (or a
       non-matching key) dismisses the badges without opening anything.
-- [ ] The badges sit **correctly over each row even after scrolling** the shelf, and the
+- [ ] The badges sit correctly over each visible row; **scrolling the shelf while badges are
+      up dismisses hint mode** (calm + predictable — re-press `f` after scrolling). The
       readable **`1`–`9` numbers are still present** (f-hints ride alongside them for now).
 - [ ] `j`/`k`/`Enter` cursor nav still works; typing `f` in the snooze **Custom…** datetime
       field is **not** hijacked into hint mode.

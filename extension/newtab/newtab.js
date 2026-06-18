@@ -67,14 +67,8 @@
     try { chrome.storage.local.set({ [THEME_KEY]: m }); } catch (e) { /* durable write best-effort */ }
     applyTheme(m);
   }
-  function spinToggle() {
-    if (!themeToggle) return;
-    themeToggle.classList.remove('spin');
-    void themeToggle.offsetWidth;   // restart the keyframes on a rapid re-click
-    themeToggle.classList.add('spin');
-  }
   // Re-render to the new phase first, then spin the freshly-drawn moon into place.
-  const cycleTheme = () => { setTheme(theme.next(currentTheme())); spinToggle(); };
+  const cycleTheme = () => { setTheme(theme.next(currentTheme())); moonrender.spinToggle(themeToggle); };
 
   // Boot reconcile: the durable chrome.storage value wins; resolveInitial applies the
   // first-run prefers-color-scheme rule. Re-seeds the localStorage mirror so a cleared
@@ -1281,6 +1275,7 @@
     hintBuf = '';
     const layer = document.createElement('div');
     layer.className = 'hint-layer';
+    layer.setAttribute('aria-hidden', 'true');   // floating badges are coordinate artifacts, not content
     hintTargets.forEach((el, i) => {
       const r = el.getBoundingClientRect();
       const badge = document.createElement('span');
@@ -1293,6 +1288,9 @@
     });
     docBody.appendChild(layer);
     hintsActive = true;
+    // The fixed badges are pinned to enter-time viewport coords; a scroll would slide the
+    // rows out from under them. Dismiss on any scroll — calm + predictable, like a typo.
+    window.addEventListener('scroll', exitHints, { capture: true, passive: true });
   }
 
   function exitHints() {
@@ -1300,6 +1298,7 @@
     hintBuf = '';
     hintTargets = [];
     hintLabels = [];
+    window.removeEventListener('scroll', exitHints, { capture: true });
     const layer = document.querySelector('.hint-layer');
     if (layer) layer.remove();
   }
