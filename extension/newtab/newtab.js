@@ -90,7 +90,7 @@
           text.textContent = line;                 // text-only, inert (R14)
           const src = document.createElement('span');
           src.className = 'oneline-src';
-          src.textContent = 'github · momentmaker/um';   // disclosure (R16) — the actual fetch host
+          src.textContent = 'um.fz.ax';   // disclosure (R16) — the content's home (fetched from its GitHub source)
           oneLineEl.append(text, src);
           oneLineEl.hidden = false;
           if (r.refresh) r.refresh.catch(() => {}); // background refresh of the daily list
