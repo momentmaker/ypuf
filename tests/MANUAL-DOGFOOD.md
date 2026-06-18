@@ -574,3 +574,16 @@ boundary, and the host-permission grants — is verified by hand.
       dark (reconciled from chrome.storage), not reset to light.
 - [ ] **No panel flash on mount**: on a dark/star board, adding/reloading an RSS or crypto
       panel shows it themed from its first painted frame (no light-content flash).
+
+# Starfield (slice 2 / U8 / R4, R9 / AE3)
+
+- [ ] In **star** mode a slow, calm field of faint lavender stars drifts behind the board;
+      it's clearly a background, never a distraction.
+- [ ] Recall/panel **text stays legible** over it (the stars are low-alpha and sit behind
+      the opaque panel surfaces).
+- [ ] Switching **away** from star (to light/dark) removes the starfield immediately and
+      the canvas is hidden (no stray stars, no lingering animation).
+- [ ] With macOS **Reduce motion** on, star mode shows the navy palette with **no**
+      starfield; turning reduce-motion off while in star starts it live, and back on stops it.
+- [ ] No runaway CPU: leaving star mode (or closing the tab) stops the RAF — the board
+      stays cool with the starfield off. Resizing the window re-fits the field.

@@ -31,6 +31,15 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
   max-width: 1080px;
   margin: 0 auto;
   padding: 48px 24px 64px;
+  position: relative;   /* sit above the starfield canvas (U8) */
+  z-index: 1;
+}
+
+/* Starfield (U8): a fixed canvas between the navy body and the content, only painted in
+   star mode + when motion is welcome (the JS mounts/tears it down). Never intercepts input. */
+#starfield {
+  position: fixed; inset: 0; z-index: 0;
+  pointer-events: none;
 }
 
 .board-head {

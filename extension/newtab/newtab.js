@@ -22,6 +22,7 @@
   const theme = window.ypuf.theme;                // pure light/dark/star mode core (tested in lib/theme.js)
   const moonphase = window.ypuf.moonphase;        // pure lunar phase (tested in lib/moonphase.js)
   const moonrender = window.ypuf.moonrender;      // moon/star toggle glyph (DOM helper)
+  const starfield = window.ypuf.starfield;        // pure star-field generation (tested in lib/starfield.js)
 
   const docBody = document.body;
   const grid = document.getElementById('board-grid');
@@ -57,6 +58,7 @@
     document.documentElement.setAttribute('data-theme', theme.normalize(mode));
     renderThemeToggle();
     postThemeToPanels(currentTheme());   // U7: propagate into the sandboxed panels
+    syncStarfield();                     // U8: start/stop the starfield for star mode
     if (typeof refreshThemeControl === 'function') refreshThemeControl();
   }
   function setTheme(mode) {
@@ -91,6 +93,75 @@
   const panelFrames = new Set();
   function postThemeToPanels(mode) { panelFrames.forEach((p) => { if (p.postTheme) p.postTheme(mode); }); }
   let refreshThemeControl = null;   // set by the settings theme control when the overlay is open
+
+  // --- starfield (U8, R4/R9) -----------------------------------------------
+  // A slow, calm star drift behind the board — ONLY in star mode and ONLY when motion is
+  // welcome. Positions come from the pure lib/starfield.js; this is the canvas host (size +
+  // RAF + teardown). The canvas is behind content (z-index 0) and pointer-events:none, so
+  // text on the opaque panels stays legible; the stars are low-alpha lavender.
+  const starCanvas = document.getElementById('starfield');
+  const reduceMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  let starRAF = null;
+  let onStarResize = null;
+
+  function startStarfield() {
+    if (!starCanvas || starRAF) return;
+    const ctx = starCanvas.getContext('2d');
+    if (!ctx) return;
+    let dpr = 1, stars = [];
+    const size = () => {
+      dpr = window.devicePixelRatio || 1;
+      starCanvas.width = Math.floor(window.innerWidth * dpr);
+      starCanvas.height = Math.floor(window.innerHeight * dpr);
+      const density = Math.round((window.innerWidth * window.innerHeight) / 9000);
+      stars = starfield.generate(Math.min(220, density), starCanvas.width, starCanvas.height, 0x9e3779b1);
+    };
+    size();
+    starCanvas.hidden = false;
+    const start = performance.now();
+    const frame = (now) => {
+      const t = (now - start) / 1000;
+      const w = starCanvas.width, h = starCanvas.height;
+      ctx.clearRect(0, 0, w, h);
+      const drift = (t * 4 * dpr) % w;          // slow horizontal drift, wraps
+      ctx.fillStyle = '#e8e0ff';                // lavender stars
+      for (const s of stars) {
+        let x = s.x + drift; if (x > w) x -= w;
+        const tw = 0.55 + 0.45 * Math.sin(t * 0.7 + s.phase);   // gentle twinkle
+        ctx.globalAlpha = s.a * tw;
+        ctx.beginPath();
+        ctx.arc(x, s.y, s.r * dpr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      starRAF = requestAnimationFrame(frame);
+    };
+    starRAF = requestAnimationFrame(frame);
+    onStarResize = size;
+    window.addEventListener('resize', onStarResize);
+  }
+
+  function stopStarfield() {
+    if (starRAF) { cancelAnimationFrame(starRAF); starRAF = null; }
+    if (onStarResize) { window.removeEventListener('resize', onStarResize); onStarResize = null; }
+    if (starCanvas) {
+      const ctx = starCanvas.getContext('2d');
+      if (ctx) ctx.clearRect(0, 0, starCanvas.width, starCanvas.height);
+      starCanvas.hidden = true;
+    }
+  }
+
+  function syncStarfield() {
+    if (currentTheme() === 'star' && !reduceMotion()) startStarfield();
+    else stopStarfield();
+  }
+  // Toggling the OS "reduce motion" while in star mode starts/stops the field live.
+  if (window.matchMedia) {
+    const mm = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onChange = () => syncStarfield();
+    if (mm.addEventListener) mm.addEventListener('change', onChange);
+    else if (mm.addListener) mm.addListener(onChange);
+  }
   const boardSub = document.getElementById('board-sub');
   const oneLineEl = document.getElementById('board-oneline');
 
@@ -1094,6 +1165,7 @@
   window.addEventListener('storage', (e) => {
     if (e.key === THEME_KEY && e.newValue) applyTheme(e.newValue);
   });
+  syncStarfield();    // U8: start the field if the pre-paint theme is already star
   reconcileTheme();   // durable chrome.storage ⇄ pre-paint mirror, after first paint
 
   addBtn.addEventListener('click', openAddPicker);
