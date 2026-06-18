@@ -25,11 +25,12 @@ importScripts(
   'lib/eligibility.js',
   'lib/protection.js',
   'lib/eagerness.js',
+  'lib/digest.js',
   'lib/snooze.js',
   'lib/blocklist.js',
 );
 
-const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, snooze, privacy, titles } = self.ypuf;
+const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles } = self.ypuf;
 
 const logErr = (e) => console.error('[ypuf]', e);
 
@@ -883,6 +884,12 @@ async function autoClosedRecords() {
   return (await store.getAll()).filter((r) => r.autoClosed);
 }
 
+// "Your week, unburdened" (U7/R8): a calm weekly relief tally, derived from the
+// record store (digest.compute filters to auto-closed within 7d). Local-only.
+async function weekDigest() {
+  return digest.compute(await store.getAll().catch(() => []), Date.now());
+}
+
 // Ambient surface (R16): the rolling-7-day count is derived from record
 // timestamps, so it's always correct after a forget/purge — no separate counter.
 async function autoSummary() {
@@ -1010,6 +1017,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'protect-remove' && msg.host) return respond(protectRemove(msg.host));
   if (msg.type === 'protect-add' && msg.host) return respond(protectAdd(msg.host));
   if (msg.type === 'auto-summary') return respond(autoSummary());
+  if (msg.type === 'week-digest') return respond(weekDigest());
   if (msg.type === 'relief-claim') return respond(reliefClaim());
   if (msg.type === 'seen-badge') return respond(seenBadge());
   if (msg.type === 'snooze' && msg.preset) return respond(handleSnooze(msg.preset, msg.custom, sender.tab).then(() => ({ ok: true })));

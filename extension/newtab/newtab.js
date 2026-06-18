@@ -973,10 +973,11 @@
       search.placeholder = 'Recall a let-go page…';
       search.setAttribute('aria-label', 'Recall a let-go page');
       const reliefWrap = document.createElement('div');
+      const digestWrap = document.createElement('div');
       const results = document.createElement('div');
       const recentWrap = document.createElement('div');
       const snoozeWrap = document.createElement('div');
-      body.append(reliefWrap, search, results, recentWrap, snoozeWrap);
+      body.append(reliefWrap, digestWrap, search, results, recentWrap, snoozeWrap);
 
       // The relief moment (U5/R12): once a day, a calm acknowledgement that what you
       // let go is safe. The SW gates the claim, so it shows on whichever surface you
@@ -987,6 +988,16 @@
         relief.className = 'board-relief';
         relief.textContent = `${resp.count} let go today — all still findable.`;
         reliefWrap.appendChild(relief);
+      });
+
+      // "Your week, unburdened" (U7/R8): a calm weekly tally — hidden entirely when
+      // there's nothing to show (no cold all-zeros line on a fresh profile).
+      send('week-digest').then((d) => {
+        if (destroyed || !d || (!d.letGo && !d.recalled)) return;
+        const line = document.createElement('div');
+        line.className = 'board-digest';
+        line.textContent = `${d.letGo} let go this week · ${d.lost} lost · ${d.recalled} recalled`;
+        digestWrap.appendChild(line);
       });
 
       function row(it, tags, action) {

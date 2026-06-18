@@ -338,6 +338,8 @@ body[data-mood="night"] { --paper: #f1eadf; --warm-gray: #e3d9cc; --card-bg: #ff
   font-size: 12.5px;
   color: var(--accent-sage);
 }
+/* The weekly digest (U7): quieter than the relief box — an ambient tally, no chrome. */
+.board-digest { font-size: 11.5px; color: var(--muted); margin: 0 2px 11px; }
 .panel-group-label { font-size: 11px; color: var(--muted); margin: 10px 2px 3px; }
 .set-restore { margin-top: 4px; }
 
