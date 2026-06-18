@@ -10,12 +10,21 @@
 (function (root) {
   'use strict';
 
-  // Keep non-empty lines that aren't the blockquote preamble (`>`) or a heading (`#`).
+  // Keep the aphorism lines: non-empty, not the blockquote preamble (`>`) or a heading
+  // (`#`). Stop at the footer — a `---` rule, or a heading once aphorisms have started —
+  // so um.fz.ax's GitBook boilerplate ("--- / # Agent Instructions / published with
+  // GitBook…") can never be picked as an aphorism.
   function parse(md) {
     if (typeof md !== 'string') return [];
-    return md.split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter((l) => l && l[0] !== '>' && l[0] !== '#');
+    const out = [];
+    for (const raw of md.split(/\r?\n/)) {
+      const l = raw.trim();
+      if (/^-{3,}$/.test(l)) break;                  // horizontal rule → footer follows
+      if (l[0] === '#' && out.length) break;         // a heading after the aphorisms → footer
+      if (!l || l[0] === '>' || l[0] === '#') continue; // skip blanks, preamble, headings
+      out.push(l);
+    }
+    return out;
   }
 
   const api = { parse };
