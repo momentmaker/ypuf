@@ -72,6 +72,10 @@ math) is covered by `node --test`. The behavior below depends on real
       of failing silently.
 - [ ] A result whose title contains `<img src=x onerror=alert(1)>` renders as
       inert text — no script runs (textContent rendering).
+- [ ] **Theme:** the command bar follows the chosen theme — set **dark** (or **star**)
+      and trigger recall on a normal page → the bar is the dark/navy palette (not a bright
+      white box), with the branded **● ypuf · recall** header, an accent active-row bar, and
+      the **↑↓ / ↵ / esc** hint footer. A dark-OS user sees no white flash before it themes.
 
 ## Privacy controls — what's-indexed / forget / block (U8)
 

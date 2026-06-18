@@ -16,32 +16,59 @@
   const existing = document.getElementById(HOST_ID);
   if (existing) { existing.remove(); return; } // re-press closes
 
+  // Palette mirrors the extension's theme tokens (light/dark/star). The theme value is
+  // read from chrome.storage.local below; until then `:host` is light, with an instant
+  // prefers-color-scheme guess so dark-OS users don't flash white.
   const STYLES = `
-    :host { all: initial; }
-    .backdrop { position: fixed; inset: 0; background: rgba(26,22,19,0.28); }
+    :host {
+      all: initial;
+      --bg: #fffdf9; --ink: #1a1613; --line: #e8e2da; --hover: #efe9e0; --muted: #9a918a;
+      --accent: #c8713a; --backdrop: rgba(26,22,19,0.28); --shadow: rgba(26,22,19,0.32);
+    }
+    :host([data-theme="dark"]) {
+      --bg: #2a251e; --ink: #f0ebe1; --line: #3a342b; --hover: #353029; --muted: #a89e90;
+      --accent: #e0a875; --backdrop: rgba(0,0,0,0.5); --shadow: rgba(0,0,0,0.6);
+    }
+    :host([data-theme="star"]) {
+      --bg: #14142a; --ink: rgba(232,224,255,0.92); --line: rgba(232,224,255,0.16);
+      --hover: rgba(232,224,255,0.08); --muted: rgba(232,224,255,0.5);
+      --accent: #d9ccff; --backdrop: rgba(5,5,14,0.55); --shadow: rgba(0,0,0,0.7);
+    }
+    .backdrop { position: fixed; inset: 0; background: var(--backdrop); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
     .panel {
-      position: fixed; top: 14vh; left: 50%; transform: translateX(-50%);
-      width: min(620px, 92vw); max-height: 64vh; display: flex; flex-direction: column;
-      background: #fffdf9; color: #1a1613; border-radius: 14px;
-      box-shadow: 0 24px 60px rgba(26,22,19,0.30); overflow: hidden;
+      position: fixed; top: 13vh; left: 50%; transform: translateX(-50%);
+      width: min(640px, 92vw); max-height: 64vh; display: flex; flex-direction: column;
+      background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 16px;
+      box-shadow: 0 24px 70px -8px var(--shadow); overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
+    .head { display: flex; align-items: center; gap: 8px; padding: 12px 16px 2px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+    .brand { font-size: 12px; letter-spacing: 0.03em; color: var(--muted); }
+    .brand b { color: var(--ink); font-weight: 600; }
+    .head .spacer { flex: 1; }
     .q {
-      font: inherit; font-size: 17px; padding: 16px 18px; border: none; outline: none;
-      background: transparent; border-bottom: 1px solid #e8e2da; color: inherit;
+      font: inherit; font-size: 17px; padding: 10px 16px 14px; border: none; outline: none;
+      background: transparent; color: var(--ink); border-bottom: 1px solid var(--line);
     }
+    .q::placeholder { color: var(--muted); }
     .results { list-style: none; margin: 0; padding: 6px; overflow-y: auto; }
-    .item { padding: 9px 12px; border-radius: 9px; cursor: pointer; }
-    .item.active, .item:hover { background: #e8e2da; }
-    .item .title { font-size: 14px; line-height: 1.3; }
-    .item .meta { font-size: 11px; color: #9a918a; margin-top: 2px; }
-    .state { padding: 22px 18px; color: #9a918a; font-size: 13px; text-align: center; }
-    .set-offer { font-size: 12px; color: #5a6b7a; margin-top: 5px; cursor: pointer; }
+    .results::-webkit-scrollbar { width: 9px; }
+    .results::-webkit-scrollbar-thumb { background: var(--line); border-radius: 5px; }
+    .item { padding: 9px 12px; border-radius: 10px; cursor: pointer; border-left: 2px solid transparent; }
+    .item.active, .item:hover { background: var(--hover); }
+    .item.active { border-left-color: var(--accent); }
+    .item .title { font-size: 14px; line-height: 1.3; color: var(--ink); }
+    .item .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .state { padding: 22px 18px; color: var(--muted); font-size: 13px; text-align: center; }
+    .set-offer { font-size: 12px; color: var(--accent); margin-top: 5px; cursor: pointer; }
     .set-box { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; }
     .set-row { display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; }
     .set-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .set-actions { display: flex; gap: 14px; margin-top: 5px; }
-    .set-btn { font: inherit; font-size: 12px; background: none; border: none; color: #5a6b7a; cursor: pointer; padding: 0; }
+    .set-btn { font: inherit; font-size: 12px; background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; }
+    .foot { display: flex; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+    .foot b { color: var(--ink); font-weight: 600; }
   `;
 
   const host = document.createElement('div');
@@ -51,18 +78,51 @@
   // input. Refs are kept in this closure. (Privacy: nothing leaves the device.)
   const shadow = host.attachShadow({ mode: 'closed' });
 
+  // Respect the chosen theme (light/dark/star). chrome.storage.local is the durable,
+  // content-script-readable source of truth; set an instant prefers-color-scheme guess
+  // first so a dark-OS user never flashes white, then refine from storage (incl. star).
+  const applyTheme = (mode) => { host.dataset.theme = (mode === 'dark' || mode === 'star') ? mode : 'light'; };
+  try { applyTheme(matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); } catch { applyTheme('light'); }
+
   const style = document.createElement('style');
   style.textContent = STYLES;
   const backdrop = document.createElement('div'); backdrop.className = 'backdrop';
   const panel = document.createElement('div'); panel.className = 'panel'; panel.setAttribute('role', 'dialog');
+
+  const head = document.createElement('div'); head.className = 'head';
+  const dot = document.createElement('span'); dot.className = 'dot';
+  const brand = document.createElement('span'); brand.className = 'brand';
+  const brandName = document.createElement('b'); brandName.textContent = 'ypuf';
+  brand.append(brandName, document.createTextNode(' · recall'));
+  const spacer = document.createElement('span'); spacer.className = 'spacer';
+  head.append(dot, brand, spacer);
+
   const input = document.createElement('input');
   input.className = 'q'; input.type = 'text'; input.placeholder = 'Recall a let-go page…';
   input.setAttribute('autocomplete', 'off'); input.setAttribute('spellcheck', 'false');
   const list = document.createElement('ul'); list.className = 'results';
   const state = document.createElement('div'); state.className = 'state'; state.hidden = true;
-  panel.append(input, list, state);
+
+  const foot = document.createElement('div'); foot.className = 'foot';
+  const hint = (key, label) => {
+    const s = document.createElement('span');
+    const b = document.createElement('b'); b.textContent = key;
+    s.append(b, document.createTextNode(' ' + label));
+    return s;
+  };
+  foot.append(hint('↑↓', 'navigate'), hint('↵', 'open'), hint('esc', 'close'));
+
+  panel.append(head, input, list, state, foot);
   shadow.append(style, backdrop, panel);
   (document.documentElement || document.body).appendChild(host);
+
+  try {
+    chrome.storage.local.get('ypuf-theme', (o) => {
+      if (chrome.runtime.lastError) return;
+      const t = o && o['ypuf-theme'];
+      if (t === 'light' || t === 'dark' || t === 'star') applyTheme(t);
+    });
+  } catch { /* storage unavailable on this host — keep the prefers-color-scheme guess */ }
 
   const prevFocus = document.activeElement;
   let items = [];
