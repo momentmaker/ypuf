@@ -134,13 +134,13 @@
     starCanvas.hidden = false;
 
     // Occasional shooting star (ported from pilgrim Universe.js): a streak with a fading
-    // tail every ~16–32 s, eased, ~700 ms.
-    let shooting = null, nextShootAt = performance.now() + 9000 + Math.random() * 12000;
+    // tail + a bright head, eased, ~900 ms. The first comes soon so it's noticeable.
+    let shooting = null, nextShootAt = performance.now() + 4000 + Math.random() * 4000;
     const spawnShoot = (now) => {
       const w = starCanvas.width, h = starCanvas.height, fromLeft = Math.random() < 0.5;
       shooting = {
-        x0: fromLeft ? -50 * dpr : w + 50 * dpr, y0: Math.random() * h * 0.5,
-        dx: (fromLeft ? 1 : -1) * (w * 0.6), dy: h * 0.4, t0: now, dur: 700,
+        x0: fromLeft ? -50 * dpr : w + 50 * dpr, y0: Math.random() * h * 0.45,
+        dx: (fromLeft ? 1 : -1) * (w * 0.65), dy: h * 0.4, t0: now, dur: 900,
       };
     };
     const drawShoot = (now) => {
@@ -149,12 +149,16 @@
       if (p >= 1) { shooting = null; return; }
       const e = 1 - Math.pow(1 - p, 3), fade = 1 - p;
       const hx = shooting.x0 + shooting.dx * e, hy = shooting.y0 + shooting.dy * e;
-      const ang = Math.atan2(shooting.dy, shooting.dx), len = 130 * dpr;
-      const grad = ctx.createLinearGradient(hx, hy, hx - Math.cos(ang) * len, hy - Math.sin(ang) * len);
-      grad.addColorStop(0, `rgba(255,255,255,${0.9 * fade})`);
+      const ang = Math.atan2(shooting.dy, shooting.dx), len = 150 * dpr;
+      const tx = hx - Math.cos(ang) * len, ty = hy - Math.sin(ang) * len;
+      ctx.globalAlpha = 1;
+      const grad = ctx.createLinearGradient(hx, hy, tx, ty);
+      grad.addColorStop(0, `rgba(255,255,255,${0.95 * fade})`);
       grad.addColorStop(1, 'rgba(232,224,255,0)');
-      ctx.strokeStyle = grad; ctx.lineWidth = 1.6 * dpr;
-      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(hx - Math.cos(ang) * len, hy - Math.sin(ang) * len); ctx.stroke();
+      ctx.strokeStyle = grad; ctx.lineWidth = 2 * dpr;
+      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
+      ctx.fillStyle = `rgba(255,255,255,${0.95 * fade})`;   // bright head
+      ctx.beginPath(); ctx.arc(hx, hy, 1.8 * dpr, 0, Math.PI * 2); ctx.fill();
     };
 
     const frame = (now) => {
@@ -167,7 +171,8 @@
         ctx.globalAlpha = Math.min(s.a * (0.6 + 0.4 * Math.max(0, breath)), 1);
         ctx.drawImage(s.warm ? warm : cool, s.x - d, s.y - d, d * 2, d * 2);
       }
-      if (!shooting && now >= nextShootAt) { spawnShoot(now); nextShootAt = now + 16000 + Math.random() * 16000; }
+      ctx.globalAlpha = 1;   // reset before the shooting star (was inheriting a star's low alpha)
+      if (!shooting && now >= nextShootAt) { spawnShoot(now); nextShootAt = now + 12000 + Math.random() * 14000; }
       drawShoot(now);
       ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = 1;
