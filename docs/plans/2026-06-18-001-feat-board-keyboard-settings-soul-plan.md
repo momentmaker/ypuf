@@ -1,7 +1,7 @@
 ---
 title: "feat: ypuf board — calm settings, soul, and a vim keyboard layer"
 type: feat
-status: active
+status: completed
 date: 2026-06-18
 origin: docs/brainstorms/2026-06-18-ypuf-board-keyboard-settings-soul-requirements.md
 ---
