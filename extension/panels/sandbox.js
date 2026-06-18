@@ -20,6 +20,7 @@
 (function () {
   const PROTO = 'panel';
   const VERSION = 1;
+  const THEME_MODES = ['light', 'dark', 'star'];   // re-validate inbound theme (defense in depth); mirrors lib/theme.js + lib/channel.js — keep in sync
   const root = document.getElementById('root');
 
   function postIntent(intent, index) {
@@ -88,6 +89,10 @@
     const msg = event.data;
     if (!msg || msg.ypuf !== PROTO || msg.v !== VERSION) return;
     if (msg.kind === 'render') render(msg.body);
+    // Theme (U7): apply only a known mode to our <html> — a crafted value is ignored.
+    if (msg.kind === 'theme' && THEME_MODES.indexOf(msg.mode) >= 0) {
+      document.documentElement.setAttribute('data-theme', msg.mode);
+    }
   });
 
   // Announce readiness so the host knows the frame is listening before it posts.

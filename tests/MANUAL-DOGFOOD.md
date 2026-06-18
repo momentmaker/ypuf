@@ -534,3 +534,43 @@ boundary, and the host-permission grants — is verified by hand.
 - [ ] **Held keys are safe:** holding `j`/`k` scrolls the cursor smoothly, but holding
       `x` forgets the row only **once** (no double-forget); a stray `g` long ago never
       triggers a later jump-to-top.
+
+# Light / dark / star theming — slice 1 (token system, toggle, panels)
+
+## The toggle + tri-mode (U5/U6 / R2, R3, R15 / AE1, AE8)
+
+- [ ] The masthead (and popup shelf-head) shows a moon at **tonight's actual phase**; its
+      tooltip/aria-label names the **next** mode ("switch to dark"). Clicking cycles
+      **light → dark → star → light**; the whole surface recolors each click.
+- [ ] In **star** mode the toggle shows a star (with a slow lavender breath) and the board
+      goes deep navy + lavender. The choice **survives a reload/restart**.
+- [ ] With a board tab **and** the popup open, toggling one converges the other live; a
+      second board tab converges too.
+- [ ] The settings overlay has an **Appearance** group with an explicit Light/Dark/Star
+      segmented control that stays in sync with the toggle. *(Covers AE1, AE8)*
+
+## First-run default + no flash (U5/U6 / R2, R9 / AE2)
+
+- [ ] On a **fresh profile** with the OS in dark mode, the first new tab / popup opens
+      **dark** (never star). With the OS light, it opens light. *(Covers AE2)*
+- [ ] Opening a new tab (or the popup) while in **dark/star** shows **no flash of light**
+      before the theme applies (the pre-paint bootstrap).
+
+## Panels + fonts + fixes (U7/U2/U1 / R5, R6, R12, R13 / AE4, AE5, AE7)
+
+- [ ] With an **RSS** and a **crypto** panel on the board, switching to dark/star turns
+      **both panels** dark/star in step — no bright-white rectangles; a newly added panel
+      mounts already themed. *(Covers AE4)*
+- [ ] Text reads in **Cormorant Garamond / Lato**; the masthead is no longer Fraunces; with
+      the machine **offline**, fonts still render (self-hosted, no CDN). *(Covers AE5)*
+- [ ] The popup quick-open **number badges are clearly legible** in light, dark, and star;
+      a long recall title never runs **under** the hover protect/forget icons. *(R12, R13)*
+- [ ] Keyboard focus shows a **visible ring** on every focusable element in all three modes.
+- [ ] **Native scrollbars + form controls follow the theme** (`color-scheme`): a scrolling
+      panel/popup/board shows a dark scrollbar in dark/star (not a bright system bar), and the
+      snooze date-time picker renders dark too.
+- [ ] **Theme is durable** (chrome.storage source of truth): set dark, then clear the
+      page's localStorage (DevTools → Application) and reopen a new tab — it comes back
+      dark (reconciled from chrome.storage), not reset to light.
+- [ ] **No panel flash on mount**: on a dark/star board, adding/reloading an RSS or crypto
+      panel shows it themed from its first painted frame (no light-content flash).

@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="../lib/theme-preinit.js"></script>
   <link rel="stylesheet" href="../style.css" />
   <title>ypuf</title>
 </head>
@@ -10,7 +11,10 @@
   <main class="shelf" id="shelf">
     <header class="shelf-head">
       <span class="wordmark">ypuf</span>
-      <button class="btn-letgo" id="letgo" type="button">Let go of this tab</button>
+      <div class="shelf-actions">
+        <button class="theme-toggle" id="theme-toggle" type="button"></button>
+        <button class="btn-letgo" id="letgo" type="button">Let go of this tab</button>
+      </div>
     </header>
 
     <div class="snooze-bar">
@@ -68,6 +72,9 @@
   </section>
 
   <script src="../lib/attribution.js"></script>
+  <script src="../lib/theme.js"></script>
+  <script src="../lib/moonphase.js"></script>
+  <script src="../lib/moonrender.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

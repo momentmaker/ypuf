@@ -6,9 +6,14 @@
   <style>
     /* Inline only (sandbox CSP: style-src 'unsafe-inline'). No remote/self resource
        loads — the sandbox can paint, but it cannot fetch, so it cannot phone home. */
-    :root { --ink:#1a1613; --muted:#9a918a; --warm-gray:#e8e2da; --accent-slate:#5a6b7a;
+    :root { color-scheme:light; --ink:#1a1613; --muted:#9a918a; --warm-gray:#e8e2da; --accent-slate:#5a6b7a;
             --up:#5a7a62; --down:#b35a5a;
             --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; }
+    /* Theme (U7): the host posts the active mode; the panel is transparent over the board,
+       so only its text/line colours flip. `color-scheme` themes the native (document)
+       scrollbar so it isn't a bright bar on the dark/navy ground. */
+    [data-theme="dark"] { color-scheme:dark; --ink:#f0ebe1; --muted:#9c9183; --warm-gray:#322a20; --accent-slate:#8aa2b8; --up:#93a893; --down:#cc8585; }
+    [data-theme="star"] { color-scheme:dark; --ink:rgba(232,224,255,0.92); --muted:rgba(232,224,255,0.5); --warm-gray:#232338; --accent-slate:#aab7d6; --up:#a8d8d0; --down:#d6a0c8; }
     * { margin:0; padding:0; box-sizing:border-box; }
     html,body { background:transparent; color:var(--ink); font-family:var(--font); }
     .panel { display:flex; flex-direction:column; gap:7px; padding:1px; }
@@ -16,9 +21,12 @@
        disclosure foot below stay visible (they don't scroll away). */
     .lines { display:flex; flex-direction:column; gap:5px; list-style:none;
              max-height:280px; overflow-y:auto; }
-    .lines::-webkit-scrollbar { width:6px; }
-    .lines::-webkit-scrollbar-thumb { background:var(--warm-gray); border-radius:3px; }
-    .lines::-webkit-scrollbar-track { background:transparent; }
+    /* Style EVERY scrollbar in the sandbox (the inner .lines list AND the iframe's own
+       document scrollbar) so a themed --warm-gray thumb replaces the bright OS default —
+       color-scheme alone doesn't reliably theme the always-on macOS scrollbar in an iframe. */
+    ::-webkit-scrollbar { width:7px; height:7px; }
+    ::-webkit-scrollbar-thumb { background:var(--warm-gray); border-radius:4px; }
+    ::-webkit-scrollbar-track { background:transparent; }
     .line { font-size:13px; line-height:1.45; color:var(--ink); }
     button.line { font:inherit; text-align:left; background:none; border:none; color:var(--ink);
                   cursor:pointer; padding:0; width:100%; line-height:1.45; }

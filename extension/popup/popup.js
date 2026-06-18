@@ -11,6 +11,52 @@
   const recent = document.getElementById('recent');
   const empty = document.getElementById('empty');
 
+  // Theme (U6): mirrors the board controller — applied pre-paint by lib/theme-preinit.js;
+  // this wires the cycling moon/star toggle, persists to localStorage (shared across
+  // extension pages, local-only), and converges via the storage event.
+  const theme = window.ypuf.theme;
+  const moonphase = window.ypuf.moonphase;
+  const moonrender = window.ypuf.moonrender;
+  const themeToggle = document.getElementById('theme-toggle');
+  const THEME_KEY = 'ypuf-theme';
+  const currentTheme = () => theme.normalize(document.documentElement.getAttribute('data-theme'));
+  function renderThemeToggle() {
+    if (!themeToggle) return;
+    const mode = currentTheme();
+    const star = mode === 'star';
+    const phase = star ? 0 : moonphase.phase(new Date());
+    moonrender.render(themeToggle, { star, phase });
+    const nextMode = theme.next(mode);
+    const phaseName = star ? 'star' : moonphase.phaseName(phase);
+    themeToggle.setAttribute('aria-label', `Theme: ${mode} — switch to ${nextMode}`);
+    themeToggle.title = `Theme: ${mode} (${phaseName}) · click for ${nextMode}`;
+  }
+  function applyTheme(mode) {
+    document.documentElement.setAttribute('data-theme', theme.normalize(mode));
+    renderThemeToggle();
+  }
+  function setTheme(m) {
+    try { localStorage.setItem(THEME_KEY, m); } catch (e) { console.warn('[ypuf] theme mirror write failed', e); }
+    try { chrome.storage.local.set({ [THEME_KEY]: m }); } catch (e) { /* durable write best-effort */ }
+    applyTheme(m);
+  }
+  if (themeToggle) {
+    renderThemeToggle();
+    themeToggle.addEventListener('click', () => setTheme(theme.next(currentTheme())));
+  }
+  window.addEventListener('storage', (e) => {
+    if (e.key === THEME_KEY && e.newValue) applyTheme(e.newValue);
+  });
+  // Reconcile the durable chrome.storage value with the pre-paint localStorage mirror.
+  try {
+    chrome.storage.local.get(THEME_KEY, (o) => {
+      if (chrome.runtime.lastError) return;
+      const durable = o && o[THEME_KEY];
+      if (theme.MODES.indexOf(durable) >= 0 && durable !== currentTheme()) applyTheme(durable);
+      if (theme.MODES.indexOf(durable) >= 0) { try { localStorage.setItem(THEME_KEY, durable); } catch (e) {} }
+    });
+  } catch (e) { /* chrome.storage unavailable */ }
+
   // Let-go trigger (U5): the SW owns the capture; the popup just asks.
   const letgo = document.getElementById('letgo');
   if (letgo) {

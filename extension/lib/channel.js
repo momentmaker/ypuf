@@ -21,8 +21,19 @@
 
   const PROTO = 'panel';
   const VERSION = 1;
+  // Mirrors lib/theme.js MODES + panels/sandbox.js — kept local because channel.js also
+  // loads in the SW (where theme.js doesn't) and the sandbox is a separate origin. Keep in sync.
+  const THEME_MODES = ['light', 'dark', 'star'];
 
   const isEnvelope = (msg) => !!msg && msg.ypuf === PROTO && msg.v === VERSION;
+
+  // Build a host→sandbox theme envelope (U7). Only a known mode crosses the boundary —
+  // an unknown value yields null (the host won't post it), and the sandbox re-validates
+  // on receipt. The payload is a single enum string, never page content.
+  function themeEnvelope(mode) {
+    if (THEME_MODES.indexOf(mode) < 0) return null;
+    return { ypuf: PROTO, v: VERSION, kind: 'theme', mode };
+  }
 
   // Build a render envelope. `lines` are reduced to sanitized fields ONLY — text
   // (a string) plus an optional integer `open` index — so a raw URL or HTML field
@@ -72,7 +83,7 @@
     return url;
   }
 
-  const api = { renderEnvelope, sanitizeLines, parseIntent, resolveOpen, PROTO, VERSION };
+  const api = { renderEnvelope, themeEnvelope, sanitizeLines, parseIntent, resolveOpen, PROTO, VERSION, THEME_MODES };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ypuf = Object.assign(root.ypuf || {}, { channel: api });
 })(typeof self !== 'undefined' ? self : globalThis);
