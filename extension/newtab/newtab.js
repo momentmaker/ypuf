@@ -35,6 +35,30 @@
   let oneLineSeq = 0;      // supersedes a slow one-line fetch when the footer is re-rendered or toggled off
   const COLS = 3;          // fixed, unlabeled lanes — arrange-your-desk, not a kanban to manage
   const colOf = (spec) => lanes.colOf(spec, COLS);
+
+  // Calm line icons (U1). Built via createElementNS (never innerHTML), themed by
+  // currentColor so they inherit the affordance's calm/hover/accent color.
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const ICONS = {
+    trash: [['path', { d: 'M3 4.5h10' }], ['path', { d: 'M5.6 4.5v-1a1 1 0 011-1h2.8a1 1 0 011 1v1' }],
+            ['path', { d: 'M4.7 4.5l.5 8a1 1 0 001 .95h3.6a1 1 0 001-.95l.5-8' }]],
+    pencil: [['path', { d: 'M10.7 2.7l2.6 2.6' }], ['path', { d: 'M3 13l.7-2.7 7.3-7.3 2.6 2.6-7.3 7.3z' }]],
+    shield: [['path', { d: 'M8 2l5 2v4c0 3-2.2 5.2-5 6-2.8-.8-5-3-5-6V4z' }]],
+    gear: [['circle', { cx: 8, cy: 8, r: 2.2 }],
+           ['path', { d: 'M8 1.6v1.6M8 12.8v1.6M14.4 8h-1.6M3.2 8H1.6M12.5 3.5l-1.1 1.1M4.6 11.4l-1.1 1.1M12.5 12.5l-1.1-1.1M4.6 4.6L3.5 3.5' }]],
+  };
+  function icon(name) {
+    const svg = document.createElementNS(SVGNS, 'svg');
+    const a = { viewBox: '0 0 16 16', width: '15', height: '15', fill: 'none', stroke: 'currentColor',
+                'stroke-width': '1.4', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' };
+    for (const k of Object.keys(a)) svg.setAttribute(k, a[k]);
+    for (const [tag, attrs] of ICONS[name]) {
+      const el = document.createElementNS(SVGNS, tag);
+      for (const k of Object.keys(attrs)) el.setAttribute(k, String(attrs[k]));
+      svg.appendChild(el);
+    }
+    return svg;
+  }
   let mounted = [];   // panel teardown fns; run before each re-render so intervals,
                       // message listeners, and focus handlers never leak.
   let firstPaint = true; // the gentle card entrance plays once on open, not on every re-render
@@ -731,6 +755,8 @@
   }
 
   renderMasthead();   // greet the hour (U4)
+  editBtn.textContent = ''; editBtn.append(icon('pencil'));   // U1: iconify the edit affordance
+  editBtn.setAttribute('aria-label', 'Edit board'); editBtn.title = 'Edit board';
   editBtn.addEventListener('click', () => { editing = !editing; renderBoard(); });
   if (oneLineToggle) oneLineToggle.addEventListener('click', toggleOneLine);
   addBtn.addEventListener('click', openAddPicker);
@@ -815,9 +841,9 @@
       function addForget(li, it) {
         const forget = document.createElement('button');
         forget.type = 'button';
-        forget.className = 'link recall-forget';
-        forget.textContent = 'forget';
-        forget.setAttribute('aria-label', 'Forget this page');
+        forget.className = 'link recall-forget icon-btn';
+        const showForget = () => { forget.textContent = ''; forget.append(icon('trash')); forget.setAttribute('aria-label', 'Forget this page'); forget.title = 'forget'; };
+        showForget();
         let undoTimer = null;
         forget.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -825,14 +851,14 @@
             clearTimeout(undoTimer); undoTimer = null;
             send('forget-page-undo', { recordId: it.id }).then((resp) => {
               if (!resp || !resp.ok) { li.remove(); return; } // undo too late — the page is truly gone
-              li.classList.remove('struck'); forget.textContent = 'forget';
+              li.classList.remove('struck'); showForget();
             });
             return;
           }
           send('forget-page', { recordId: it.id }).then((resp) => {
             if (!resp || !resp.ok) return;                   // forget failed → don't fake success
             li.classList.add('struck');
-            forget.textContent = 'undo';
+            forget.textContent = 'undo'; forget.setAttribute('aria-label', 'Undo forget'); forget.title = 'undo';
             undoTimer = setTimeout(() => { if (!destroyed) li.remove(); }, 6000); // don't touch a torn-down row
           });
         });
