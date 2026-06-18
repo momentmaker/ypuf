@@ -803,7 +803,36 @@
           restore.addEventListener('click', () => send('restore-set', { recordId: it.id, urls }));
           li.appendChild(restore);
         }
+        if (it.id) addForget(li, it);
         return li;
+      }
+
+      // Delete-in-place (forget) from the board — mirrors the popup's What's-indexed
+      // Forget: strike the row, swap to "undo" for the 6s grace window, then remove.
+      // A quiet hover-revealed link so the board stays calm at rest.
+      function addForget(li, it) {
+        const forget = document.createElement('button');
+        forget.type = 'button';
+        forget.className = 'link recall-forget';
+        forget.textContent = 'forget';
+        forget.setAttribute('aria-label', 'Forget this page');
+        let undoTimer = null;
+        forget.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (undoTimer) {                                   // within the grace window → undo
+            clearTimeout(undoTimer); undoTimer = null;
+            send('forget-page-undo', { recordId: it.id })
+              .then(() => { li.classList.remove('struck'); forget.textContent = 'forget'; });
+            return;
+          }
+          send('forget-page', { recordId: it.id }).then((resp) => {
+            if (!resp || !resp.ok) return;                   // forget failed → don't fake success
+            li.classList.add('struck');
+            forget.textContent = 'undo';
+            undoTimer = setTimeout(() => li.remove(), 6000);
+          });
+        });
+        li.appendChild(forget);
       }
 
       function renderList(target, items, action) {

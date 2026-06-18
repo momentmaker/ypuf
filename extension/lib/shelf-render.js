@@ -28,11 +28,12 @@
   const hostOf = (it, T) => ((T && T.friendlyDomain) ? T.friendlyDomain(it.host || '') : (it.host || ''));
 
   // A recall row descriptor. `action` (optional) marks the title clickable and
-  // carries the click intent — a plain {action, id}, never a live handler, so the
-  // descriptor stays pure and serialisable.
+  // carries the click intent — a plain {action, id?}, never a live handler, so the
+  // descriptor stays pure and serialisable. The id defaults to this row's own id,
+  // so a caller can pass just { action } and still open the right record.
   function itemRow(it, tags, T, action) {
     const title = el('div', { cls: 'title' + (action ? ' clickable' : ''), text: titleOf(it, T) });
-    if (action) title.click = action;
+    if (action) title.click = { action: action.action, id: (action.id != null ? action.id : it.id) };
     const metaText = [hostOf(it, T)].concat(tags || []).filter(Boolean).join('  ·  ');
     const meta = el('div', { cls: 'meta', text: metaText });
     return el('li', {

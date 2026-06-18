@@ -123,21 +123,61 @@
     wrap.append(members, actions);
   }
 
+  // Vim-style quick-open: each visible recall row gets a hint key (1–9, then 0);
+  // pressing it opens that page. j/k (or arrows) move a cursor; Enter opens it.
+  const HINT_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
+  let quick = [];   // recall row ids, indexed by visible position
+  let cursor = -1;
+
   function render(items) {
     recent.textContent = '';
     recentEmpty = !(items && items.length);
     updateEmpty();
+    quick = []; cursor = -1;
     if (recentEmpty) return;
-    for (const it of items) {
+    items.forEach((it, i) => {
       const ago = T.timeAgo ? T.timeAgo(it.timestamp) : '';
       // Auto-closed items carry a quiet marker so the undo shelf doubles as a
       // discovery surface when the ambient indicator was missed (R13).
       const li = itemRow(it, [ago, it.autoClosed ? 'let go for you' : '']);
       if (it.siblings && it.siblings.length) { titleOpens(li, it.id); li.appendChild(setControls(it)); }
       else openOnClick(li, it.id);
+      if (i < HINT_KEYS.length && it.id) {
+        const hint = document.createElement('span'); hint.className = 'hint'; hint.textContent = HINT_KEYS[i];
+        li.appendChild(hint);
+      }
+      quick.push(it.id);
       recent.appendChild(li);
-    }
+    });
   }
+
+  function setCursor(i) {
+    cursor = i;
+    [...recent.children].forEach((li, idx) => li.classList.toggle('cursor', idx === cursor));
+    if (recent.children[cursor]) recent.children[cursor].scrollIntoView({ block: 'nearest' });
+  }
+  function moveCursor(d) {
+    if (!quick.length) return;
+    const start = cursor < 0 ? (d > 0 ? 0 : quick.length - 1) : cursor + d;
+    setCursor(Math.max(0, Math.min(quick.length - 1, start)));
+  }
+  // 1–9/0 open a row directly; j/k+Enter for cursor nav; Esc closes. A focused input
+  // (the snooze datetime) or button keeps its own keys.
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    if (e.key === 'Escape') { window.close(); return; }
+    if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); moveCursor(1); return; }
+    if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); moveCursor(-1); return; }
+    if (e.key === 'Enter') {
+      if (cursor >= 0 && quick[cursor] && !(t && (t.tagName === 'BUTTON' || t.tagName === 'A'))) {
+        e.preventDefault(); recallOpen(quick[cursor]);
+      }
+      return;
+    }
+    const idx = HINT_KEYS.indexOf(e.key);
+    if (idx >= 0 && quick[idx]) { e.preventDefault(); recallOpen(quick[idx]); }
+  });
 
   let recentSeq = 0;
   function loadRecent() {

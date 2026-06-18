@@ -229,6 +229,15 @@ async function handleSnooze(preset, custom) {
 // picks a time — never a silent default). The popup reads SNOOZE_INTENT_KEY.
 const SNOOZE_INTENT_KEY = 'snoozeIntent';
 async function openSnoozePicker() {
+  const tab = await getActiveTab();
+  // Prefer the in-page overlay (mirrors recall); fall back to the popup picker on
+  // pages we can't inject into (chrome://, the board, the Web Store).
+  if (tab && tab.url && exclusion.isInjectable(tab.url)) {
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['overlay/snooze-overlay.js'] });
+      return;
+    } catch { /* fall through to popup fallback */ }
+  }
   await session.set(SNOOZE_INTENT_KEY, true);
   // Clear the intent if the popup can't open, so it doesn't auto-show the picker
   // on a later unrelated popup open.

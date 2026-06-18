@@ -57,6 +57,17 @@ test('toDom wires the click action to handlers.open(id) without putting it in th
   assert.equal(opened, 'rec-7');
 });
 
+test('itemRow defaults the click id to the row id when the action omits one', () => {
+  // Regression: the board recall panel calls itemRow with { action:'open' } and no
+  // id, so clicking a row fired handlers.open(undefined) and the SW dropped it.
+  let opened = null;
+  const row = sr.itemRow({ id: 'rec-9', title: 'A', host: 'e.test' }, [], null, { action: 'open' });
+  assert.equal(row.children[0].click.id, 'rec-9');
+  const node = sr.toDom(row, fakeDoc(), { open: (id) => { opened = id; } });
+  node.children[0].listeners.click[0]();
+  assert.equal(opened, 'rec-9');
+});
+
 test('shelf builds one row per item, each opening its own record id', () => {
   const ul = sr.shelf([{ id: 'a', title: 'A', host: 'h' }, { id: 'b', title: 'B', host: 'h' }], null);
   assert.equal(ul.tag, 'ul');
