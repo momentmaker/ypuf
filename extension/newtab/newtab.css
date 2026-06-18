@@ -242,7 +242,15 @@ body[data-mood="night"] { --paper: #f1eadf; --warm-gray: #e3d9cc; --card-bg: #ff
   padding: 6px 9px; margin-bottom: 8px;
   border: 1px solid var(--warm-gray); border-radius: 6px; background: var(--paper);
 }
-.panel .recent-item { padding: 6px 8px; }
+.panel .recent-item { padding: 6px 8px; position: relative; }
+/* Forget: a quiet hover-revealed delete-in-place. Calm at rest, rose on intent. */
+.recall-forget {
+  position: absolute; top: 5px; right: 7px;
+  font-size: 11px; color: var(--muted); opacity: 0;
+}
+.panel .recent-item:hover .recall-forget,
+.recall-forget:focus-visible { opacity: 0.7; }
+.recall-forget:hover { color: var(--accent-rose); opacity: 1; }
 /* The relief moment (U5): a calm once-a-day acknowledgement. */
 .board-relief {
   background: var(--paper);

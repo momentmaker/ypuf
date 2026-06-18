@@ -45,6 +45,10 @@ math) is covered by `node --test`. The behavior below depends on real
 - [ ] After letting go of a few tabs, the popup lists them **most-recent
       first**, each with a friendly domain + relative time.
 - [ ] Clicking a row reopens that page (focuses it if still open).
+- [ ] **Vim-style quick-open:** each recall row shows a hint key (`1`–`9`, then
+      `0`); pressing it opens that page. `j`/`k` (or `↓`/`↑`) move a highlight
+      cursor, `Enter` opens the highlighted row, `Esc` closes the popup. Typing in
+      the snooze **Custom…** datetime field is NOT hijacked by these keys.
 - [ ] First run (nothing let go) shows the invitational empty state, and the
       "Let go of this tab" button is still present.
 - [ ] The footer shows the current recall hotkey binding (remapping it at
@@ -180,16 +184,28 @@ verified by hand.
 
 ## Snooze a tab (U2 / F1)
 
-- [ ] The popup shows a **"Snooze this tab…"** trigger; clicking it reveals the
-      preset panel (Later today · This evening · Tomorrow morning · This weekend
-      · Next week · When I'm back · Custom…).
+- [ ] The popup shows a **"Snooze this tab…"** trigger; it starts **collapsed**,
+      and clicking it reveals the preset panel (Later today · This evening ·
+      Tomorrow morning · This weekend · Next week · When I'm back · Custom…).
+      (Regression guard: the panel must NOT start expanded — `[hidden]` must beat
+      `.snooze-panel { display:flex }`.)
 - [ ] Choosing a preset **closes the tab** and it appears under a **"Snoozed"**
       group as **"snoozed until <time>"**; no Undo notification (calm).
 - [ ] The snoozed page is still **found by recall search** (command bar) while
       it's away.
-- [ ] **Custom…** reveals a datetime-local input; picking a time snoozes to it.
-- [ ] The **snooze hotkey** (default `Ctrl/Cmd+Shift+S`) opens the popup straight
-      to the preset panel.
+- [ ] **Custom…** reveals a datetime-local input; picking a **future** time snoozes
+      to it. A **past** time is rejected (no-op) on BOTH the overlay and the popup.
+- [ ] **In-page snooze overlay:** the **snooze hotkey** (default `Ctrl/Cmd+Shift+S`)
+      on a normal page opens a centered **"Snooze this tab until…"** overlay (not
+      the popup). `1`–`6` jump to a preset, `↑/↓`+`Enter` choose, `0` reveals Custom,
+      `Esc` / backdrop / a second hotkey press close it (focus returns to the page).
+- [ ] Choosing a time in the overlay closes the tab + schedules the return, same
+      as the popup path.
+- [ ] **Right tab even after switching:** open the overlay on tab A, switch to tab B,
+      switch back to A and pick a time → **tab A** is snoozed (the overlay snoozes its
+      OWN tab via `sender.tab`, not whatever tab is active at pick-time).
+- [ ] Snooze hotkey on a `chrome://` / restricted page (or the new-tab board) opens
+      the **popup fallback** straight to the preset panel instead.
 - [ ] Snoozing a **blocklisted** page stores title+URL only; it still returns.
 
 ## The return (U3 / F2 / R9)
@@ -336,12 +352,18 @@ boundary, and the host-permission grants — is verified by hand.
 ## ypuf recall panel (U3 / R4 / AE1)
 
 - [ ] The ypuf panel shows recent let-go items + the back-now/snoozed groups;
-      clicking a row **opens** it; recall search returns + opens a result.
+      clicking a row **opens** it (regression: the row click must reopen the page —
+      `itemRow` now defaults the click id to the row's own id, covered by
+      `tests/shelf-render.test.js`); recall search returns + opens a result.
 - [ ] A let-go page whose **title contains markup** renders **inert** in the panel
       (host-rendered, `textContent`) — covered automatically by
       `tests/shelf-render.test.js`, spot-check visually.
 - [ ] A set-bearing row shows **"bring back the set? (N)"** → clicking it reopens
       the set (intersected against the record's stored siblings in the SW).
+- [ ] **Forget in place:** hovering a recall row reveals a quiet **forget** link;
+      clicking it strikes the row + swaps to **undo** for ~6s, then removes it.
+      Clicking **undo** within the window restores the page. (Forget also scrubs
+      the page from any working-set siblings — same `forget-page` path as the popup.)
 
 ## RSS feed panel (U5 / R5, R8, R10, R12, R13 / AE2, AE6, AE10, AE11)
 
