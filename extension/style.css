@@ -47,6 +47,7 @@
  * light only (see newtab.css) so it can never pollute dark/star.
  */
 :root {
+  color-scheme: light;     /* native scrollbars + form controls follow the theme */
   --ink: #1a1613;
   --paper: #f8f5f0;
   --warm-gray: #e8e2da;
@@ -67,6 +68,7 @@
 }
 
 [data-theme="dark"] {
+  color-scheme: dark;
   --ink: #f0ebe1;
   --paper: #1c1914;
   --warm-gray: #322a20;    /* borders + hover wash on dark */
@@ -82,6 +84,7 @@
 }
 
 [data-theme="star"] {
+  color-scheme: dark;
   --ink: rgba(232, 224, 255, 0.92);  /* lavender on deep navy */
   --paper: #0a0a12;
   --warm-gray: #232338;              /* faint border + hover on navy */

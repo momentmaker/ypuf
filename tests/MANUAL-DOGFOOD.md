@@ -566,3 +566,6 @@ boundary, and the host-permission grants — is verified by hand.
 - [ ] The popup quick-open **number badges are clearly legible** in light, dark, and star;
       a long recall title never runs **under** the hover protect/forget icons. *(R12, R13)*
 - [ ] Keyboard focus shows a **visible ring** on every focusable element in all three modes.
+- [ ] **Native scrollbars + form controls follow the theme** (`color-scheme`): a scrolling
+      panel/popup/board shows a dark scrollbar in dark/star (not a bright system bar), and the
+      snooze date-time picker renders dark too.
