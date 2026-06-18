@@ -802,14 +802,25 @@ async function getRecallResults(q) {
   await initIndex();
   await sweepPendingForget(Date.now()); // keep set offers free of just-forgotten siblings
   const total = await store.count();
+  const durable = await loadDurable();
+  const FREQUENT = 3;   // revisits that mark a load-bearing, often-returned page (§4 signal model)
+  const project = (r, snippet) => ({
+    id: r.id, title: r.title, url: r.url, host: r.host, contentLess: r.contentLess,
+    timestamp: r.timestamp,
+    frequent: ((durable.revisits && durable.revisits[r.url]) || 0) >= FREQUENT,
+    siblings: Array.isArray(r.siblings) ? r.siblings : [],
+    snippet: snippet || '',
+  });
   let results = [];
   if (q) {
     const hits = search.search(q).slice(0, 20);
     const recs = await Promise.all(hits.map((h) => store.get(h.id)));
-    results = recs.filter(Boolean).map((r) => ({
-      id: r.id, title: r.title, url: r.url, host: r.host, contentLess: r.contentLess,
-      siblings: Array.isArray(r.siblings) ? r.siblings : [],
-    }));
+    results = recs.filter(Boolean).map((r) => project(r, search.excerptAround(r.content, q, 90)));
+  } else {
+    // Instant recent: opening the bar surfaces your latest let-go pages, ready to recall
+    // (recovery faster than re-googling — F2). Snooze/back-now live in their own surfaces.
+    const recs = await store.listRecent(8);
+    results = recs.filter((r) => !r.snoozeState).map((r) => project(r, ''));
   }
   return { results, total };
 }

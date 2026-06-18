@@ -69,6 +69,24 @@
     .set-btn { font: inherit; font-size: 12px; background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; }
     .foot { display: flex; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); }
     .foot b { color: var(--ink); font-weight: 600; }
+    .mark { width: 13px; height: 13px; flex: none; color: var(--accent); }
+    .item .snippet {
+      font-size: 12px; line-height: 1.35; color: var(--muted); margin-top: 3px;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .hl { color: var(--accent); font-weight: 600; }
+    .group { padding: 9px 10px 3px; font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+    .group:first-child { padding-top: 2px; }
+    .freq { color: var(--accent); }
+    @media (prefers-reduced-motion: no-preference) {
+      .panel { animation: ypuf-bar-in 150ms cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+      .backdrop { animation: ypuf-fade-in 150ms ease both; }
+      @keyframes ypuf-bar-in {
+        from { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(0.985); }
+        to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+      }
+      @keyframes ypuf-fade-in { from { opacity: 0; } to { opacity: 1; } }
+    }
   `;
 
   const host = document.createElement('div');
@@ -90,12 +108,14 @@
   const panel = document.createElement('div'); panel.className = 'panel'; panel.setAttribute('role', 'dialog');
 
   const head = document.createElement('div'); head.className = 'head';
-  const dot = document.createElement('span'); dot.className = 'dot';
-  const brand = document.createElement('span'); brand.className = 'brand';
-  const brandName = document.createElement('b'); brandName.textContent = 'ypuf';
-  brand.append(brandName, document.createTextNode(' · recall'));
+  head.append(puffMark(), (() => {
+    const brand = document.createElement('span'); brand.className = 'brand';
+    const brandName = document.createElement('b'); brandName.textContent = 'ypuf';
+    brand.append(brandName, document.createTextNode(' · recall'));
+    return brand;
+  })());
   const spacer = document.createElement('span'); spacer.className = 'spacer';
-  head.append(dot, brand, spacer);
+  head.appendChild(spacer);
 
   const input = document.createElement('input');
   input.className = 'q'; input.type = 'text'; input.placeholder = 'Recall a let-go page…';
@@ -136,24 +156,93 @@
     try { if (prevFocus && prevFocus.focus) prevFocus.focus(); } catch { /* ignore */ }
   }
 
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  function puffMark() {   // the brand mark — amber/lavender dot mid-dissipation (currentColor → --accent)
+    const svg = document.createElementNS(SVGNS, 'svg');
+    svg.setAttribute('viewBox', '0 0 16 16'); svg.setAttribute('class', 'mark'); svg.setAttribute('aria-hidden', 'true');
+    const g = document.createElementNS(SVGNS, 'g'); g.setAttribute('fill', 'currentColor');
+    for (const [cx, cy, r, o] of [[5.3, 10.7, 3.5, 1], [9.7, 7.3, 1.75, 0.72], [12.3, 4.9, 1.05, 0.5], [14, 3.2, 0.62, 0.32]]) {
+      const c = document.createElementNS(SVGNS, 'circle');
+      c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', r);
+      if (o < 1) c.setAttribute('opacity', o);
+      g.appendChild(c);
+    }
+    svg.appendChild(g);
+    return svg;
+  }
+
+  // Fill `el` with `text`, wrapping case-insensitive query-term matches in <span class=hl>.
+  // textContent-only — page-derived titles/snippets never touch innerHTML (privacy/XSS).
+  function fillHighlighted(el, text, q) {
+    el.textContent = '';
+    const terms = (q || '').toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length || !text) { el.textContent = text || ''; return; }
+    const lc = text.toLowerCase();
+    let i = 0;
+    while (i < text.length) {
+      let next = -1, len = 0;
+      for (const t of terms) {
+        const at = lc.indexOf(t, i);
+        if (at >= 0 && (next < 0 || at < next)) { next = at; len = t.length; }
+      }
+      if (next < 0) { el.appendChild(document.createTextNode(text.slice(i))); break; }
+      if (next > i) el.appendChild(document.createTextNode(text.slice(i, next)));
+      const mark = document.createElement('span'); mark.className = 'hl';
+      mark.textContent = text.slice(next, next + len);
+      el.appendChild(mark);
+      i = next + len;
+    }
+  }
+
+  function groupLabel(ts) {   // recency buckets for the zero-query recent view
+    if (!ts) return 'Earlier';
+    const startOfDay = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const days = Math.round((startOfDay(new Date()) - startOfDay(new Date(ts))) / 86400000);
+    if (days <= 0) return 'Today';
+    if (days === 1) return 'Yesterday';
+    if (days < 7) return 'This week';
+    return 'Earlier';
+  }
+
+  const itemEls = () => [...list.querySelectorAll('.item')];
   function setActive(i) {
     active = i;
-    [...list.children].forEach((el, idx) => el.classList.toggle('active', idx === active));
-    const el = list.children[active];
+    itemEls().forEach((el, idx) => el.classList.toggle('active', idx === active));
+    const el = itemEls()[active];
     if (el) el.scrollIntoView({ block: 'nearest' });
   }
 
-  function render(results) {
+  // `q` drives highlighting; an empty q is the instant-recent view, which groups by recency.
+  function render(results, q) {
     list.textContent = '';
     items = results || [];
+    const grouping = !q;
+    let lastGroup = null;
     items.forEach((r, i) => {
+      if (grouping) {
+        const g = groupLabel(r.timestamp);
+        if (g !== lastGroup) {
+          const gh = document.createElement('li'); gh.className = 'group'; gh.textContent = g;
+          list.appendChild(gh); lastGroup = g;
+        }
+      }
       const li = document.createElement('li');
       li.className = 'item';
       const t = document.createElement('div'); t.className = 'title';
-      t.textContent = r.title || r.url || '(untitled)';
+      fillHighlighted(t, r.title || r.url || '(untitled)', q);
       const m = document.createElement('div'); m.className = 'meta';
-      m.textContent = (r.host || '') + (r.contentLess ? '  ·  title only' : '');
+      m.appendChild(document.createTextNode((r.host || '') + (r.contentLess ? '  ·  title only' : '')));
+      if (r.frequent) {   // §4 trust signal: a load-bearing, often-returned page
+        m.appendChild(document.createTextNode('  ·  '));
+        const f = document.createElement('span'); f.className = 'freq'; f.textContent = 'often revisited';
+        m.appendChild(f);
+      }
       li.append(t, m);
+      if (r.snippet) {   // recall by content: the line of page text where the query hit
+        const s = document.createElement('div'); s.className = 'snippet';
+        fillHighlighted(s, r.snippet, q);
+        li.appendChild(s);
+      }
       li.addEventListener('click', () => choose(i));
       // "bring back the set?" on the command bar (slice 4 / R9). Mouse-driven,
       // secondary to Enter (which still recalls just this page); stopPropagation
@@ -215,10 +304,10 @@
     chrome.runtime.sendMessage({ type: 'recall-search', q }, (resp) => {
       if (closed || mine !== seq || !resp) return; // overlay removed mid-flight, or stale response
       if (list.querySelector('.set-box')) return;  // a set is expanded — don't clobber it with a re-render
-      if (resp.total === 0) { state.hidden = false; state.textContent = 'Nothing let go yet. Let a tab go to start your shelf.'; render([]); return; }
-      if (q && resp.results.length === 0) { state.hidden = false; state.textContent = 'No match.'; render([]); return; }
+      if (resp.total === 0) { state.hidden = false; state.textContent = 'Nothing let go yet — let a tab go and it lands here, always findable.'; render([], q); return; }
+      if (q && resp.results.length === 0) { state.hidden = false; state.textContent = `No match for “${q}”.`; render([], q); return; }
       state.hidden = true;
-      render(resp.results);
+      render(resp.results, q);
     });
   }
 

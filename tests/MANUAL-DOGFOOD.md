@@ -74,8 +74,15 @@ math) is covered by `node --test`. The behavior below depends on real
       inert text — no script runs (textContent rendering).
 - [ ] **Theme:** the command bar follows the chosen theme — set **dark** (or **star**)
       and trigger recall on a normal page → the bar is the dark/navy palette (not a bright
-      white box), with the branded **● ypuf · recall** header, an accent active-row bar, and
-      the **↑↓ / ↵ / esc** hint footer. A dark-OS user sees no white flash before it themes.
+      white box), with the branded **puff-mark · ypuf · recall** header, an accent active-row
+      bar, and the **↑↓ / ↵ / esc** hint footer. A dark-OS user sees no white flash first.
+- [ ] **Instant recent:** opening the bar (no query) shows your **latest let-go pages**,
+      grouped **Today / Yesterday / This week**, top row pre-selected — bare **↵** recalls the
+      most recent. A page you've revisited a lot shows an **"often revisited"** accent marker.
+- [ ] **Recall by content:** searching shows the **matching line of page text** under the
+      title, with the **matched words highlighted** in both title and snippet (a content-only
+      match with no title hit still shows its snippet). No script runs from snippet text.
+- [ ] **Craft:** the bar **fades/rises in** on open (still, with Reduce Motion on).
 
 ## Privacy controls — what's-indexed / forget / block (U8)
 
