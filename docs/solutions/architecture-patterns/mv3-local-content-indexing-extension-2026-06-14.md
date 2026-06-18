@@ -1,7 +1,7 @@
 ---
 title: MV3 patterns for a local, privacy-first content-indexing extension
 date: 2026-06-14
-last_updated: 2026-06-17
+last_updated: 2026-06-18
 category: docs/solutions/architecture-patterns
 module: extension (service worker, lib, overlay, popup)
 problem_type: architecture_pattern
@@ -25,7 +25,9 @@ applies_when:
   - Rendering page-influenced or remote content without granting it the host's privileges
   - Mounting a UI panel whose real work (timers, listeners, fetch, render) sits behind an async permission gate
   - Extracting pure decision/transformation logic out of untested Chrome/DOM host glue so it can be unit-tested
-tags: [chrome-mv3, service-worker, indexeddb, content-script, privacy, message-passing, no-build, minisearch, alarms, offscreen, concurrency, background-mutation, scheduling, session-clustering, snapshot-at-event, context-restore, working-set, sandbox, iframe-isolation, broker, ssrf, csp, network-egress, single-flight, swr-cache, postmessage, text-only-render, lifecycle-guard, teardown, generation-token, host-glue-extraction, drag-and-drop]
+  - Deriving an activity or freshness signal from a field that is defaulted at record creation
+  - Layering keyboard, cursor, or floating-overlay state over a host UI that re-renders from a shared root
+tags: [chrome-mv3, service-worker, indexeddb, content-script, privacy, message-passing, no-build, minisearch, alarms, offscreen, concurrency, background-mutation, scheduling, session-clustering, snapshot-at-event, context-restore, working-set, sandbox, iframe-isolation, broker, ssrf, csp, network-egress, single-flight, swr-cache, postmessage, text-only-render, lifecycle-guard, teardown, generation-token, host-glue-extraction, drag-and-drop, keyboard-navigation, derived-signal, re-render-state-reset]
 ---
 
 # MV3 patterns for a local, privacy-first content-indexing extension
@@ -410,6 +412,47 @@ hold it, and keep only the truly-coupled orchestration inside."** A boolean
 the host still knows whether to persist — the same split that kept the four move
 operations from each re-implementing the guard/save/render epilogue.
 
+### 19. A field defaulted at creation can't double as an activity signal — test the born-equal case
+
+The "your week, unburdened" digest tallies `recalled` from records whose `lastAccessed`
+falls in the last 7 days. But `store.put` defaults `lastAccessed = timestamp` at
+creation (`store.js`), and only a genuine recall calls `store.touch()` to bump it later.
+So "in-week `lastAccessed`" was true for *every* fresh auto-let-go — the calm soul line
+read "N let go · 0 lost · N recalled" with zero actual recalls. The pure `digest.compute`
+was extracted and unit-tested (pattern 18 done right on the surface), yet it shipped the
+bug: the recalled-counting fixtures *omitted* `lastAccessed` (undefined → excluded by the
+type guard) instead of using the production record shape (`lastAccessed === timestamp`),
+so the suite was green while the real signal was meaningless. The fix: require
+`lastAccessed > timestamp` for a recall — a defaulted-equal value is creation, not
+activity — and pin it with a fixture in the born-equal shape plus a never-recalled
+regression case. The rule: when one field doubles as a creation stamp *and* an
+activity/freshness stamp, the logic must treat equality as "not yet acted on," and the
+test must assert the born-equal case explicitly. This is pattern 18 from the data side —
+the core was pure and tested, but the *contract the test encoded* didn't match the store's
+defaulting, so the seam moved from "untested glue" to "the wrong invariant asserted."
+
+### 20. Transient UI state keyed to a re-rendered subtree must die where the re-render already resets
+
+The board's vim layer is module-scoped host state — a recall-cursor index, the `pendingG`
+"gg" half-stroke, and an f-hint mode with a floating `.hint-layer` of badges — layered
+over a recall list that `renderBoard()` rebuilds wholesale (`grid.textContent = ''`). Two
+leaks fell straight out of that mismatch. The badge layer was appended to `docBody`, not
+`grid`, so clearing the grid never removed it; and `kbdCursor` / `pendingG` / `hintsActive`
+were never reset, so a cross-tab `storage.onChanged` converge — which calls `renderBoard()`
+with *no user input* — stranded the badges over a calm board, kept the keyboard hijacked
+(typed letters dispatched `.click()` to now-detached rows), and silently re-pointed the
+cursor at a *different* page, so `x`/`p`/`o` would mutate the wrong row. The pure cores
+(`boardkeys`, `hints`) were fully unit-tested; the bug lived entirely in the host state
+machine no pure test reaches — pattern 18 once more. The fix: reset the layer's state at
+the top of `renderBoard()`, beside the `dragId = null` / `closeAddPicker()` resets that
+already exist for exactly this reason ("any re-render invalidates transient UI state"). The
+rule: interaction state that outlives a DOM subtree — cursors, modes, floating overlays —
+must either attach its own DOM *under* the subtree that gets torn down, or be reset in the
+same teardown the re-render already runs. Module-scope that survives a `renderBoard()` is a
+re-target-the-wrong-thing bug waiting for a no-user-input re-render (cross-tab convergence,
+an alarm, a storage event) to trigger it — and those triggers never appear in a click-driven
+manual test.
+
 ## Why This Matters
 
 Each of these is a real failure mode that shipped past unit tests and was only
@@ -476,6 +519,24 @@ mount. The takeaway is no longer only "review attention belongs at the glue"; it
 "when the glue holds decidable logic, **move that logic out** — the seam keeps its
 orchestration, the test suite gets the decision, and the predicted bug never lands."
 
+The calm-settings / soul / keyboard slice (board eagerness presets, the puff + weekly
+digest, and a vim keyboard layer) made the throughline reflexive: four more pure libs
+shipped test-first — `eagerness`, `digest`, `boardkeys`, `hints` — and the headline
+findings each phase still landed in the seam, but in two *sharper* forms that show
+extraction alone isn't enough. Phase B's P1 was in a tested pure lib: `digest.compute`
+counted every fresh let-go as "recalled" because its fixtures never used the production
+record shape (`lastAccessed === timestamp`), so a green suite encoded the wrong invariant
+(pattern 19) — the core was pure, but the contract under test didn't match the store's
+defaulting. Phase C's P1 was host state surviving a re-render: the keyboard layer's cursor
+and floating hint badges (hung off `docBody`, not the grid) outlived a `renderBoard()`, so
+a cross-tab converge silently re-targeted a destructive action onto the wrong row (pattern
+20). The lesson sharpens accordingly: extracting the pure core is necessary but not
+sufficient — the test must encode the *real* contract (including how the store defaults its
+fields), and any transient host state layered over a re-rendering DOM must reset where the
+re-render already resets. Both were caught by the same adversarial-review attention the
+throughline says to spend at the glue; neither was reachable by the (passing) pure-module
+suites.
+
 ## When to Apply
 
 - Any Chrome MV3 extension that reads/persists page content or user data locally.
@@ -536,7 +597,19 @@ orchestration, the test suite gets the decision, and the predicted bug never lan
   `moveToLane`/`moveAcross`/`moveWithinLane`/`migrateCols`, each returning a `changed`
   boolean) with `tests/lanes.test.js` (9 cases), consumed by `newtab.js` via the
   `commitMove(id, moved)` wrapper that owns the `boardBusy` guard + save/render/focus
-  epilogue.
+  epilogue. Same shape in `extension/lib/eagerness.js`, `extension/lib/boardkeys.js`
+  (pure `moveCursor`/`intent`), and `extension/lib/hints.js` (pure `assign`/`match`),
+  each with its own `tests/*.test.js`.
+- **Born-equal activity signal (19):** `extension/lib/digest.js` `compute` — `recalled`
+  requires `lastAccessed > timestamp` (not just in-week), because `extension/lib/store.js`
+  `put` defaults `lastAccessed = timestamp` at creation and only `touch` bumps it;
+  `tests/digest.test.js` pins the born-equal and never-recalled cases in the production
+  record shape.
+- **Re-render state reset (20):** `extension/newtab/newtab.js` — `renderBoard()` resets
+  the keyboard layer (`clearKbdCursor()`, `exitHints()`, `pendingG = false`) beside the
+  existing `dragId`/`closeAddPicker()` resets, and the `.hint-layer` lifetime is bounded by
+  that teardown rather than the grid it floats over. The `storage.onChanged` converge also
+  closes a stale settings/cheatsheet overlay before re-rendering.
 
 ## Related
 
@@ -545,13 +618,16 @@ orchestration, the test suite gets the decision, and the predicted bug never lan
   `docs/plans/2026-06-15-002-feat-ypuf-slice3-snooze-plan.md`,
   `docs/plans/2026-06-16-001-feat-ypuf-slice4-session-clustering-plan.md`,
   `docs/plans/2026-06-16-002-feat-ypuf-slice5-newtab-panel-board-plan.md`,
-  `docs/plans/2026-06-17-001-feat-board-calm-premium-redesign-plan.md`
+  `docs/plans/2026-06-17-001-feat-board-calm-premium-redesign-plan.md`,
+  `docs/plans/2026-06-18-001-feat-board-keyboard-settings-soul-plan.md`
 - Origins: `docs/brainstorms/2026-06-14-ypuf-v1-sequence-and-slice1-requirements.md`,
   `docs/brainstorms/2026-06-15-ypuf-slice2-auto-let-go-requirements.md`,
   `docs/brainstorms/2026-06-15-ypuf-slice3-snooze-requirements.md`,
   `docs/brainstorms/2026-06-15-ypuf-slice4-session-clustering-requirements.md`,
   `docs/brainstorms/2026-06-16-ypuf-slice5-newtab-panel-board-requirements.md`,
-  `docs/brainstorms/2026-06-17-ypuf-board-calm-premium-redesign-requirements.md`
+  `docs/brainstorms/2026-06-17-ypuf-board-calm-premium-redesign-requirements.md`,
+  `docs/brainstorms/2026-06-18-ypuf-board-keyboard-settings-soul-requirements.md`
 - PRs: momentmaker/ypuf#1 (slice 1), momentmaker/ypuf#2 (slice 2),
   momentmaker/ypuf#4 (slice 3), momentmaker/ypuf#6 (slice 4),
-  momentmaker/ypuf#8 (slice 5), momentmaker/ypuf#9 (slice 5 redesign)
+  momentmaker/ypuf#8 (slice 5), momentmaker/ypuf#9 (slice 5 redesign),
+  momentmaker/ypuf#11 (board calm settings, soul & keyboard layer)
