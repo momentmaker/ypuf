@@ -522,3 +522,15 @@ boundary, and the host-permission grants — is verified by hand.
 - [ ] **In a field, `?` types a literal `?`** (the layer never hijacks typing).
 - [ ] **Invisible at rest:** with no key pressed, the board carries no cursor, no badges,
       and no keyboard chrome — the whole layer is summoned, never ambient. *(AE6)*
+
+## Keyboard-layer state hygiene (Phase C review)
+
+- [ ] **Re-render clears the layer:** press `f` (badges show), then trigger a re-render
+      (toggle edit with the pencil, or edit the board in another tab) → all badges vanish
+      and typing no longer hijacks keys. A set cursor is also cleared by a re-render.
+- [ ] **Esc out of an overlay keeps your place:** move the cursor with `j`, open the
+      `?` cheatsheet, press `Esc` → the cheatsheet closes and the recall cursor is *still*
+      where it was (the Esc doesn't leak through to clear it).
+- [ ] **Held keys are safe:** holding `j`/`k` scrolls the cursor smoothly, but holding
+      `x` forgets the row only **once** (no double-forget); a stray `g` long ago never
+      triggers a later jump-to-top.

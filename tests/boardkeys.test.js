@@ -7,8 +7,13 @@ const bk = require('../extension/lib/boardkeys.js');
 
 test('moveCursor clamps within [0, len-1]', () => {
   assert.equal(bk.moveCursor(0, 1, 3), 1);
-  assert.equal(bk.moveCursor(2, 1, 3), 2);   // clamp at the bottom
-  assert.equal(bk.moveCursor(0, -1, 3), 0);  // clamp at the top
+  assert.equal(bk.moveCursor(2, 1, 3), 2);
+  assert.equal(bk.moveCursor(0, -1, 3), 0);
+});
+
+test('moveCursor clamps a stale out-of-range cursor (list shrank under it)', () => {
+  assert.equal(bk.moveCursor(5, 1, 3), 2);
+  assert.equal(bk.moveCursor(5, -1, 3), 2);
 });
 
 test('moveCursor from -1 enters at an end by direction', () => {

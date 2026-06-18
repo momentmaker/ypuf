@@ -23,15 +23,30 @@ test('assign escalates to uniform two-char labels past the alphabet (no prefix a
   assert.ok(a.every((l) => l.length === 2));  // all 2-char → no 1-char is a prefix of a 2-char
 });
 
+test('assign mode boundary: 26 stays 1-char, 27 flips entirely to 2-char', () => {
+  assert.ok(hints.assign(26).every((l) => l.length === 1));
+  assert.ok(hints.assign(27).every((l) => l.length === 2));
+});
+
+test('assign saturates at alphabet^2 (676) rather than throwing', () => {
+  assert.equal(hints.assign(677).length, 676);
+});
+
 test('assign edge cases: 0, negative, non-number → empty', () => {
   assert.deepEqual(hints.assign(0), []);
   assert.deepEqual(hints.assign(-3), []);
   assert.deepEqual(hints.assign(undefined), []);
 });
 
-test('match resolves an exact label to its index', () => {
+test('match resolves an exact label to its index (incl. index 0)', () => {
   const labels = hints.assign(3);
+  assert.deepEqual(hints.match(labels[0], labels), { index: 0 });
   assert.deepEqual(hints.match(labels[1], labels), { index: 1 });
+});
+
+test('match is case-sensitive — callers (the host) must lowercase before calling', () => {
+  const labels = hints.assign(3);   // lowercase labels
+  assert.deepEqual(hints.match(labels[0].toUpperCase(), labels), { noMatch: true });
 });
 
 test('match signals needMore for a live prefix and noMatch for an absent one', () => {

@@ -90,7 +90,9 @@
   }
 
   function settingsKeydown(e) {
-    if (e.key === 'Escape') { e.preventDefault(); closeSettings(); return; }
+    // stopPropagation so this Esc doesn't also bubble to the board keydown (which would
+    // run after the overlay is gone and clear the recall cursor the user had).
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeSettings(); return; }
     trapTab(e, e.currentTarget);
   }
 
@@ -785,6 +787,11 @@
     teardownAll();
     dragId = null; docBody.classList.remove('dragging-active');   // a programmatic re-render mid-drag must not leave stale drag state
     closeAddPicker();   // never leave a stray add-form across a re-render
+    // The keyboard layer's state (U8/U9) is keyed to the DOM we're about to replace —
+    // a re-render (incl. a cross-tab storage.onChanged converge) must not leave the
+    // hint-layer (which lives on docBody, not grid) orphaned, or the cursor index
+    // silently re-targeting a different row.
+    clearKbdCursor(); exitHints(); pendingG = false;
     grid.textContent = '';
     minimalNote.hidden = true;
     docBody.classList.toggle('editing', editing);
@@ -1065,7 +1072,7 @@
     e.preventDefault();
     hintBuf += e.key.toLowerCase();
     const m = hints.match(hintBuf, hintLabels);
-    if (m.index != null) {
+    if (m.index !== undefined) {
       const target = hintTargets[m.index];
       exitHints();
       if (target) target.click();
@@ -1090,7 +1097,8 @@
   }
 
   function cheatsheetKeydown(e) {
-    if (e.key === 'Escape') { e.preventDefault(); closeCheatsheet(); return; }
+    // stopPropagation so this Esc doesn't also bubble to the board keydown and clear the cursor.
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeCheatsheet(); return; }
     trapTab(e, e.currentTarget);
   }
 
@@ -1132,8 +1140,11 @@
     if (settingsOpen() || cheatsheetOpen()) return;   // overlays trap their own keys
     if (hintsActive) { handleHintKey(e); return; }     // f-hint mode owns letters (U9)
     const it = boardkeys.intent(e.key, { fieldFocused: isField(e.target) });
-    if (it === 'none') return;
-    if (it !== 'g') pendingG = false;                  // any non-g resolves a pending 'gg'
+    if (it === 'none') { pendingG = false; return; }   // any unmapped/field key resolves a pending 'gg'
+    const wasPendingG = pendingG;
+    pendingG = false;                                  // consumed below; 'g' re-arms it
+    // A held key must not re-fire a row mutation; only cursor movement repeats.
+    if (e.repeat && it !== 'down' && it !== 'up' && it !== 'g' && it !== 'bottom') return;
 
     switch (it) {
       case 'down': e.preventDefault(); moveKbd(1); break;
@@ -1141,7 +1152,7 @@
       case 'bottom': e.preventDefault(); jumpKbd(true); break;
       case 'g':
         e.preventDefault();
-        if (pendingG) { pendingG = false; jumpKbd(false); } else { pendingG = true; }
+        if (wasPendingG) jumpKbd(false); else pendingG = true;
         break;
       case 'open': e.preventDefault(); clickIn(cursorRow(), '.title.clickable'); break;
       case 'forget': {
@@ -1181,6 +1192,7 @@
     if (JSON.stringify(next) === JSON.stringify(config)) return;
     config = next;
     if (settingsOpen()) closeSettings();   // don't leave a stale settings overlay over a converged board
+    if (cheatsheetOpen()) closeCheatsheet();   // nor a stale cheatsheet
     renderBoard();
   });
 

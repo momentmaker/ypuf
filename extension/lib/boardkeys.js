@@ -3,7 +3,7 @@
  *
  * The decidable core of the board's vim layer, kept pure so the host glue in
  * newtab.js stays thin (pattern 18). Two pure functions:
- *   - moveCursor: clamp a recall-row cursor under j/k (generalizes the popup's
+ *   - moveCursor: clamp a recall-row cursor under j/k (modeled on the popup's inline
  *     moveCursor — from -1 it enters at the end matching the direction).
  *   - intent: map a KeyboardEvent.key → a normal-mode intent, yielding entirely to
  *     a focused field (so typing in the recall search is never hijacked) except for
