@@ -186,10 +186,10 @@ body[data-mood="night"] { --paper: #f1eadf; --warm-gray: #e3d9cc; --card-bg: #ff
   /* The puff (U6): a row let go since you last looked settles in from a soft haze —
      a calm exhale, played once on open (the JS adds .puff only to those rows). */
   .recent-item.puff { animation: puff-settle .6s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
-}
-@keyframes puff-settle {
-  from { opacity: 0; transform: translateY(-3px) scale(1.04); filter: blur(3px); }
-  to   { opacity: 1; transform: none; filter: none; }
+  @keyframes puff-settle {
+    from { opacity: 0; transform: translateY(-3px) scale(1.04); filter: blur(3px); }
+    to   { opacity: 1; transform: none; filter: none; }
+  }
 }
 
 .panel-head {

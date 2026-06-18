@@ -884,8 +884,10 @@ async function autoClosedRecords() {
   return (await store.getAll()).filter((r) => r.autoClosed);
 }
 
-// "Your week, unburdened" (U7/R8): a calm weekly relief tally, derived from the
-// record store (digest.compute filters to auto-closed within 7d). Local-only.
+// "Your week, unburdened" (U7/R8): a calm weekly relief tally. Lives in the SW because
+// only the SW can read the record store; the board reaches it via the week-digest
+// message. A store read failure degrades to an empty digest, which the board hides
+// (an ambient soul line should never surface an error). Local-only.
 async function weekDigest() {
   return digest.compute(await store.getAll().catch(() => []), Date.now());
 }

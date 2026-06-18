@@ -469,6 +469,8 @@ boundary, and the host-permission grants — is verified by hand.
       from a soft haze** once — a calm exhale, not a flashy bounce.
 - [ ] Toggling edit / re-rendering the board does **not** re-trigger the puff (one-shot
       per open). Re-opening a new tab puffs only rows let go *since the last open*.
+- [ ] The **first board open ever** (fresh profile, no stored `boardLastOpen`) stays
+      quiet — the whole backlog does **not** puff at once.
 - [ ] With **Reduce motion** on (System Settings → Accessibility), the rows just appear
       — no animation. Manual let-go and snooze-wake rows never puff (auto-closed only).
 
@@ -479,4 +481,5 @@ boundary, and the host-permission grants — is verified by hand.
 - [ ] On a **fresh profile** with no auto-let-go yet, the line is **absent entirely**
       (no cold "0 let go this week"). It reappears once there's something to count.
 - [ ] The tally counts only the **last 7 days** and only **auto-closed** records;
-      recalling a page later still counts it under *recalled*. **lost is always 0.**
+      recalling a page later still counts it under *recalled*, but a page you let go and
+      **never reopened is not** counted as recalled. **lost is always 0.**

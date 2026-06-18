@@ -917,12 +917,6 @@
   const saveConfig = () => send('board-save-config', { config });
 
   const BOARD_LAST_OPEN_KEY = 'boardLastOpen';
-  function readBoardLastOpen() {
-    return new Promise((res) => {
-      try { chrome.storage.local.get(BOARD_LAST_OPEN_KEY, (o) => res((o && o[BOARD_LAST_OPEN_KEY]) || 0)); }
-      catch { res(0); }
-    });
-  }
 
   async function loadAndRender() {
     const loaded = await send('board-get-config');
@@ -932,9 +926,11 @@
     if (lanes.migrateCols(config.panels, COLS)) saveConfig();
     // U6: capture the prior open's stamp (for the puff), then advance it. Read before
     // write so this open's "new since last time" comparison uses the previous value.
-    boardLastOpen = await readBoardLastOpen();
+    // A 0 here (first open ever, or a read error) keeps the puff quiet — see the > 0
+    // guard at the puff site, so a fresh/backlogged profile never mass-puffs.
+    boardLastOpen = (await local.get(BOARD_LAST_OPEN_KEY).catch(() => 0)) || 0;
     puffArmed = true;
-    try { chrome.storage.local.set({ [BOARD_LAST_OPEN_KEY]: Date.now() }); } catch {}
+    local.set(BOARD_LAST_OPEN_KEY, Date.now());
     renderBoard();
     renderOneLine();
   }
@@ -1108,13 +1104,15 @@
         renderList(recentWrap, items, { action: 'open' });
         // U6: the puff — rows let go since the last board open arrive with a soft
         // settle. One-shot: disarm after the first paint so re-renders stay still.
-        if (puffArmed) {
+        // boardLastOpen === 0 means first-ever open (or a read error) — stay quiet
+        // rather than animate the whole backlog at once.
+        if (puffArmed && boardLastOpen > 0) {
           const rows = recentWrap.querySelectorAll('.recent-item');
           items.forEach((it, i) => {
             if (it.autoClosed && it.timestamp > boardLastOpen && rows[i]) rows[i].classList.add('puff');
           });
-          puffArmed = false;
         }
+        if (puffArmed) puffArmed = false;
       });
 
       let seq = 0;

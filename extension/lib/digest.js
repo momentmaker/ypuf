@@ -6,6 +6,11 @@
  * don't inflate it), within the last 7 days: letGo by `timestamp`, recalled by
  * `lastAccessed`, lost always 0 (the recall index is the guarantee). Built test-first
  * (tests/digest.test.js).
+ *
+ * `recalled` requires `lastAccessed > timestamp`: store records are born with
+ * lastAccessed === timestamp (store.put defaults it), and only a genuine recall calls
+ * store.touch() to bump it later. Without the strict-greater guard every fresh let-go
+ * would count as recalled, so the tally would read "N let go · N recalled" with no recalls.
  */
 (function (root) {
   'use strict';
@@ -18,7 +23,7 @@
     for (const r of (Array.isArray(records) ? records : [])) {
       if (!r || !r.autoClosed) continue;
       if (inWeek(r.timestamp)) letGo += 1;
-      if (inWeek(r.lastAccessed)) recalled += 1;
+      if (inWeek(r.lastAccessed) && r.lastAccessed > r.timestamp) recalled += 1;
     }
     return { letGo, recalled, lost: 0 };
   }
