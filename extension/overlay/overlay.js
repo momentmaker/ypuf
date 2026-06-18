@@ -95,8 +95,9 @@
   // even while our input is focused, so vim-style page extensions (Vimium, Surfingkeys)
   // think you're NOT in a field and swallow your keystrokes. Marking the host editable
   // makes activeElement.isContentEditable true → they yield insert mode to us. The host's
-  // light DOM is empty (everything lives in the shadow), so nothing on the page is actually
-  // editable; focus stays on the real input, which receives the typing.
+  // light DOM stays empty — everything (input + results) lives in the closed shadow — so the
+  // page gains no editable surface carrying user data; it's just a container vim treats as a
+  // field. (The privacy guarantee is the closed shadow root below, not this attribute.)
   host.setAttribute('contenteditable', 'true');
   // CLOSED shadow root: host.shadowRoot returns null, so no script on the page
   // can read the user's let-go titles/URLs or attach a listener to the recall
@@ -112,7 +113,8 @@
   const style = document.createElement('style');
   style.textContent = STYLES;
   const backdrop = document.createElement('div'); backdrop.className = 'backdrop';
-  const panel = document.createElement('div'); panel.className = 'panel'; panel.setAttribute('role', 'dialog');
+  const panel = document.createElement('div'); panel.className = 'panel';
+  panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true'); panel.setAttribute('aria-label', 'ypuf recall');
 
   const head = document.createElement('div'); head.className = 'head';
   head.append(puffMark(), (() => {
@@ -126,6 +128,7 @@
 
   const input = document.createElement('input');
   input.className = 'q'; input.type = 'text'; input.placeholder = 'Recall a let-go page…';
+  input.setAttribute('aria-label', 'Recall a let-go page');   // placeholder is not an accessible name
   input.setAttribute('autocomplete', 'off'); input.setAttribute('spellcheck', 'false');
   const list = document.createElement('ul'); list.className = 'results';
   const state = document.createElement('div'); state.className = 'state'; state.hidden = true;
@@ -145,7 +148,7 @@
 
   try {
     chrome.storage.local.get('ypuf-theme', (o) => {
-      if (chrome.runtime.lastError) return;
+      if (closed || chrome.runtime.lastError) return;   // a fast close before the async read returns
       const t = o && o['ypuf-theme'];
       if (t === 'light' || t === 'dark' || t === 'star') applyTheme(t);
     });
@@ -181,45 +184,26 @@
     return svg;
   }
 
-  // Fill `el` with `text`, wrapping case-insensitive query-term matches in <span class=hl>.
-  // textContent-only — page-derived titles/snippets never touch innerHTML (privacy/XSS).
+  // Highlight segmentation + recency bucketing come from lib/highlight.js (pure + node-tested,
+  // pattern 18; injected alongside this file). The host stays a thin textContent-only renderer —
+  // page-derived titles/snippets never touch innerHTML (privacy/XSS). HL is guarded so a missing
+  // injection degrades to plain text rather than throwing.
+  const HL = (typeof self !== 'undefined' && self.ypuf && self.ypuf.highlight) || null;
   function fillHighlighted(el, text, q) {
     el.textContent = '';
-    const terms = (q || '').toLowerCase().split(/\s+/).filter(Boolean);
-    if (!terms.length || !text) { el.textContent = text || ''; return; }
-    const lc = text.toLowerCase();
-    let i = 0;
-    while (i < text.length) {
-      let next = -1, len = 0;
-      for (const t of terms) {
-        const at = lc.indexOf(t, i);
-        if (at >= 0 && (next < 0 || at < next)) { next = at; len = t.length; }
-      }
-      if (next < 0) { el.appendChild(document.createTextNode(text.slice(i))); break; }
-      if (next > i) el.appendChild(document.createTextNode(text.slice(i, next)));
-      const mark = document.createElement('span'); mark.className = 'hl';
-      mark.textContent = text.slice(next, next + len);
-      el.appendChild(mark);
-      i = next + len;
+    const segs = HL ? HL.segments(text, q) : (text ? [{ text, hl: false }] : []);
+    for (const seg of segs) {
+      if (seg.hl) { const s = document.createElement('span'); s.className = 'hl'; s.textContent = seg.text; el.appendChild(s); }
+      else el.appendChild(document.createTextNode(seg.text));
     }
-  }
-
-  function groupLabel(ts) {   // recency buckets for the zero-query recent view
-    if (!ts) return 'Earlier';
-    const startOfDay = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-    const days = Math.round((startOfDay(new Date()) - startOfDay(new Date(ts))) / 86400000);
-    if (days <= 0) return 'Today';
-    if (days === 1) return 'Yesterday';
-    if (days < 7) return 'This week';
-    return 'Earlier';
   }
 
   const itemEls = () => [...list.querySelectorAll('.item')];
   function setActive(i) {
+    const els = itemEls();
     active = i;
-    itemEls().forEach((el, idx) => el.classList.toggle('active', idx === active));
-    const el = itemEls()[active];
-    if (el) el.scrollIntoView({ block: 'nearest' });
+    els.forEach((el, idx) => el.classList.toggle('active', idx === active));
+    if (els[active]) els[active].scrollIntoView({ block: 'nearest' });
   }
 
   // `q` drives highlighting; an empty q is the instant-recent view, which groups by recency.
@@ -230,9 +214,10 @@
     let lastGroup = null;
     items.forEach((r, i) => {
       if (grouping) {
-        const g = groupLabel(r.timestamp);
-        if (g !== lastGroup) {
+        const g = HL ? HL.groupLabel(r.timestamp, Date.now()) : '';
+        if (g && g !== lastGroup) {
           const gh = document.createElement('li'); gh.className = 'group'; gh.textContent = g;
+          gh.setAttribute('role', 'presentation'); gh.setAttribute('aria-hidden', 'true');   // decorative bucket, not a list item
           list.appendChild(gh); lastGroup = g;
         }
       }
@@ -316,6 +301,7 @@
       if (list.querySelector('.set-box')) return;  // a set is expanded — don't clobber it with a re-render
       if (resp.total === 0) { state.hidden = false; state.textContent = 'Nothing let go yet — let a tab go and it lands here, always findable.'; render([], q); return; }
       if (q && resp.results.length === 0) { state.hidden = false; state.textContent = `No match for “${q}”.`; render([], q); return; }
+      if (!q && resp.results.length === 0) { state.hidden = false; state.textContent = 'Nothing recent to recall — type to search everything you’ve let go.'; render([], q); return; }
       state.hidden = true;
       render(resp.results, q);
     });
@@ -338,6 +324,8 @@
     setTimeout(() => { if (!closed && document.activeElement !== host) close(); }, 0);
   });
 
-  input.focus();
+  // Defer one frame: focusing while .panel is still on its entrance keyframe (opacity 0)
+  // is a no-op in some engines; a rAF lets the first frame commit first.
+  requestAnimationFrame(() => { if (!closed) input.focus(); });
   query();
 })();

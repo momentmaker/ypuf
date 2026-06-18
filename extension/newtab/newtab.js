@@ -870,8 +870,7 @@
   // The picker is a sibling of the add button (outside the grid), so a board
   // re-render won't remove it — close it explicitly on submit/cancel/render.
   function closeAddPicker() {
-    const p = document.querySelector('.add-picker');
-    if (p) p.remove();
+    document.querySelectorAll('.add-picker').forEach((p) => p.remove());   // clear any (a fast re-open can leave two)
     addBtn.hidden = !editing;
   }
 
@@ -1500,6 +1499,7 @@
       const body = ctx.body;
       const handlers = { open: (id) => send('recall-open', { recordId: id }) };
       let destroyed = false;   // armed by the teardown so late SW replies can't write into a torn-down panel
+      const undoTimers = new Set();   // pending forget-undo timers, cleared on teardown so none outlive the mount
 
       const search = document.createElement('input');
       search.type = 'search';
@@ -1581,15 +1581,18 @@
         protect.dataset.host = host || '';
         protect.append(icon('shield'));
         markProtect(protect);
+        let inflight = false;
         protect.addEventListener('click', (e) => {
           e.stopPropagation();
-          if (!host) return;
+          if (!host || inflight) return;   // ignore re-clicks until the round-trip settles
+          inflight = true;
           const wasProtected = isProtected(host);
           send(wasProtected ? 'protect-remove' : 'protect-add', { host }).then((resp) => {
+            inflight = false;
             if (destroyed || !resp || !resp.ok) return;   // panel torn down or the SW rejected
             if (wasProtected) protectedHosts.delete(host); else protectedHosts.add(host);
-            markProtect(protect);
-          }).catch(() => {});
+            syncProtectMarks();   // re-light EVERY row for this host, not just the clicked one
+          }).catch(() => { inflight = false; });
         });
         li.appendChild(protect);
       }
@@ -1607,7 +1610,7 @@
         forget.addEventListener('click', (e) => {
           e.stopPropagation();
           if (undoTimer) {                                   // within the grace window → undo
-            clearTimeout(undoTimer); undoTimer = null;
+            clearTimeout(undoTimer); undoTimers.delete(undoTimer); undoTimer = null;
             send('forget-page-undo', { recordId: it.id }).then((resp) => {
               if (destroyed) return;                          // panel torn down before the SW replied
               if (!resp || !resp.ok) { li.remove(); return; } // undo too late — the page is truly gone
@@ -1619,7 +1622,8 @@
             if (!resp || !resp.ok) return;                   // forget failed → don't fake success
             li.classList.add('struck');
             forget.textContent = 'undo'; forget.setAttribute('aria-label', 'Undo forget'); forget.title = 'undo';
-            undoTimer = setTimeout(() => { if (!destroyed) li.remove(); }, 6000); // don't touch a torn-down row
+            undoTimer = setTimeout(() => { undoTimers.delete(undoTimer); if (!destroyed) li.remove(); }, 6000); // don't touch a torn-down row
+            undoTimers.add(undoTimer);
           });
         });
         li.appendChild(forget);
@@ -1643,6 +1647,7 @@
         if (destroyed) return;
         const items = (resp && resp.items) || [];
         renderList(recentWrap, items, { action: 'open' });
+        syncProtectMarks();   // protected-list may have resolved before any rows existed — re-mark now
         // U6: the puff — rows let go since the last board open arrive with a soft
         // settle. One-shot: disarm after the first paint so re-renders stay still.
         // boardLastOpen === 0 means first-ever open (or a read error) — stay quiet
@@ -1667,11 +1672,12 @@
       let timer = null;
       const applyQuery = () => {
         const q = search.value.trim();
+        const mine = ++seq;              // bump on EVERY call (incl. clear) so an in-flight
+                                         // response can't repaint a since-cleared/changed query
         searchMode(!!q);                 // toggle immediately so the recent list hides as you type
         clearTimeout(timer);
         if (!q) { results.textContent = ''; return; }   // empty → restore the full panel
         timer = setTimeout(() => {
-          const mine = ++seq;
           send('recall-search', { q }).then((resp) => {
             if (destroyed || mine !== seq) return;
             const items = (resp && resp.results) || [];
@@ -1692,9 +1698,10 @@
       search.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
         e.preventDefault();
-        e.stopPropagation();
+        e.stopPropagation();   // stops the board 'escape' — so also clear the kbd cursor it would have
         search.value = '';
         applyQuery();
+        clearKbdCursor();
         search.blur();
       });
 
@@ -1732,7 +1739,7 @@
         return li;
       }
 
-      return () => { destroyed = true; clearTimeout(timer); }; // cancel the debounce + late renders
+      return () => { destroyed = true; clearTimeout(timer); for (const t of undoTimers) clearTimeout(t); undoTimers.clear(); }; // cancel the debounce, late renders + pending undo timers
     },
   });
 

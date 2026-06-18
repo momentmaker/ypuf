@@ -329,6 +329,9 @@ async function handleUndo(recordId) {
 // Consumed by nothing in slice 1; banks data for slice 2. Gate-before-write.
 
 const SIGNAL_KEY = 'signal';
+// Revisits that mark a load-bearing, often-returned page — the strong intent signal (§4):
+// frequency, not duration. Surfaced as the "often revisited" marker in recall.
+const FREQUENT_REVISITS = 3;
 
 const loadDurable = async () => (await local.get(SIGNAL_KEY)) || signal.emptyState();
 const saveDurable = (durable) => local.set(SIGNAL_KEY, durable);
@@ -803,11 +806,10 @@ async function getRecallResults(q) {
   await sweepPendingForget(Date.now()); // keep set offers free of just-forgotten siblings
   const total = await store.count();
   const durable = await loadDurable();
-  const FREQUENT = 3;   // revisits that mark a load-bearing, often-returned page (§4 signal model)
   const project = (r, snippet) => ({
     id: r.id, title: r.title, url: r.url, host: r.host, contentLess: r.contentLess,
     timestamp: r.timestamp,
-    frequent: ((durable.revisits && durable.revisits[r.url]) || 0) >= FREQUENT,
+    frequent: ((durable.revisits && durable.revisits[r.url]) || 0) >= FREQUENT_REVISITS,
     siblings: Array.isArray(r.siblings) ? r.siblings : [],
     snippet: snippet || '',
   });
@@ -815,7 +817,9 @@ async function getRecallResults(q) {
   if (q) {
     const hits = search.search(q).slice(0, 20);
     const recs = await Promise.all(hits.map((h) => store.get(h.id)));
-    results = recs.filter(Boolean).map((r) => project(r, search.excerptAround(r.content, q, 90)));
+    // Cap the content excerptAround scans (matches near the top dominate; bounds the
+    // per-keystroke cost so a huge page can't make recall janky).
+    results = recs.filter(Boolean).map((r) => project(r, search.excerptAround((r.content || '').slice(0, 8000), q, 90)));
   } else {
     // Instant recent: opening the bar surfaces your latest let-go pages, ready to recall
     // (recovery faster than re-googling — F2). Snooze/back-now live in their own surfaces.
@@ -953,7 +957,7 @@ async function handleRecall() {
   const tab = await getActiveTab();
   if (tab && tab.url && exclusion.isInjectable(tab.url)) {
     try {
-      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['overlay/overlay.js'] });
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['lib/highlight.js', 'overlay/overlay.js'] });
       return;
     } catch { /* fall through to popup fallback */ }
   }

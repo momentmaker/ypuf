@@ -94,3 +94,17 @@ test('excerptAround does not prepend an ellipsis when the match is at the start'
   assert.ok(!s.startsWith('…'), 'no leading ellipsis when start === 0');
   assert.ok(s.includes('airdrop'));
 });
+
+test('excerptAround does not append a trailing ellipsis when the match runs to the end', () => {
+  const content = 'intro text then the airdrop';
+  const s = search.excerptAround(content, 'airdrop', 90);
+  assert.ok(!s.endsWith('…'), 'no trailing ellipsis when end === content.length');
+  assert.ok(s.includes('airdrop'));
+});
+
+test('excerptAround centers on the earliest-matching term across a multi-term query', () => {
+  const content = 'AAA airdrop ' + 'x'.repeat(300) + ' rewards BBB';
+  const s = search.excerptAround(content, 'rewards airdrop', 30);
+  assert.ok(s.includes('airdrop'), 'snippet centers on the earlier term (airdrop), not rewards');
+  assert.ok(!s.includes('rewards'), 'the far term is outside the window');
+});
