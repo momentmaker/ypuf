@@ -68,7 +68,7 @@
       <!-- The puff: a cluttered tab strip lets go, one chip at a time, into calm. -->
       <div class="tabstrip" id="tabstrip" aria-hidden="true"></div>
 
-      <svg class="puff breathe" viewBox="0 0 16 16" aria-hidden="true"><g fill="currentColor"><circle cx="5.3" cy="10.7" r="3.5"/><circle cx="9.7" cy="7.3" r="1.75" opacity=".72"/><circle cx="12.3" cy="4.9" r="1.05" opacity=".5"/><circle cx="14" cy="3.2" r=".62" opacity=".32"/></g></svg>
+      <div class="puffwrap" id="puffwrap" aria-hidden="true"><svg class="puff breathe" viewBox="0 0 16 16"><g fill="currentColor"><circle cx="5.3" cy="10.7" r="3.5"/><circle cx="9.7" cy="7.3" r="1.75" opacity=".72"/><circle cx="12.3" cy="4.9" r="1.05" opacity=".5"/><circle cx="14" cy="3.2" r=".62" opacity=".32"/></g></svg></div>
       <h1>Close everything.<br /><span class="em">Lose nothing.</span></h1>
       <p class="sub">ypuf quietly clears the tabs you've stopped caring about — and lets you find any page you've ever had open again by <em>what it said</em>. A calmer browser, entirely on your device.</p>
       <div class="cta">
@@ -77,13 +77,13 @@
       </div>
       <p class="note">Chrome · open source · nothing ever leaves your machine</p>
 
-      <!-- Live recall demo: types a query, results filter in. -->
-      <div class="demo reveal" aria-hidden="true">
+      <!-- Live recall demo: auto-types a query, then hands the keyboard to you. -->
+      <div class="demo reveal">
         <div class="bar">
-          <div class="barhead"><span class="dot"></span><span><b>ypuf</b> · recall</span></div>
-          <div class="q" id="demo-q"><span id="demo-typed"></span><span class="cur" id="demo-caret">▏</span></div>
+          <div class="barhead"><span class="dot"></span><span><b>ypuf</b> · recall</span><span class="live">try it — type below</span></div>
+          <input class="q" id="demo-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Try recall — search a sample index" />
           <div class="results" id="demo-results"></div>
-          <div class="barfoot"><span><b>↑↓</b> navigate</span><span><b>↵</b> open</span><span><b>esc</b> close</span></div>
+          <div class="barfoot"><span><b>↑↓</b> navigate</span><span><b>↵</b> open</span><span class="hint-try">founder · rust · tax · ramen</span></div>
         </div>
       </div>
     </div>
@@ -173,9 +173,32 @@
       <p class="eyebrow">Privacy is the whole point</p>
       <div class="panel reveal">
         <p class="big">Nothing ypuf knows about your tabs<br />ever leaves your device.</p>
-        <p class="lead" style="margin:18px auto 0;">No servers. No accounts. No analytics. Page text is read on your machine and never transmitted. ypuf is a local index — like your browser's own history — not a data processor.</p>
+
+        <div class="boundary" role="img" aria-label="Everything ypuf stores lives on your device; nothing crosses to the internet.">
+          <div class="side device">
+            <span class="side-label">On your device</span>
+            <ul class="side-list">
+              <li>Page text &amp; tab content</li>
+              <li>Your recall index</li>
+              <li>Dwell &amp; revisit signals</li>
+              <li>Themes &amp; settings</li>
+            </ul>
+            <span class="side-foot">stays here</span>
+          </div>
+          <div class="divider" aria-hidden="true">
+            <span class="divider-line"></span>
+            <span class="divider-tag">nothing crosses</span>
+          </div>
+          <div class="side net">
+            <span class="side-label">The internet</span>
+            <div class="net-empty">
+              <svg class="cross" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8.5 8.5l7 7M15.5 8.5l-7 7"/></svg>
+              <p>No servers. No accounts.<br />No analytics. No uploads.</p>
+            </div>
+          </div>
+        </div>
+
         <div class="chips">
-          <span class="chip"><b>Local-only</b>, always</span>
           <span class="chip">Incognito <b>never indexed</b></span>
           <span class="chip">Banking · health · passwords <b>excluded</b></span>
           <span class="chip">Form inputs <b>never captured</b></span>
