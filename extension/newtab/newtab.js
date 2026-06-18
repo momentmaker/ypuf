@@ -1656,17 +1656,32 @@
         if (puffArmed) puffArmed = false;
       });
 
+      // While a query is active, collapse the panel to JUST the matches — the recent +
+      // snoozed + relief/digest sections hide, so the results aren't buried under the
+      // unfiltered recent list (which read as "search returns junk").
+      const searchMode = (active) => {
+        for (const el of [reliefWrap, digestWrap, recentWrap, snoozeWrap]) el.hidden = active;
+      };
+
       let seq = 0;
       let timer = null;
       search.addEventListener('input', () => {
         const q = search.value.trim();
+        searchMode(!!q);                 // toggle immediately so the recent list hides as you type
         clearTimeout(timer);
+        if (!q) { results.textContent = ''; return; }
         timer = setTimeout(() => {
           const mine = ++seq;
-          if (!q) { results.textContent = ''; return; }
           send('recall-search', { q }).then((resp) => {
             if (destroyed || mine !== seq) return;
-            renderList(results, resp && resp.results, { action: 'open' });
+            const items = (resp && resp.results) || [];
+            renderList(results, items, { action: 'open' });
+            if (!items.length) {
+              const none = document.createElement('p');
+              none.className = 'muted recall-no-match';
+              none.textContent = `No matches for “${q}”.`;
+              results.appendChild(none);
+            }
           });
         }, 180);
       });

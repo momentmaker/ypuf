@@ -352,6 +352,7 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
   padding: 6px 9px; margin-bottom: 8px;
   border: 1px solid var(--warm-gray); border-radius: 6px; background: var(--paper);
 }
+.recall-no-match { padding: 6px 2px; font-size: 12px; }
 .panel .recent-item { padding: 6px 8px; position: relative; border-radius: var(--r-sm); }
 /* Keyboard cursor (U8): a calm 2px amber left-bar on the focused recall row —
    invisible at rest (the class is added only while navigating), matching the accent
