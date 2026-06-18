@@ -1,7 +1,7 @@
 ---
 title: "feat: ypuf light/dark/star theming, a visual upgrade, and a puff logo"
 type: feat
-status: active
+status: completed
 date: 2026-06-18
 origin: docs/brainstorms/2026-06-18-ypuf-theming-visual-upgrade-requirements.md
 ---
