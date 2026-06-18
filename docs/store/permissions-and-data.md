@@ -81,7 +81,7 @@ policy is provided because ypuf handles web history and website content (locally
 | Personal communications | No | Not collected. |
 | Location | No | Not collected. |
 | Health info | No | Health domains excluded by default. |
-| User activity (clicks/keystrokes/mouse) | No* | ypuf records only dwell time + revisit *counts* per address (to rank tabs), stored locally; it does not log keystrokes or content of interactions. |
+| **User activity** | Yes | ypuf records *dwell time* + *revisit counts* per address (which tabs you keep active, to rank what to archive) — stored **locally only**. It does **not** log keystrokes, clicks, mouse movement, or interaction content. |
 | Web browsing — general | See web history | As above: local-only index. |
 
 ### The three required certifications (all true for ypuf)

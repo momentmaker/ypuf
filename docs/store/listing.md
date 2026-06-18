@@ -70,7 +70,13 @@ Alternatives:
 
 ## Screenshots & promo — shot list
 
-Capture at the store's required dimensions (see `SUBMISSION.md` for exact px).
+**Exact specs (Chrome Web Store, 2026):**
+- **Screenshots:** 1–5, **1280×800** (preferred) or 640×400 px, PNG/JPG, square
+  corners, full-bleed (no padding/device frames).
+- **Small promo tile: REQUIRED — 440×280 px** PNG.
+- **Marquee promo tile:** optional — 1400×560 px (needed only for homepage
+  feature placement).
+
 Use a populated profile (let go of ~10 varied pages first) and the theme that
 photographs best per shot. Suggested 5:
 
@@ -84,9 +90,8 @@ photographs best per shot. Suggested 5:
 5. **Privacy** — the "What's indexed" view + forget, captioned "everything stays
    on your device."
 
-**Promo tiles** (if you fill them): the puff mark on a parchment field with the
-tagline "close everything; lose nothing." Reuse the `extension/icons/` mark.
-
-> Promo images are optional but improve placement. Generate them from the design
-> system (parchment / Cormorant / the puff mark) — they can share the landing
-> page's hero art.
+**Small promo tile (REQUIRED, 440×280):** the puff mark on a parchment field
+with the tagline "close everything; lose nothing." Reuse the `extension/icons/`
+mark. **Marquee (optional, 1400×560)** only if you want homepage-feature
+eligibility. Generate both from the design system (parchment / Cormorant / the
+puff mark) — they can share the landing page's hero art.
