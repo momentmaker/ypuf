@@ -577,8 +577,10 @@ boundary, and the host-permission grants — is verified by hand.
 
 # Starfield (slice 2 / U8 / R4, R9 / AE3)
 
-- [ ] In **star** mode a slow, calm field of faint lavender stars drifts behind the board;
-      it's clearly a background, never a distraction.
+- [ ] In **star** mode a calm field of faint lavender stars **breathes** (each gently grows
+      and shrinks on its own slow cycle) behind the board — ambient, never a distraction.
+- [ ] Every ~15-30s an **occasional shooting star** streaks across the upper area with a
+      fading tail, then is gone — a quiet surprise, not frequent.
 - [ ] Recall/panel **text stays legible** over it (the stars are low-alpha and sit behind
       the opaque panel surfaces).
 - [ ] Switching **away** from star (to light/dark) removes the starfield immediately and

@@ -10,7 +10,7 @@ test('generate returns `count` stars', () => {
   assert.equal(starfield.generate(0, 800, 600, 1).length, 0);
 });
 
-test('every star sits within [0,w] × [0,h] with a capped opacity and a twinkle phase', () => {
+test('every star sits within [0,w] × [0,h] with capped opacity, a breath phase + period, and a warm flag', () => {
   const stars = starfield.generate(300, 1024, 768, 7);
   for (const s of stars) {
     assert.ok(s.x >= 0 && s.x <= 1024, `x=${s.x}`);
@@ -18,6 +18,8 @@ test('every star sits within [0,w] × [0,h] with a capped opacity and a twinkle 
     assert.ok(s.r > 0, `r=${s.r}`);
     assert.ok(s.a > 0 && s.a <= starfield.ALPHA_CAP, `a=${s.a} > cap ${starfield.ALPHA_CAP}`);
     assert.ok(s.phase >= 0 && s.phase < Math.PI * 2, `phase=${s.phase}`);
+    assert.ok(s.period >= 3000 && s.period <= 7000, `period=${s.period}`);
+    assert.equal(typeof s.warm, 'boolean');
   }
 });
 
