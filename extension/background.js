@@ -205,9 +205,12 @@ async function handleLetGo() {
 // per-item alarm for the return (clock schedules only — "when I'm back" is an
 // untilStartup flag caught by the startup path).
 
-async function handleSnooze(preset, custom) {
+// `tab` is the in-page snooze overlay's OWN tab (Chrome-set sender.tab — unforgeable,
+// can't drift if the active tab changes while the picker is open). The popup path has
+// no sender.tab, so it falls back to the tab behind the popup.
+async function handleSnooze(preset, custom, tab) {
   await initIndex();
-  const tab = await getActiveTab();
+  if (!tab) tab = await getActiveTab();
   if (!tab) return;
   const schedule = snooze.resolve(preset, Date.now(), custom);
   const openTabs = await chrome.tabs.query({});
@@ -982,7 +985,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'auto-summary') return respond(autoSummary());
   if (msg.type === 'relief-claim') return respond(reliefClaim());
   if (msg.type === 'seen-badge') return respond(seenBadge());
-  if (msg.type === 'snooze' && msg.preset) return respond(handleSnooze(msg.preset, msg.custom).then(() => ({ ok: true })));
+  if (msg.type === 'snooze' && msg.preset) return respond(handleSnooze(msg.preset, msg.custom, sender.tab).then(() => ({ ok: true })));
   if (msg.type === 'snooze-list') return respond(snoozeList());
   if (msg.type === 'snooze-wake' && msg.recordId) return respond(snoozeWake(msg.recordId));
   if (msg.type === 'snooze-resnooze' && msg.recordId && msg.preset) return respond(snoozeResnooze(msg.recordId, msg.preset, msg.custom));

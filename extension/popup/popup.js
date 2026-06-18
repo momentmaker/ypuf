@@ -37,7 +37,7 @@
   snoozeCustomBtn?.addEventListener('click', () => { snoozeCustomInput.hidden = false; snoozeCustomInput.focus(); });
   snoozeCustomInput?.addEventListener('change', () => {
     const ts = snoozeCustomInput.value ? new Date(snoozeCustomInput.value).getTime() : NaN;
-    if (!Number.isNaN(ts)) doSnooze('custom', ts);
+    if (!Number.isNaN(ts) && ts > Date.now()) doSnooze('custom', ts); // reject a past time (matches the overlay)
   });
 
   // Opened via the snooze hotkey → reveal the picker straight away, then clear.

@@ -193,13 +193,17 @@ verified by hand.
       group as **"snoozed until <time>"**; no Undo notification (calm).
 - [ ] The snoozed page is still **found by recall search** (command bar) while
       it's away.
-- [ ] **Custom…** reveals a datetime-local input; picking a time snoozes to it.
+- [ ] **Custom…** reveals a datetime-local input; picking a **future** time snoozes
+      to it. A **past** time is rejected (no-op) on BOTH the overlay and the popup.
 - [ ] **In-page snooze overlay:** the **snooze hotkey** (default `Ctrl/Cmd+Shift+S`)
       on a normal page opens a centered **"Snooze this tab until…"** overlay (not
       the popup). `1`–`6` jump to a preset, `↑/↓`+`Enter` choose, `0` reveals Custom,
       `Esc` / backdrop / a second hotkey press close it (focus returns to the page).
 - [ ] Choosing a time in the overlay closes the tab + schedules the return, same
       as the popup path.
+- [ ] **Right tab even after switching:** open the overlay on tab A, switch to tab B,
+      switch back to A and pick a time → **tab A** is snoozed (the overlay snoozes its
+      OWN tab via `sender.tab`, not whatever tab is active at pick-time).
 - [ ] Snooze hotkey on a `chrome://` / restricted page (or the new-tab board) opens
       the **popup fallback** straight to the preset panel instead.
 - [ ] Snoozing a **blocklisted** page stores title+URL only; it still returns.
