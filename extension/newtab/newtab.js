@@ -17,6 +17,7 @@
 (function () {
   const { PROTO, VERSION } = window.ypuf.channel; // single source of the protocol id/version
   const lanes = window.ypuf.lanes;                // pure lane-placement math (tested in lib/lanes.js)
+  const boardkeys = window.ypuf.boardkeys;        // pure cursor + key→intent (tested in lib/boardkeys.js)
 
   const docBody = document.body;
   const grid = document.getElementById('board-grid');
@@ -946,6 +947,98 @@
   }
   addBtn.addEventListener('click', openAddPicker);
   window.addEventListener('hashchange', renderBoard);
+
+  // --- board normal-mode keyboard layer (U8, R9/R12) -----------------------
+  // One document keydown drives a recall cursor + row actions. The key→intent
+  // decision is the pure lib (boardkeys); this is only DOM application — actions
+  // reuse the rows' existing controls (click .recall-forget / .recall-protect /
+  // the title) so the SW round-trips, undo grace, and teardown guards aren't
+  // duplicated. Invisible at rest: the cursor class is added only once a key moves
+  // it, and cleared on Escape (the U10 calm guarantee).
+  let kbdCursor = -1;
+  let pendingG = false;   // first 'g' of a 'gg' (jump-to-top) sequence
+
+  const isField = (t) => !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'
+    || t.tagName === 'SELECT' || t.isContentEditable);
+  const recallRows = () =>
+    [...document.querySelectorAll('.recent-item[data-id]')].filter((el) => el.offsetParent !== null);
+
+  function paintCursor(rows) {
+    rows.forEach((el, i) => el.classList.toggle('kbd-cursor', i === kbdCursor));
+    if (rows[kbdCursor]) rows[kbdCursor].scrollIntoView({ block: 'nearest' });
+  }
+  function clearKbdCursor() {
+    kbdCursor = -1;
+    document.querySelectorAll('.recent-item.kbd-cursor').forEach((el) => el.classList.remove('kbd-cursor'));
+  }
+  function moveKbd(delta) {
+    const rows = recallRows();
+    kbdCursor = boardkeys.moveCursor(kbdCursor, delta, rows.length);
+    paintCursor(rows);
+  }
+  function jumpKbd(toEnd) {
+    const rows = recallRows();
+    if (!rows.length) { kbdCursor = -1; return; }
+    kbdCursor = toEnd ? rows.length - 1 : 0;
+    paintCursor(rows);
+  }
+  function cursorRow() {
+    const rows = recallRows();
+    return (kbdCursor >= 0 && kbdCursor < rows.length) ? rows[kbdCursor] : null;
+  }
+  const clickIn = (row, sel) => { const b = row && row.querySelector(sel); if (b) b.click(); };
+
+  // f-hints (U9) and the ? cheatsheet (U10) wire into the keydown below; defined here
+  // so the U8 layer is self-contained. (f / ? are inert until those units land.)
+  let hintsActive = false;
+  const cheatsheetOpen = () => !!document.querySelector('.cheatsheet-overlay');
+  function handleHintKey() {}
+  function enterHints() {}
+  function openCheatsheet() {}
+
+  document.addEventListener('keydown', (e) => {
+    if (settingsOpen() || cheatsheetOpen()) return;   // overlays trap their own keys
+    if (hintsActive) { handleHintKey(e); return; }     // f-hint mode owns letters (U9)
+    const it = boardkeys.intent(e.key, { fieldFocused: isField(e.target) });
+    if (it === 'none') return;
+    if (it !== 'g') pendingG = false;                  // any non-g resolves a pending 'gg'
+
+    switch (it) {
+      case 'down': e.preventDefault(); moveKbd(1); break;
+      case 'up': e.preventDefault(); moveKbd(-1); break;
+      case 'bottom': e.preventDefault(); jumpKbd(true); break;
+      case 'g':
+        e.preventDefault();
+        if (pendingG) { pendingG = false; jumpKbd(false); } else { pendingG = true; }
+        break;
+      case 'open': e.preventDefault(); clickIn(cursorRow(), '.title.clickable'); break;
+      case 'forget': {
+        const r = cursorRow();
+        if (r && !r.classList.contains('struck')) { e.preventDefault(); clickIn(r, '.recall-forget'); }
+        break;
+      }
+      case 'undo': {
+        const r = cursorRow();
+        if (r && r.classList.contains('struck')) { e.preventDefault(); clickIn(r, '.recall-forget'); }
+        break;
+      }
+      case 'protect': e.preventDefault(); clickIn(cursorRow(), '.recall-protect'); break;
+      case 'search': {
+        e.preventDefault();
+        const s = document.querySelector('.recall-search');
+        if (s) s.focus();
+        break;
+      }
+      case 'edit': e.preventDefault(); editBtn.click(); break;
+      case 'hints': e.preventDefault(); enterHints(); break;       // U9
+      case 'help': e.preventDefault(); openCheatsheet(); break;    // U10
+      case 'escape':
+        if (isField(e.target)) e.target.blur();
+        clearKbdCursor();
+        break;
+      default: break;
+    }
+  });
 
   // Another board tab edited the config — converge so this tab doesn't show stale
   // state. Don't yank the board out from under an active edit; skip our own writes.

@@ -483,3 +483,20 @@ boundary, and the host-permission grants — is verified by hand.
 - [ ] The tally counts only the **last 7 days** and only **auto-closed** records;
       recalling a page later still counts it under *recalled*, but a page you let go and
       **never reopened is not** counted as recalled. **lost is always 0.**
+
+# Board calm settings & soul — Phase C (keyboard layer)
+
+## Board normal-mode — cursor + actions (U8 / R9, R12 / AE5)
+
+- [ ] On the board (not focused in a field), `j` / `k` move a calm **amber left-bar**
+      cursor over the recall rows; `g g` jumps to the top, `G` to the bottom. The
+      cursored row reveals its protect/forget icons.
+- [ ] `o` or `Enter` opens the cursored page; `x` forgets it (row strikes + **`u`**
+      undoes within the grace window); `p` protects its site (shield lights).
+- [ ] `/` jumps focus to the recall search; `e` toggles edit mode; `Esc` clears the
+      cursor (and blurs the search if it was focused).
+- [ ] **Typing is never hijacked:** with the search focused, `j`/`x`/`p`/`?` type
+      literally; only `Esc` leaves the field. Arrow keys still reorder panels in edit
+      mode (the board layer is `j`/`k`, so it never collides).
+- [ ] **Invisible at rest:** before any key is pressed, the board shows no cursor and
+      no keyboard chrome.

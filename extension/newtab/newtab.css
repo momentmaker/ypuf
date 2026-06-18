@@ -317,6 +317,16 @@ body[data-mood="night"] { --paper: #f1eadf; --warm-gray: #e3d9cc; --card-bg: #ff
   border: 1px solid var(--warm-gray); border-radius: 6px; background: var(--paper);
 }
 .panel .recent-item { padding: 6px 8px; position: relative; }
+/* Keyboard cursor (U8): a calm 2px amber left-bar on the focused recall row —
+   invisible at rest (the class is added only while navigating), matching the accent
+   system. The cursored row reveals its forget/protect so j-k users see what x/p hit. */
+.panel .recent-item.kbd-cursor {
+  box-shadow: inset 2px 0 0 var(--accent-amber);
+  background: var(--warm-gray);
+  border-radius: 6px;
+}
+.recent-item.kbd-cursor .recall-forget,
+.recent-item.kbd-cursor .recall-protect { opacity: 0.65; }
 /* Forget: a quiet hover-revealed delete-in-place. Calm at rest, rose on intent. */
 .recall-forget {
   position: absolute; top: 5px; right: 6px;
