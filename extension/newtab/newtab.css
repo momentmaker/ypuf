@@ -58,11 +58,97 @@ body[data-mood="night"] { --paper: #f1eadf; --warm-gray: #e3d9cc; --card-bg: #ff
   border: 1px solid transparent;
   color: var(--muted);
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 5px 7px;
   border-radius: var(--radius);
+  display: inline-flex;
+  align-items: center;
 }
+.board-edit svg { width: 16px; height: 16px; display: block; }
 .board-edit:hover { color: var(--ink); border-color: var(--warm-gray); }
-.board.editing .board-edit { color: var(--accent-amber); border-color: var(--accent-amber); }
+.board.editing #board-edit { color: var(--accent-amber); border-color: var(--accent-amber); }
+
+/* Settings overlay (U2): a calm right-side slide-over. Groups land in U3/U4/U5. */
+.settings-overlay { position: fixed; inset: 0; z-index: 50; }
+.settings-backdrop { position: absolute; inset: 0; background: rgba(26, 22, 19, 0.20); }
+.settings-panel {
+  position: absolute; top: 0; right: 0; height: 100%;
+  width: min(380px, 92vw);
+  background: var(--card-bg); color: var(--ink);
+  box-shadow: -18px 0 50px rgba(26, 22, 19, 0.18);
+  display: flex; flex-direction: column;
+  padding: 18px 20px; overflow-y: auto;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .settings-panel { animation: settings-in 0.18s ease-out; }
+  @keyframes settings-in { from { transform: translateX(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+}
+.settings-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.settings-title { font-family: var(--font-display); font-size: 19px; }
+.settings-close { background: none; border: none; color: var(--muted); cursor: pointer; padding: 4px; display: inline-flex; }
+.settings-close:hover { color: var(--ink); }
+.settings-close:focus-visible { outline: 2px solid var(--accent-amber); outline-offset: 2px; color: var(--ink); }
+.icon-btn svg { display: block; }
+.settings-groups { display: flex; flex-direction: column; gap: 20px; }
+.settings-group { display: flex; flex-direction: column; gap: 9px; }
+.settings-group-label { font-size: 12px; color: var(--muted); }
+/* Passive keyboard-layer discoverability (U10): a quiet footer line in the overlay. */
+.settings-foot { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--warm-gray); font-size: 11.5px; }
+
+/* The ? cheatsheet (U10): a calm centered help card — reuses the settings backdrop/head,
+   invisible until ? is pressed, reduced-motion-gated entrance. */
+.cheatsheet-overlay { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; }
+.cheatsheet-backdrop { position: absolute; inset: 0; background: rgba(26, 22, 19, 0.20); }
+.cheatsheet-card {
+  position: relative;
+  width: min(420px, 92vw); max-height: 86vh; overflow-y: auto;
+  background: var(--card-bg); color: var(--ink);
+  box-shadow: 0 18px 50px rgba(26, 22, 19, 0.22);
+  border-radius: var(--radius); padding: 18px 20px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cheatsheet-card { animation: cheat-in 0.18s ease-out; }
+  @keyframes cheat-in { from { transform: translateY(6px); opacity: 0; } to { transform: none; opacity: 1; } }
+}
+.cheatsheet-list { display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; align-items: baseline; margin: 0; }
+.cheatsheet-list dt { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent-slate); white-space: nowrap; }
+.cheatsheet-list dd { margin: 0; font-size: 13px; color: var(--ink); }
+.cheatsheet-note { margin-top: 14px; font-size: 11.5px; }
+
+/* Auto-let-go group (U3): a pill switch + a segmented eagerness control. */
+.auto-body { display: flex; flex-direction: column; gap: 11px; }
+.toggle-row { display: flex; align-items: center; gap: 10px; }
+.toggle-label { font-size: 13px; color: var(--ink); }
+.switch {
+  position: relative; width: 36px; height: 20px; flex: none; padding: 0;
+  border: none; border-radius: 10px; background: var(--warm-gray); cursor: pointer;
+}
+.switch::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--card-bg); box-shadow: 0 1px 2px rgba(26, 22, 19, 0.2);
+}
+.switch.on { background: var(--accent-sage); }
+.switch.on::after { transform: translateX(16px); }
+.switch:focus-visible { outline: 2px solid var(--accent-amber); outline-offset: 2px; }
+@media (prefers-reduced-motion: no-preference) {
+  .switch { transition: background 0.15s ease; }
+  .switch::after { transition: transform 0.15s ease; }
+}
+.segmented { display: inline-flex; align-self: flex-start; border: 1px solid var(--warm-gray); border-radius: 8px; overflow: hidden; }
+.segmented .seg {
+  font: inherit; font-size: 12.5px; cursor: pointer; color: var(--muted);
+  background: none; border: none; border-right: 1px solid var(--warm-gray); padding: 5px 11px;
+}
+.segmented .seg:last-child { border-right: none; }
+.segmented .seg.selected { background: var(--accent-amber); color: #fff; }
+.segmented .seg:focus-visible { outline: 2px solid var(--accent-amber); outline-offset: -2px; }
+.segmented.muted { opacity: 0.45; pointer-events: none; }
+.auto-sub { font-size: 11.5px; color: var(--muted); }
+
+/* Never-touch group (U4). */
+.nevertouch-list { display: flex; flex-direction: column; gap: 5px; }
+.nevertouch-empty { font-size: 12px; }
+.nevertouch-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
+.nevertouch-host { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Explicit lanes: panels are placed in — and dragged between — up to 3 columns.
    Unlabeled (no kanban chrome): arrange-your-desk, not a board to manage. */
@@ -117,6 +203,16 @@ body[data-mood="night"] { --paper: #f1eadf; --warm-gray: #e3d9cc; --card-bg: #ff
   body.intro .board-col:nth-child(3) .panel { animation-delay: .12s; }
 }
 @keyframes panel-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* The puff (U6): a row let go since you last looked settles in from a soft haze —
+     a calm exhale, played once on open (the JS adds .puff only to those rows). */
+  .recent-item.puff { animation: puff-settle .6s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+  @keyframes puff-settle {
+    from { opacity: 0; transform: translateY(-3px) scale(1.04); filter: blur(3px); }
+    to   { opacity: 1; transform: none; filter: none; }
+  }
+}
 
 .panel-head {
   display: flex;
@@ -243,14 +339,50 @@ body[data-mood="night"] { --paper: #f1eadf; --warm-gray: #e3d9cc; --card-bg: #ff
   border: 1px solid var(--warm-gray); border-radius: 6px; background: var(--paper);
 }
 .panel .recent-item { padding: 6px 8px; position: relative; }
+/* Keyboard cursor (U8): a calm 2px amber left-bar on the focused recall row —
+   invisible at rest (the class is added only while navigating), matching the accent
+   system. The cursored row reveals its forget/protect so j-k users see what x/p hit. */
+.panel .recent-item.kbd-cursor {
+  box-shadow: inset 2px 0 0 var(--accent-amber);
+  background: var(--warm-gray);
+  border-radius: 6px;
+}
+.recent-item.kbd-cursor .recall-forget,
+.recent-item.kbd-cursor .recall-protect { opacity: 0.65; }
 /* Forget: a quiet hover-revealed delete-in-place. Calm at rest, rose on intent. */
 .recall-forget {
-  position: absolute; top: 5px; right: 7px;
+  position: absolute; top: 5px; right: 6px;
   font-size: 11px; color: var(--muted); opacity: 0;
+  display: inline-flex; align-items: center; line-height: 1;
 }
+.recall-forget svg { width: 14px; height: 14px; display: block; }
 .panel .recent-item:hover .recall-forget,
-.recall-forget:focus-visible { opacity: 0.7; }
+.recall-forget:focus-visible { opacity: 0.65; }
 .recall-forget:hover { color: var(--accent-rose); opacity: 1; }
+/* Protect (never-touch) — the calm twin of forget, one slot to its left (U4). */
+.recall-protect {
+  position: absolute; top: 5px; right: 26px;
+  color: var(--muted); opacity: 0;
+  display: inline-flex; align-items: center; line-height: 1;
+}
+.recall-protect svg { width: 14px; height: 14px; display: block; }
+.panel .recent-item:hover .recall-protect,
+.recall-protect:focus-visible { opacity: 0.65; }
+.recall-protect:hover { color: var(--accent-sage); opacity: 1; }
+.recall-protect.protected { color: var(--accent-sage); opacity: 1; }   /* stays lit once protected */
+/* f-hints (U9): amber badges over host-rendered clickables — present only while in
+   hint mode, removed on select/Esc (invisible at rest). Page-coordinate positioned. */
+.hint-layer { position: absolute; top: 0; left: 0; z-index: 50; pointer-events: none; }
+.hint-badge {
+  position: absolute;
+  transform: translate(-3px, -9px);
+  font: 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  background: var(--accent-amber); color: var(--ink);
+  padding: 1px 4px; border-radius: 4px;
+  box-shadow: 0 1px 3px var(--shadow);
+}
+.hint-badge.stale { opacity: 0.2; }
 /* The relief moment (U5): a calm once-a-day acknowledgement. */
 .board-relief {
   background: var(--paper);
@@ -261,6 +393,8 @@ body[data-mood="night"] { --paper: #f1eadf; --warm-gray: #e3d9cc; --card-bg: #ff
   font-size: 12.5px;
   color: var(--accent-sage);
 }
+/* The weekly digest (U7): quieter than the relief box — an ambient tally, no chrome. */
+.board-digest { font-size: 11.5px; color: var(--muted); margin: 0 2px 11px; }
 .panel-group-label { font-size: 11px; color: var(--muted); margin: 10px 2px 3px; }
 .set-restore { margin-top: 4px; }
 

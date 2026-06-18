@@ -17,16 +17,18 @@
 (function () {
   const { PROTO, VERSION } = window.ypuf.channel; // single source of the protocol id/version
   const lanes = window.ypuf.lanes;                // pure lane-placement math (tested in lib/lanes.js)
+  const boardkeys = window.ypuf.boardkeys;        // pure cursor + key→intent (tested in lib/boardkeys.js)
+  const hints = window.ypuf.hints;                // pure f-hint label assign/match (tested in lib/hints.js)
 
   const docBody = document.body;
   const grid = document.getElementById('board-grid');
   const emptyNote = document.getElementById('board-empty');
   const addBtn = document.getElementById('add-panel');
   const editBtn = document.getElementById('board-edit');
+  const settingsBtn = document.getElementById('board-settings');
   const minimalNote = document.getElementById('minimal-note');
   const boardSub = document.getElementById('board-sub');
   const oneLineEl = document.getElementById('board-oneline');
-  const oneLineToggle = document.getElementById('oneline-toggle');
 
   let config = { panels: [], minimalMode: false };
   let editing = false;
@@ -35,9 +37,234 @@
   let oneLineSeq = 0;      // supersedes a slow one-line fetch when the footer is re-rendered or toggled off
   const COLS = 3;          // fixed, unlabeled lanes — arrange-your-desk, not a kanban to manage
   const colOf = (spec) => lanes.colOf(spec, COLS);
+
+  // Calm line icons (U1). Built via createElementNS (never innerHTML), themed by
+  // currentColor so they inherit the affordance's calm/hover/accent color.
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const ICONS = {
+    trash: [['path', { d: 'M3 4.5h10' }], ['path', { d: 'M5.6 4.5v-1a1 1 0 011-1h2.8a1 1 0 011 1v1' }],
+            ['path', { d: 'M4.7 4.5l.5 8a1 1 0 001 .95h3.6a1 1 0 001-.95l.5-8' }]],
+    pencil: [['path', { d: 'M10.7 2.7l2.6 2.6' }], ['path', { d: 'M3 13l.7-2.7 7.3-7.3 2.6 2.6-7.3 7.3z' }]],
+    shield: [['path', { d: 'M8 2l5 2v4c0 3-2.2 5.2-5 6-2.8-.8-5-3-5-6V4z' }]],
+    gear: [['circle', { cx: 8, cy: 8, r: 2.2 }],
+           ['path', { d: 'M8 1.6v1.6M8 12.8v1.6M14.4 8h-1.6M3.2 8H1.6M12.5 3.5l-1.1 1.1M4.6 11.4l-1.1 1.1M12.5 12.5l-1.1-1.1M4.6 4.6L3.5 3.5' }]],
+    close: [['path', { d: 'M4 4l8 8M12 4l-8 8' }]],
+  };
+  function icon(name) {
+    const svg = document.createElementNS(SVGNS, 'svg');
+    const a = { viewBox: '0 0 16 16', width: '15', height: '15', fill: 'none', stroke: 'currentColor',
+                'stroke-width': '1.4', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' };
+    for (const k of Object.keys(a)) svg.setAttribute(k, a[k]);
+    for (const [tag, attrs] of ICONS[name]) {
+      const el = document.createElementNS(SVGNS, tag);
+      for (const k of Object.keys(attrs)) el.setAttribute(k, String(attrs[k]));
+      svg.appendChild(el);
+    }
+    return svg;
+  }
+
+  // --- settings overlay (U2) ----------------------------------------------
+  // A calm first-party slide-over: gear → role=dialog, focus-trapped, Esc/backdrop
+  // close, focus restores to the gear. The groups (auto-let-go U3, never-touch U4,
+  // board U5) populate `buildSettingsGroups`; U10's cheatsheet reuses this shell.
+  let settingsPrevFocus = null;
+  let cheatsheetPrevFocus = null;
+  const settingsOpen = () => !!document.querySelector('.settings-overlay');
+
+  function closeSettings() {
+    const o = document.querySelector('.settings-overlay');
+    if (o) o.remove();
+    try { if (settingsPrevFocus && settingsPrevFocus.focus) settingsPrevFocus.focus(); } catch (e) { /* gone */ }
+  }
+
+  // Shared Tab-cycle for the modal overlays (U2 settings + U10 cheatsheet): keep focus
+  // inside `panel` so Tab/Shift-Tab wrap at the ends.
+  function trapTab(e, panel) {
+    if (e.key !== 'Tab') return;
+    const f = [...panel.querySelectorAll('button, input, select, [href], [tabindex]:not([tabindex="-1"])')]
+      .filter((el) => !el.disabled && el.offsetParent !== null);
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+
+  function settingsKeydown(e) {
+    // stopPropagation so this Esc doesn't also bubble to the board keydown (which would
+    // run after the overlay is gone and clear the recall cursor the user had).
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeSettings(); return; }
+    trapTab(e, e.currentTarget);
+  }
+
+  // The keyboard layer's bindings, shared by the ? cheatsheet (U10).
+  const CHEATSHEET = [
+    ['j / k', 'Move the recall cursor'],
+    ['g g / G', 'Jump to top / bottom'],
+    ['o / Enter', 'Open the cursored page'],
+    ['x / u', 'Forget / undo'],
+    ['p', 'Never-touch this site'],
+    ['/', 'Jump to recall search'],
+    ['f', 'Hint every link — type a label to open'],
+    ['e', 'Toggle edit mode'],
+    ['?', 'This cheatsheet'],
+    ['Esc', 'Clear cursor · close'],
+  ];
+
+  function settingsGroup(title) {
+    const g = document.createElement('section'); g.className = 'settings-group';
+    const h = document.createElement('div'); h.className = 'settings-group-label'; h.textContent = title;
+    g.appendChild(h);
+    return g;
+  }
+
+  // Auto-let-go group (U3): on/off + a Timid/Balanced/Bold segmented control (muted
+  // when off), with the real window shown. Reads/writes via the SW (single writer).
+  function buildAutoGroup(container) {
+    const E = window.ypuf.eagerness;
+    const g = settingsGroup('Auto-let-go');
+    const body = document.createElement('div'); body.className = 'auto-body';
+    g.appendChild(body); container.appendChild(g);
+
+    const draw = (state) => {
+      if (!document.body.contains(body)) return;   // overlay closed before the SW replied
+      body.textContent = '';
+      const enabled = !!(state && state.enabled);
+      const level = (state && state.eagerness) || E.DEFAULT;
+
+      const sw = document.createElement('button');
+      sw.type = 'button'; sw.className = 'switch' + (enabled ? ' on' : '');
+      sw.setAttribute('role', 'switch'); sw.setAttribute('aria-checked', String(enabled));
+      sw.setAttribute('aria-label', 'Auto-let-go'); sw.title = enabled ? 'On' : 'Off';
+      sw.addEventListener('click', () => {
+        if (enabled) { send('auto-disable').then(draw).catch(() => {}); return; }
+        // Enabling needs the <all_urls> grant — request it in-gesture, then enable.
+        chrome.permissions.request({ origins: ['<all_urls>'] }, (granted) => {
+          if (!granted || !document.body.contains(body)) return;
+          refreshHasAllUrls();
+          send('auto-enable').then(draw).catch(() => {});
+        });
+      });
+      const swLabel = document.createElement('span'); swLabel.className = 'toggle-label';
+      swLabel.textContent = enabled ? 'On — clearing tabs you’ve stopped caring about' : 'Off';
+      const row = document.createElement('div'); row.className = 'toggle-row'; row.append(sw, swLabel);
+
+      const seg = document.createElement('div'); seg.className = 'segmented' + (enabled ? '' : ' muted');
+      seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', 'Eagerness');
+      for (const lv of E.LEVELS) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'seg' + (lv.key === level ? ' selected' : '');
+        b.textContent = lv.label; b.setAttribute('aria-pressed', String(lv.key === level));
+        if (!enabled) b.disabled = true;
+        b.addEventListener('click', () => send('set-auto-eagerness', { level: lv.key }).then(draw).catch(() => {}));
+        seg.appendChild(b);
+      }
+
+      const days = (E.LEVELS.find((l) => l.key === level) || E.LEVELS.find((l) => l.key === E.DEFAULT)).days;
+      const sub = document.createElement('div'); sub.className = 'auto-sub';
+      sub.textContent = `Lets go after ~${days} quiet day${days === 1 ? '' : 's'}.`;
+
+      body.append(row, seg, sub);
+    };
+
+    send('auto-state').then(draw).catch(() => draw(null));
+  }
+
+  // Never-touch group (U4): the protected sites auto-let-go must never close. Add is
+  // recall-row-only in v1 (no manual domain input); remove + empty-state live here.
+  function buildNeverTouchGroup(container) {
+    const g = settingsGroup('Never-touch');
+    const list = document.createElement('div'); list.className = 'nevertouch-list';
+    g.appendChild(list); container.appendChild(g);
+
+    const draw = (resp) => {
+      if (!document.body.contains(list)) return;   // overlay closed before the SW replied
+      list.textContent = '';
+      const items = (resp && resp.items) || [];
+      if (!items.length) {
+        const empty = document.createElement('p'); empty.className = 'muted nevertouch-empty';
+        empty.textContent = 'No sites protected yet — protect a site from a recall row.';
+        list.appendChild(empty); return;
+      }
+      for (const host of items) {
+        const row = document.createElement('div'); row.className = 'nevertouch-row';
+        const name = document.createElement('span'); name.className = 'nevertouch-host'; name.textContent = host;
+        const rm = document.createElement('button');
+        rm.type = 'button'; rm.className = 'link'; rm.textContent = 'remove';
+        rm.setAttribute('aria-label', `Stop protecting ${host}`);
+        rm.addEventListener('click', () => send('protect-remove', { host })
+          .then((r) => (r && r.ok) ? send('protected-list') : null)   // only refresh on a real removal
+          .then(draw).catch(() => {}));
+        row.append(name, rm); list.appendChild(row);
+      }
+    };
+    send('protected-list').then(draw).catch(() => draw(null));
+  }
+
+  // Board group (U5): the one-line opt-in, relocated here from the masthead. v1 is a
+  // single toggle (mood/sound deferred to a future unit, holding the calm ~3-groups cap).
+  function buildBoardGroup(container) {
+    const g = settingsGroup('Board');
+    const enabled = !!(config.oneLine && config.oneLine.enabled);
+    const sw = document.createElement('button');
+    sw.type = 'button'; sw.className = 'switch' + (enabled ? ' on' : '');
+    sw.setAttribute('role', 'switch'); sw.setAttribute('aria-checked', String(enabled)); sw.setAttribute('aria-label', 'Daily one-line');
+    sw.addEventListener('click', () => toggleOneLine((on) => {   // grant-in-gesture preserved by toggleOneLine
+      sw.classList.toggle('on', on); sw.setAttribute('aria-checked', String(on));
+    }));
+    const label = document.createElement('span'); label.className = 'toggle-label'; label.textContent = 'Daily one-line';
+    const row = document.createElement('div'); row.className = 'toggle-row'; row.append(sw, label);
+    const sub = document.createElement('div'); sub.className = 'auto-sub';
+    sub.textContent = 'A quiet aphorism at the board footer, from um.fz.ax.';
+    g.append(row, sub); container.appendChild(g);
+  }
+
+  function buildSettingsGroups(container) {
+    buildAutoGroup(container);
+    buildNeverTouchGroup(container);
+    buildBoardGroup(container);
+  }
+
+  function openSettings() {
+    if (settingsOpen()) return;
+    settingsPrevFocus = document.activeElement;
+    const overlay = document.createElement('div');
+    overlay.className = 'settings-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Settings');
+    const backdrop = document.createElement('div'); backdrop.className = 'settings-backdrop';
+    backdrop.addEventListener('click', closeSettings);
+    const panel = document.createElement('div'); panel.className = 'settings-panel';
+    panel.addEventListener('keydown', settingsKeydown);
+    const head = document.createElement('div'); head.className = 'settings-head';
+    const title = document.createElement('span'); title.className = 'settings-title'; title.textContent = 'Settings';
+    const close = document.createElement('button');
+    close.type = 'button'; close.className = 'settings-close icon-btn';
+    close.setAttribute('aria-label', 'Close settings'); close.title = 'Close';
+    close.append(icon('close'));
+    close.addEventListener('click', closeSettings);
+    head.append(title, close);
+    const groups = document.createElement('div'); groups.className = 'settings-groups';
+    buildSettingsGroups(groups);
+    // Passive discoverability (U10): the keyboard layer is invisible until used, so the
+    // one place it can be mentioned without costing board calm is here, where the user
+    // already came looking for controls.
+    const kbdHint = document.createElement('p'); kbdHint.className = 'settings-foot muted';
+    kbdHint.textContent = 'Keyboard shortcuts: press ? on the board.';
+    panel.append(head, groups, kbdHint);
+    overlay.append(backdrop, panel);
+    docBody.appendChild(overlay);
+    // Initial focus = the first group control (e.g. the auto toggle), else the close.
+    (groups.querySelector('button, input, select, [tabindex]:not([tabindex="-1"])') || close).focus();
+  }
   let mounted = [];   // panel teardown fns; run before each re-render so intervals,
                       // message listeners, and focus handlers never leak.
   let firstPaint = true; // the gentle card entrance plays once on open, not on every re-render
+  // The puff (U6): the soft "let go" arrival on recall rows let go since you last
+  // opened the board. `boardLastOpen` holds the PREVIOUS open's stamp; `puffArmed`
+  // fires the animation once on this open, then disarms so re-renders don't re-puff.
+  let boardLastOpen = 0;
+  let puffArmed = false;
 
   // Atmosphere (U4): the board greets the hour. Local clock only — no data, no network.
   const MOODS = [
@@ -98,16 +325,18 @@
     });
   }
 
-  function toggleOneLine() {
+  function toggleOneLine(onDone) {
     if (config.oneLine && config.oneLine.enabled) {
       config.oneLine = { enabled: false };
       saveConfig(); renderBoard(); renderOneLine();
+      if (onDone) onDone(false);
       return;
     }
     // Enable: request the raw.githubusercontent.com grant in-gesture (request-first), then on.
     grantThenAdd('https://raw.githubusercontent.com', () => {
       config.oneLine = { enabled: true };
       saveConfig(); renderBoard(); renderOneLine();
+      if (onDone) onDone(true);
     });
   }
 
@@ -558,15 +787,17 @@
     teardownAll();
     dragId = null; docBody.classList.remove('dragging-active');   // a programmatic re-render mid-drag must not leave stale drag state
     closeAddPicker();   // never leave a stray add-form across a re-render
+    // The keyboard layer's state (U8/U9) is keyed to the DOM we're about to replace —
+    // a re-render (incl. a cross-tab storage.onChanged converge) must not leave the
+    // hint-layer (which lives on docBody, not grid) orphaned, or the cursor index
+    // silently re-targeting a different row.
+    clearKbdCursor(); exitHints(); pendingG = false;
     grid.textContent = '';
     minimalNote.hidden = true;
     docBody.classList.toggle('editing', editing);
     docBody.classList.toggle('minimal', !!config.minimalMode);
     editBtn.hidden = false;
-    if (oneLineToggle) {
-      oneLineToggle.hidden = !editing;
-      oneLineToggle.textContent = (config.oneLine && config.oneLine.enabled) ? 'Remove one-line' : '+ daily one-line';
-    }
+    if (settingsBtn) settingsBtn.hidden = false;
 
     if (config.minimalMode) {
       emptyNote.hidden = true;
@@ -720,21 +951,237 @@
 
   const saveConfig = () => send('board-save-config', { config });
 
+  const BOARD_LAST_OPEN_KEY = 'boardLastOpen';
+
   async function loadAndRender() {
     const loaded = await send('board-get-config');
     if (loaded && Array.isArray(loaded.panels)) config = loaded;
     // One-time migration: panels from before lanes existed get spread across the
     // columns (round-robin) so the board looks composed rather than all stacked left.
     if (lanes.migrateCols(config.panels, COLS)) saveConfig();
+    // U6: capture the prior open's stamp (for the puff), then advance it. Read before
+    // write so this open's "new since last time" comparison uses the previous value.
+    // A 0 here (first open ever, or a read error) keeps the puff quiet — see the > 0
+    // guard at the puff site, so a fresh/backlogged profile never mass-puffs.
+    boardLastOpen = (await local.get(BOARD_LAST_OPEN_KEY).catch(() => 0)) || 0;
+    puffArmed = true;
+    local.set(BOARD_LAST_OPEN_KEY, Date.now());
     renderBoard();
     renderOneLine();
   }
 
   renderMasthead();   // greet the hour (U4)
+  editBtn.textContent = ''; editBtn.append(icon('pencil'));   // U1: iconify the edit affordance
+  editBtn.setAttribute('aria-label', 'Edit board'); editBtn.title = 'Edit board';
   editBtn.addEventListener('click', () => { editing = !editing; renderBoard(); });
-  if (oneLineToggle) oneLineToggle.addEventListener('click', toggleOneLine);
+  if (settingsBtn) {   // U2: the gear opens/closes the settings overlay
+    settingsBtn.append(icon('gear'));
+    settingsBtn.setAttribute('aria-label', 'Settings'); settingsBtn.title = 'Settings';
+    settingsBtn.addEventListener('click', () => { settingsOpen() ? closeSettings() : openSettings(); });
+  }
   addBtn.addEventListener('click', openAddPicker);
   window.addEventListener('hashchange', renderBoard);
+
+  // --- board normal-mode keyboard layer (U8, R9/R12) -----------------------
+  // One document keydown drives a recall cursor + row actions. The key→intent
+  // decision is the pure lib (boardkeys); this is only DOM application — actions
+  // reuse the rows' existing controls (click .recall-forget / .recall-protect /
+  // the title) so the SW round-trips, undo grace, and teardown guards aren't
+  // duplicated. Invisible at rest: the cursor class is added only once a key moves
+  // it, and cleared on Escape (the U10 calm guarantee).
+  let kbdCursor = -1;
+  let pendingG = false;   // first 'g' of a 'gg' (jump-to-top) sequence
+
+  const isField = (t) => !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'
+    || t.tagName === 'SELECT' || t.isContentEditable);
+  const recallRows = () =>
+    [...document.querySelectorAll('.recent-item[data-id]')].filter((el) => el.offsetParent !== null);
+
+  function paintCursor(rows) {
+    rows.forEach((el, i) => el.classList.toggle('kbd-cursor', i === kbdCursor));
+    if (rows[kbdCursor]) rows[kbdCursor].scrollIntoView({ block: 'nearest' });
+  }
+  function clearKbdCursor() {
+    kbdCursor = -1;
+    document.querySelectorAll('.recent-item.kbd-cursor').forEach((el) => el.classList.remove('kbd-cursor'));
+  }
+  function moveKbd(delta) {
+    const rows = recallRows();
+    kbdCursor = boardkeys.moveCursor(kbdCursor, delta, rows.length);
+    paintCursor(rows);
+  }
+  function jumpKbd(toEnd) {
+    const rows = recallRows();
+    if (!rows.length) { kbdCursor = -1; return; }
+    kbdCursor = toEnd ? rows.length - 1 : 0;
+    paintCursor(rows);
+  }
+  function cursorRow() {
+    const rows = recallRows();
+    return (kbdCursor >= 0 && kbdCursor < rows.length) ? rows[kbdCursor] : null;
+  }
+  const clickIn = (row, sel) => { const b = row && row.querySelector(sel); if (b) b.click(); };
+
+  // f-hints (U9): label every host-rendered clickable, type a label to open it. Targets
+  // are host DOM only (recall titles + top-sites) — sandboxed RSS/crypto iframes are a
+  // separate origin we can't badge into (pattern 16; noted in the U10 cheatsheet).
+  let hintsActive = false;
+  let hintBuf = '';
+  let hintLabels = [];
+  let hintTargets = [];
+
+  const hintTargetEls = () => [...document.querySelectorAll('.recent-item[data-id] .title.clickable, .topsite')]
+    .filter((el) => el.offsetParent !== null);
+
+  function enterHints() {
+    if (hintsActive) return;
+    const targets = hintTargetEls();
+    if (!targets.length) return;   // nothing to label — stay quiet
+    clearKbdCursor();
+    hintLabels = hints.assign(targets.length);
+    hintTargets = targets.slice(0, hintLabels.length);
+    hintBuf = '';
+    const layer = document.createElement('div');
+    layer.className = 'hint-layer';
+    hintTargets.forEach((el, i) => {
+      const r = el.getBoundingClientRect();
+      const badge = document.createElement('span');
+      badge.className = 'hint-badge';
+      badge.dataset.label = hintLabels[i];
+      badge.textContent = hintLabels[i];
+      badge.style.left = `${r.left + window.scrollX}px`;
+      badge.style.top = `${r.top + window.scrollY}px`;
+      layer.appendChild(badge);
+    });
+    docBody.appendChild(layer);
+    hintsActive = true;
+  }
+
+  function exitHints() {
+    hintsActive = false;
+    hintBuf = '';
+    hintTargets = [];
+    hintLabels = [];
+    const layer = document.querySelector('.hint-layer');
+    if (layer) layer.remove();
+  }
+
+  function handleHintKey(e) {
+    if (e.key === 'Escape') { e.preventDefault(); exitHints(); return; }
+    if (e.key.length !== 1 || !/[a-z]/i.test(e.key)) return;   // only letters select a hint
+    e.preventDefault();
+    hintBuf += e.key.toLowerCase();
+    const m = hints.match(hintBuf, hintLabels);
+    if (m.index !== undefined) {
+      const target = hintTargets[m.index];
+      exitHints();
+      if (target) target.click();
+    } else if (m.noMatch) {
+      exitHints();   // a typo cancels — calm, predictable
+    } else {
+      // needMore: dim the badges that no longer match the typed prefix
+      document.querySelectorAll('.hint-badge').forEach((b) =>
+        b.classList.toggle('stale', b.dataset.label.indexOf(hintBuf) !== 0));
+    }
+  }
+
+  // The ? cheatsheet (U10): a calm static help overlay listing the keyboard layer.
+  // Reuses U2's focus-trap; Esc/backdrop closes; focus restores to where it was. The
+  // layer is invisible until used — this is the only thing ? ever draws.
+  const cheatsheetOpen = () => !!document.querySelector('.cheatsheet-overlay');
+
+  function closeCheatsheet() {
+    const o = document.querySelector('.cheatsheet-overlay');
+    if (o) o.remove();
+    try { if (cheatsheetPrevFocus && cheatsheetPrevFocus.focus) cheatsheetPrevFocus.focus(); } catch (e) { /* gone */ }
+  }
+
+  function cheatsheetKeydown(e) {
+    // stopPropagation so this Esc doesn't also bubble to the board keydown and clear the cursor.
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeCheatsheet(); return; }
+    trapTab(e, e.currentTarget);
+  }
+
+  function openCheatsheet() {
+    if (cheatsheetOpen()) return;
+    cheatsheetPrevFocus = document.activeElement;
+    const overlay = document.createElement('div');
+    overlay.className = 'cheatsheet-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Keyboard shortcuts');
+    const backdrop = document.createElement('div'); backdrop.className = 'cheatsheet-backdrop';
+    backdrop.addEventListener('click', closeCheatsheet);
+    const card = document.createElement('div'); card.className = 'cheatsheet-card';
+    card.addEventListener('keydown', cheatsheetKeydown);
+    const head = document.createElement('div'); head.className = 'settings-head';
+    const title = document.createElement('span'); title.className = 'settings-title'; title.textContent = 'Keyboard shortcuts';
+    const close = document.createElement('button');
+    close.type = 'button'; close.className = 'settings-close icon-btn';
+    close.setAttribute('aria-label', 'Close'); close.title = 'Close';
+    close.append(icon('close'));
+    close.addEventListener('click', closeCheatsheet);
+    head.append(title, close);
+    const list = document.createElement('dl'); list.className = 'cheatsheet-list';
+    for (const [keys, desc] of CHEATSHEET) {
+      const dt = document.createElement('dt'); dt.textContent = keys;
+      const dd = document.createElement('dd'); dd.textContent = desc;
+      list.append(dt, dd);
+    }
+    const note = document.createElement('p'); note.className = 'cheatsheet-note muted';
+    note.textContent = 'f-hints label host-rendered links only — not inside the RSS/crypto panels.';
+    card.append(head, list, note);
+    overlay.append(backdrop, card);
+    docBody.appendChild(overlay);
+    close.focus();
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (settingsOpen() || cheatsheetOpen()) return;   // overlays trap their own keys
+    if (hintsActive) { handleHintKey(e); return; }     // f-hint mode owns letters (U9)
+    const it = boardkeys.intent(e.key, { fieldFocused: isField(e.target) });
+    if (it === 'none') { pendingG = false; return; }   // any unmapped/field key resolves a pending 'gg'
+    const wasPendingG = pendingG;
+    pendingG = false;                                  // consumed below; 'g' re-arms it
+    // A held key must not re-fire a row mutation; only cursor movement repeats.
+    if (e.repeat && it !== 'down' && it !== 'up' && it !== 'g' && it !== 'bottom') return;
+
+    switch (it) {
+      case 'down': e.preventDefault(); moveKbd(1); break;
+      case 'up': e.preventDefault(); moveKbd(-1); break;
+      case 'bottom': e.preventDefault(); jumpKbd(true); break;
+      case 'g':
+        e.preventDefault();
+        if (wasPendingG) jumpKbd(false); else pendingG = true;
+        break;
+      case 'open': e.preventDefault(); clickIn(cursorRow(), '.title.clickable'); break;
+      case 'forget': {
+        const r = cursorRow();
+        if (r && !r.classList.contains('struck')) { e.preventDefault(); clickIn(r, '.recall-forget'); }
+        break;
+      }
+      case 'undo': {
+        const r = cursorRow();
+        if (r && r.classList.contains('struck')) { e.preventDefault(); clickIn(r, '.recall-forget'); }
+        break;
+      }
+      case 'protect': e.preventDefault(); clickIn(cursorRow(), '.recall-protect'); break;
+      case 'search': {
+        e.preventDefault();
+        const s = document.querySelector('.recall-search');
+        if (s) s.focus();
+        break;
+      }
+      case 'edit': e.preventDefault(); editBtn.click(); break;
+      case 'hints': e.preventDefault(); enterHints(); break;       // U9
+      case 'help': e.preventDefault(); openCheatsheet(); break;    // U10
+      case 'escape':
+        if (isField(e.target)) e.target.blur();
+        clearKbdCursor();
+        break;
+      default: break;
+    }
+  });
 
   // Another board tab edited the config — converge so this tab doesn't show stale
   // state. Don't yank the board out from under an active edit; skip our own writes.
@@ -744,6 +1191,8 @@
     if (!next || !Array.isArray(next.panels) || editing || boardBusy) return;
     if (JSON.stringify(next) === JSON.stringify(config)) return;
     config = next;
+    if (settingsOpen()) closeSettings();   // don't leave a stale settings overlay over a converged board
+    if (cheatsheetOpen()) closeCheatsheet();   // nor a stale cheatsheet
     renderBoard();
   });
 
@@ -775,10 +1224,11 @@
       search.placeholder = 'Recall a let-go page…';
       search.setAttribute('aria-label', 'Recall a let-go page');
       const reliefWrap = document.createElement('div');
+      const digestWrap = document.createElement('div');
       const results = document.createElement('div');
       const recentWrap = document.createElement('div');
       const snoozeWrap = document.createElement('div');
-      body.append(reliefWrap, search, results, recentWrap, snoozeWrap);
+      body.append(reliefWrap, digestWrap, search, results, recentWrap, snoozeWrap);
 
       // The relief moment (U5/R12): once a day, a calm acknowledgement that what you
       // let go is safe. The SW gates the claim, so it shows on whichever surface you
@@ -789,6 +1239,16 @@
         relief.className = 'board-relief';
         relief.textContent = `${resp.count} let go today — all still findable.`;
         reliefWrap.appendChild(relief);
+      });
+
+      // "Your week, unburdened" (U7/R8): a calm weekly tally — hidden entirely when
+      // there's nothing to show (no cold all-zeros line on a fresh profile).
+      send('week-digest').then((d) => {
+        if (destroyed || !d || (!d.letGo && !d.recalled)) return;
+        const line = document.createElement('div');
+        line.className = 'board-digest';
+        line.textContent = `${d.letGo} let go this week · ${d.lost} lost · ${d.recalled} recalled`;
+        digestWrap.appendChild(line);
       });
 
       function row(it, tags, action) {
@@ -805,8 +1265,29 @@
           restore.addEventListener('click', () => send('restore-set', { recordId: it.id, urls }));
           li.appendChild(restore);
         }
-        if (it.id) addForget(li, it);
+        if (it.id) { addProtect(li, it); addForget(li, it); }   // hover-revealed pair: protect · forget
         return li;
+      }
+
+      // One-tap never-touch (U4): protect this page's site so auto-let-go never closes
+      // it. Hover/focus-reveals as a calm pair with forget. Uses the row's STORED host.
+      function addProtect(li, it) {
+        const host = it.host || hostOfUrl(it.url || '');
+        const protect = document.createElement('button');
+        protect.type = 'button';
+        protect.className = 'recall-protect icon-btn';
+        protect.append(icon('shield'));
+        protect.setAttribute('aria-label', 'Never let this site go'); protect.title = 'Never-touch this site';
+        protect.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (!host) return;
+          send('protect-add', { host }).then((resp) => {
+            if (destroyed || !resp || !resp.ok) return;   // panel torn down before the SW replied
+            protect.classList.add('protected'); protect.title = 'Protected — never auto-closed';
+            protect.setAttribute('aria-label', 'Site protected');
+          }).catch(() => {});
+        });
+        li.appendChild(protect);
       }
 
       // Delete-in-place (forget) from the board — mirrors the popup's What's-indexed
@@ -815,24 +1296,25 @@
       function addForget(li, it) {
         const forget = document.createElement('button');
         forget.type = 'button';
-        forget.className = 'link recall-forget';
-        forget.textContent = 'forget';
-        forget.setAttribute('aria-label', 'Forget this page');
+        forget.className = 'link recall-forget icon-btn';
+        const showForget = () => { forget.textContent = ''; forget.append(icon('trash')); forget.setAttribute('aria-label', 'Forget this page'); forget.title = 'forget'; };
+        showForget();
         let undoTimer = null;
         forget.addEventListener('click', (e) => {
           e.stopPropagation();
           if (undoTimer) {                                   // within the grace window → undo
             clearTimeout(undoTimer); undoTimer = null;
             send('forget-page-undo', { recordId: it.id }).then((resp) => {
+              if (destroyed) return;                          // panel torn down before the SW replied
               if (!resp || !resp.ok) { li.remove(); return; } // undo too late — the page is truly gone
-              li.classList.remove('struck'); forget.textContent = 'forget';
+              li.classList.remove('struck'); showForget();
             });
             return;
           }
           send('forget-page', { recordId: it.id }).then((resp) => {
             if (!resp || !resp.ok) return;                   // forget failed → don't fake success
             li.classList.add('struck');
-            forget.textContent = 'undo';
+            forget.textContent = 'undo'; forget.setAttribute('aria-label', 'Undo forget'); forget.title = 'undo';
             undoTimer = setTimeout(() => { if (!destroyed) li.remove(); }, 6000); // don't touch a torn-down row
           });
         });
@@ -854,7 +1336,20 @@
       }
 
       send('list-recent', { limit: 12 }).then((resp) => {
-        if (!destroyed) renderList(recentWrap, resp && resp.items, { action: 'open' });
+        if (destroyed) return;
+        const items = (resp && resp.items) || [];
+        renderList(recentWrap, items, { action: 'open' });
+        // U6: the puff — rows let go since the last board open arrive with a soft
+        // settle. One-shot: disarm after the first paint so re-renders stay still.
+        // boardLastOpen === 0 means first-ever open (or a read error) — stay quiet
+        // rather than animate the whole backlog at once.
+        if (puffArmed && boardLastOpen > 0) {
+          const rows = recentWrap.querySelectorAll('.recent-item');
+          items.forEach((it, i) => {
+            if (it.autoClosed && it.timestamp > boardLastOpen && rows[i]) rows[i].classList.add('puff');
+          });
+        }
+        if (puffArmed) puffArmed = false;
       });
 
       let seq = 0;

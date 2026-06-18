@@ -415,3 +415,122 @@ boundary, and the host-permission grants — is verified by hand.
       **no new grant** (short-circuit).
 - [ ] Revoke a **feed's** per-origin permission in chrome://extensions →
       auto-let-go **stays on** (only revoking `<all_urls>` disables it).
+
+---
+
+# Board calm settings & soul — Phase A (calm chrome & control)
+
+## Icons (U1 / R1)
+
+- [ ] The masthead **Edit board** is a pencil icon; the recall-row **forget** is a
+      trash icon (still hover/focus-revealed, swaps to **undo** text in the 6s window).
+      Each has a tooltip + an aria-label; nothing is cryptic.
+
+## Settings overlay (U2 / R2)
+
+- [ ] A **gear** icon in the masthead opens a calm right-side **settings** slide-over;
+      `Esc`, the backdrop, the ✕, and a second gear click all close it; focus returns
+      to the gear; with reduced-motion set, no slide animation.
+- [ ] **Focus trap:** initial focus lands on the first control (the auto switch); Tab
+      cycles only within the overlay (never reaches the board behind it).
+
+## Auto-let-go control (U3 / R3 / AE1)
+
+- [ ] The overlay's **Auto-let-go** group: a pill switch (on/off) + a segmented
+      **Timid · Balanced · Bold** with a subline ("Lets go after ~3 quiet days").
+- [ ] Enabling from **off** requests the `<all_urls>` grant **in the same click**; once
+      on, picking **Bold** says ~1 day, **Timid** ~7 days; the SW honors it (a tab idle
+      past the chosen window becomes an auto-close candidate). *(Covers AE1)*
+- [ ] Toggling **off** mutes the segmented control (still visible, non-interactive).
+- [ ] **Untouched default** stays **Balanced** (~3 days) — existing behavior unchanged.
+
+## Never-touch + one-tap protect (U4 / R4, R6 / AE2)
+
+- [ ] Hovering a recall row reveals **protect** (shield) + **forget** (trash) as a pair.
+- [ ] Click **protect** → the shield stays lit; the site appears in the overlay's
+      **Never-touch** group and is **never auto-closed**; **remove** there clears it; an
+      empty list shows "protect a site from a recall row." *(Covers AE2)*
+
+## One-line relocation (U5 / R5 / AE6)
+
+- [ ] The masthead no longer has a one-line button (just gear + edit). The **Board**
+      group in the overlay has a **Daily one-line** switch; enabling it requests the
+      `raw.githubusercontent.com` grant **in the same click**, then the footer shows a
+      quiet aphorism (disclosed as `um.fz.ax`); the switch reflects the new state.
+- [ ] The overlay stays calm — **three small groups** (Auto-let-go · Never-touch ·
+      Board), no knobs wall. *(Covers AE6)*
+
+# Board calm settings & soul — Phase B (soul: puff + digest)
+
+## The puff on open (U6 / R7)
+
+- [ ] Let a page auto-let-go (or use a Bold window so it happens fast), then open a
+      **fresh** new-tab. In the ypuf recall panel, the newly-let-go row(s) **settle in
+      from a soft haze** once — a calm exhale, not a flashy bounce.
+- [ ] Toggling edit / re-rendering the board does **not** re-trigger the puff (one-shot
+      per open). Re-opening a new tab puffs only rows let go *since the last open*.
+- [ ] The **first board open ever** (fresh profile, no stored `boardLastOpen`) stays
+      quiet — the whole backlog does **not** puff at once.
+- [ ] With **Reduce motion** on (System Settings → Accessibility), the rows just appear
+      — no animation. Manual let-go and snooze-wake rows never puff (auto-closed only).
+
+## "Your week, unburdened" digest (U7 / R8)
+
+- [ ] After some auto-let-go activity, the ypuf panel shows a quiet line below the relief
+      moment: **"N let go this week · 0 lost · M recalled"** — muted, no box, no badge.
+- [ ] On a **fresh profile** with no auto-let-go yet, the line is **absent entirely**
+      (no cold "0 let go this week"). It reappears once there's something to count.
+- [ ] The tally counts only the **last 7 days** and only **auto-closed** records;
+      recalling a page later still counts it under *recalled*, but a page you let go and
+      **never reopened is not** counted as recalled. **lost is always 0.**
+
+# Board calm settings & soul — Phase C (keyboard layer)
+
+## Board normal-mode — cursor + actions (U8 / R9, R12 / AE5)
+
+- [ ] On the board (not focused in a field), `j` / `k` move a calm **amber left-bar**
+      cursor over the recall rows; `g g` jumps to the top, `G` to the bottom. The
+      cursored row reveals its protect/forget icons.
+- [ ] `o` or `Enter` opens the cursored page; `x` forgets it (row strikes + **`u`**
+      undoes within the grace window); `p` protects its site (shield lights).
+- [ ] `/` jumps focus to the recall search; `e` toggles edit mode; `Esc` clears the
+      cursor (and blurs the search if it was focused).
+- [ ] **Typing is never hijacked:** with the search focused, `j`/`x`/`p`/`?` type
+      literally; only `Esc` leaves the field. Arrow keys still reorder panels in edit
+      mode (the board layer is `j`/`k`, so it never collides).
+- [ ] **Invisible at rest:** before any key is pressed, the board shows no cursor and
+      no keyboard chrome.
+
+## `f` link-hints (U9 / R10 / AE5)
+
+- [ ] Press `f` → an **amber letter badge** appears over every host-rendered clickable
+      (recall row titles + top-sites). Type a label → that page opens.
+- [ ] Badges appear **only** on host-rendered clickables — **not inside** the RSS or
+      crypto panels (those are sandboxed iframes the host can't badge; pattern 16).
+- [ ] With many targets, labels escalate to **two letters**; after the first letter,
+      non-matching badges dim and the second letter resolves it.
+- [ ] `Esc` (or a key that matches no label) clears all badges. Nothing is drawn before
+      `f` is pressed, and nothing lingers after select/cancel (invisible at rest).
+
+## `?` cheatsheet + calm guarantees (U10 / R11, R12 / AE5, AE6)
+
+- [ ] Press `?` (not in a field) → a calm centered **Keyboard shortcuts** card lists all
+      bindings; it notes that `f`-hints don't reach inside the RSS/crypto panels.
+- [ ] `Esc`, the backdrop, or the close button dismisses it; focus returns to where it
+      was; Tab cycles within the card (focus-trapped). Reduced-motion → no animation.
+- [ ] The **settings overlay footer** reads "Keyboard shortcuts: press ? on the board."
+- [ ] **In a field, `?` types a literal `?`** (the layer never hijacks typing).
+- [ ] **Invisible at rest:** with no key pressed, the board carries no cursor, no badges,
+      and no keyboard chrome — the whole layer is summoned, never ambient. *(AE6)*
+
+## Keyboard-layer state hygiene (Phase C review)
+
+- [ ] **Re-render clears the layer:** press `f` (badges show), then trigger a re-render
+      (toggle edit with the pencil, or edit the board in another tab) → all badges vanish
+      and typing no longer hijacks keys. A set cursor is also cleared by a re-render.
+- [ ] **Esc out of an overlay keeps your place:** move the cursor with `j`, open the
+      `?` cheatsheet, press `Esc` → the cheatsheet closes and the recall cursor is *still*
+      where it was (the Esc doesn't leak through to clear it).
+- [ ] **Held keys are safe:** holding `j`/`k` scrolls the cursor smoothly, but holding
+      `x` forgets the row only **once** (no double-forget); a stray `g` long ago never
+      triggers a later jump-to-top.
