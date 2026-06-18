@@ -27,7 +27,6 @@
   const minimalNote = document.getElementById('minimal-note');
   const boardSub = document.getElementById('board-sub');
   const oneLineEl = document.getElementById('board-oneline');
-  const oneLineToggle = document.getElementById('oneline-toggle');
 
   let config = { panels: [], minimalMode: false };
   let editing = false;
@@ -172,9 +171,28 @@
     send('protected-list').then(draw).catch(() => draw(null));
   }
 
+  // Board group (U5): the one-line opt-in, relocated here from the masthead. v1 is a
+  // single toggle (mood/sound deferred to a future unit, holding the calm ~3-groups cap).
+  function buildBoardGroup(container) {
+    const g = settingsGroup('Board');
+    const enabled = !!(config.oneLine && config.oneLine.enabled);
+    const sw = document.createElement('button');
+    sw.type = 'button'; sw.className = 'switch' + (enabled ? ' on' : '');
+    sw.setAttribute('role', 'switch'); sw.setAttribute('aria-checked', String(enabled)); sw.setAttribute('aria-label', 'Daily one-line');
+    sw.addEventListener('click', () => toggleOneLine((on) => {   // grant-in-gesture preserved by toggleOneLine
+      sw.classList.toggle('on', on); sw.setAttribute('aria-checked', String(on));
+    }));
+    const label = document.createElement('span'); label.className = 'toggle-label'; label.textContent = 'Daily one-line';
+    const row = document.createElement('div'); row.className = 'toggle-row'; row.append(sw, label);
+    const sub = document.createElement('div'); sub.className = 'auto-sub';
+    sub.textContent = 'A quiet aphorism at the board footer, from um.fz.ax.';
+    g.append(row, sub); container.appendChild(g);
+  }
+
   function buildSettingsGroups(container) {
     buildAutoGroup(container);
-    buildNeverTouchGroup(container);   // U5 (board group) appends after this
+    buildNeverTouchGroup(container);
+    buildBoardGroup(container);
   }
 
   function openSettings() {
@@ -268,16 +286,18 @@
     });
   }
 
-  function toggleOneLine() {
+  function toggleOneLine(onDone) {
     if (config.oneLine && config.oneLine.enabled) {
       config.oneLine = { enabled: false };
       saveConfig(); renderBoard(); renderOneLine();
+      if (onDone) onDone(false);
       return;
     }
     // Enable: request the raw.githubusercontent.com grant in-gesture (request-first), then on.
     grantThenAdd('https://raw.githubusercontent.com', () => {
       config.oneLine = { enabled: true };
       saveConfig(); renderBoard(); renderOneLine();
+      if (onDone) onDone(true);
     });
   }
 
@@ -734,10 +754,6 @@
     docBody.classList.toggle('minimal', !!config.minimalMode);
     editBtn.hidden = false;
     if (settingsBtn) settingsBtn.hidden = false;
-    if (oneLineToggle) {
-      oneLineToggle.hidden = !editing;
-      oneLineToggle.textContent = (config.oneLine && config.oneLine.enabled) ? 'Remove one-line' : '+ daily one-line';
-    }
 
     if (config.minimalMode) {
       emptyNote.hidden = true;
@@ -910,7 +926,6 @@
     settingsBtn.setAttribute('aria-label', 'Settings'); settingsBtn.title = 'Settings';
     settingsBtn.addEventListener('click', () => { settingsOpen() ? closeSettings() : openSettings(); });
   }
-  if (oneLineToggle) oneLineToggle.addEventListener('click', toggleOneLine);
   addBtn.addEventListener('click', openAddPicker);
   window.addEventListener('hashchange', renderBoard);
 
