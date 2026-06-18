@@ -19,6 +19,14 @@
   font-display: swap;
 }
 
+/*
+ * Theming (U1, R1/R4/R8): the existing token names ARE the semantic layer — they are
+ * already used everywhere, so the three modes just re-bind their values. `data-theme`
+ * lives on <html> (set pre-paint + by the toggle); `light` is the :root default. Light
+ * keeps ypuf's warm paper + amber; dark/star adopt the pilgrim palette with the amber
+ * lifted (dark) / turned lavender (star). The time-of-day `data-mood` tint is scoped to
+ * light only (see newtab.css) so it can never pollute dark/star.
+ */
 :root {
   --ink: #1a1613;
   --paper: #f8f5f0;
@@ -30,10 +38,52 @@
   --accent-rose: #b35a5a;
   --card-bg: #fffdf9;
   --shadow: rgba(26, 22, 19, 0.06);
+  --focus-ring: #c8713a;   /* high-contrast against light paper */
+  --on-accent: #fff;       /* button foreground on --accent-amber */
   --radius: 10px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-display: "Fraunces", "Iowan Old Style", Georgia, ui-serif, serif;
 }
+
+[data-theme="dark"] {
+  --ink: #f0ebe1;
+  --paper: #1c1914;
+  --warm-gray: #322a20;    /* borders + hover wash on dark */
+  --muted: #9c9183;
+  --accent-amber: #d98a52; /* ypuf amber, lifted for the dark ground */
+  --accent-sage: #93a893;
+  --accent-slate: #8aa2b8;
+  --accent-rose: #cc8585;
+  --card-bg: #262118;
+  --shadow: rgba(0, 0, 0, 0.45);
+  --focus-ring: #e6a96f;   /* amber, high-contrast on dark */
+  --on-accent: #1c1914;    /* dark text reads on the lifted amber */
+}
+
+[data-theme="star"] {
+  --ink: rgba(232, 224, 255, 0.92);  /* lavender on deep navy */
+  --paper: #0a0a12;
+  --warm-gray: #232338;              /* faint border + hover on navy */
+  --muted: rgba(232, 224, 255, 0.5);
+  --accent-amber: #c3b3ff;           /* the amber becomes lavender in star */
+  --accent-sage: #a8d8d0;
+  --accent-slate: #aab7d6;
+  --accent-rose: #d6a0c8;
+  --card-bg: #13131f;                /* slightly lifted navy surface */
+  --shadow: rgba(0, 0, 0, 0.6);
+  --focus-ring: #d9ccff;             /* lavender, high-contrast on navy */
+  --on-accent: #14142a;              /* dark text reads on the lavender accent */
+}
+
+/* The theme switch eases color, but only when motion is welcome (R9). It does not fire
+   on first paint (no prior value), so the pre-paint bootstrap stays flash-free. */
+@media (prefers-reduced-motion: no-preference) {
+  body { transition: background-color 0.3s ease, color 0.3s ease; }
+}
+
+/* A themed keyboard-focus ring on every focusable element so it stays visible on the
+   dark + star grounds (component rules may still override with their own offset). */
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -89,7 +139,9 @@ body.popup { width: 340px; max-height: 560px; overflow-y: auto; }
   cursor: pointer;
 }
 .recent-item:hover { background: var(--warm-gray); }
-.recent-item .title { font-size: 13px; line-height: 1.3; }
+/* Reserve room (R13) so the title never runs under the top-right controls (the board's
+   protect/forget icons, the popup's quick-open hint) on hover. */
+.recent-item .title { font-size: 13px; line-height: 1.3; padding-right: 42px; }
 .recent-item .meta { font-size: 11px; color: var(--muted); }
 .recent-item.content-less .title::after {
   content: "title only";
