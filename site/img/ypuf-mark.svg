@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" role="img" aria-label="ypuf">
+  <!-- The puff: an amber dot mid-dissipation, scattering up-and-right (the sound of a tab
+       let go). Asymmetric on purpose — no halo, no ring, no sparkle. -->
+  <g fill="#c8713a">
+    <circle cx="5.3" cy="10.7" r="3.5"/>
+    <circle cx="9.7" cy="7.3" r="1.75" opacity="0.72"/>
+    <circle cx="12.3" cy="4.9" r="1.05" opacity="0.5"/>
+    <circle cx="14" cy="3.2" r="0.62" opacity="0.32"/>
+  </g>
+</svg>
