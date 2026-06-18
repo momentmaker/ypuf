@@ -24,11 +24,12 @@ importScripts(
   'lib/tabstate.js',
   'lib/eligibility.js',
   'lib/protection.js',
+  'lib/eagerness.js',
   'lib/snooze.js',
   'lib/blocklist.js',
 );
 
-const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, snooze, privacy, titles } = self.ypuf;
+const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, snooze, privacy, titles } = self.ypuf;
 
 const logErr = (e) => console.error('[ypuf]', e);
 
@@ -425,11 +426,13 @@ async function maybeInjectDirty(tab) {
 // never claims "on" while the sweep is actually dead.
 
 const AUTO_KEY = 'autoEnabled';
+const EAGERNESS_KEY = 'autoEagerness';   // 'timid' | 'balanced' | 'bold' (U3); default balanced = 3 days
 const ALARM_NAME = 'auto-sweep';
 const SWEEP_PERIOD_MIN = 5;
 const HOST_ACCESS = { origins: ['<all_urls>'] };
 
 const isAutoEnabled = async () => (await local.get(AUTO_KEY)) === true;
+const getEagerness = async () => { const v = await local.get(EAGERNESS_KEY); return (typeof v === 'string') ? v : eagerness.DEFAULT; };
 const hasHostAccess = () => chrome.permissions.contains(HOST_ACCESS).catch(() => false);
 
 function ensureAutoAlarm() {
@@ -438,7 +441,15 @@ function ensureAutoAlarm() {
 const clearAutoAlarm = () => chrome.alarms.clear(ALARM_NAME).catch(() => {});
 
 async function autoState() {
-  return { enabled: await isAutoEnabled(), granted: await hasHostAccess() };
+  return { enabled: await isAutoEnabled(), granted: await hasHostAccess(), eagerness: await getEagerness() };
+}
+
+// Persist the eagerness label (validated against the lib's known levels); a bolder
+// or timider setting just changes the staleness window the next sweep reads.
+async function setAutoEagerness(level) {
+  const ok = eagerness.LEVELS.some((l) => l.key === level);
+  if (ok) await local.set(EAGERNESS_KEY, level);
+  return { ok, ...(await autoState()) };
 }
 
 // The popup obtained the grant in its own click handler; here we persist intent
@@ -486,7 +497,9 @@ function projectTab(t) {
   };
 }
 
-function eligDeps(signalMap, blocklist, protState) {
+// `staleWindowMs` is pre-read by the sweep from the eagerness setting (U3) and
+// threaded in; defaults to the shipped 3-day constant so any other caller is safe.
+function eligDeps(signalMap, blocklist, protState, staleWindowMs = STALE_WINDOW_MS) {
   return {
     tabstate,
     signal: signalMap,
@@ -494,7 +507,7 @@ function eligDeps(signalMap, blocklist, protState) {
     classify: exclusion.classify,
     userBlocklist: blocklist,
     now: Date.now(),
-    staleWindowMs: STALE_WINDOW_MS,
+    staleWindowMs,
     dwellFloorMs: DWELL_FLOOR_MS,
     activationFloor: ACTIVATION_FLOOR,
   };
@@ -537,7 +550,7 @@ function clearBadge() {
 // Re-check ONE candidate against LIVE state (R6) and, if still a zombie,
 // capture-then-close via the reused letGo. R10: only count it closed if a
 // record actually persisted.
-async function autoCloseOne(id, deps, siblings) {
+async function autoCloseOne(id, deps, siblings, staleWindowMs) {
   if (autoInFlight.has(id)) return false;
   let live;
   try { live = await chrome.tabs.get(id); } catch { return false; } // tab already gone
@@ -551,7 +564,7 @@ async function autoCloseOne(id, deps, siblings) {
   const signalMap = await loadDurable();
   const blocklist = await getUserBlocklist();
   const protState = await loadProtection();
-  const verdict = eligibility.classify(projectTab(live), { rec, ...eligDeps(signalMap, blocklist, protState) });
+  const verdict = eligibility.classify(projectTab(live), { rec, ...eligDeps(signalMap, blocklist, protState, staleWindowMs) });
   if (verdict !== 'zombie') return false;
   if (!(await claimClose(id, live.url))) return false;
   autoInFlight.add(id);
@@ -585,7 +598,8 @@ async function runAutoSweep() {
   const signalMap = await loadDurable();
   const blocklist = await getUserBlocklist();
   const protState = await loadProtection();
-  const base = eligDeps(signalMap, blocklist, protState);
+  const staleWindowMs = eagerness.toWindowMs(await getEagerness());   // U3: the user's eagerness window
+  const base = eligDeps(signalMap, blocklist, protState, staleWindowMs);
 
   const candidates = tabs.filter((t) => t.id != null &&
     eligibility.classify(projectTab(t), { rec: tstate[t.id], ...base }) === 'zombie');
@@ -601,7 +615,7 @@ async function runAutoSweep() {
   let closed = 0;
   for (const t of candidates) {
     try {
-      if (await autoCloseOne(t.id, deps, sibsById.get(t.id))) { closed += 1; puff(); } // puff per close, decoupled (U6)
+      if (await autoCloseOne(t.id, deps, sibsById.get(t.id), staleWindowMs)) { closed += 1; puff(); } // puff per close, decoupled (U6)
     } catch (e) { logErr(e); }
   }
 
@@ -980,6 +994,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'auto-state') return respond(autoState());
   if (msg.type === 'auto-enable') return respond(autoEnable());
   if (msg.type === 'auto-disable') return respond(autoDisable());
+  if (msg.type === 'set-auto-eagerness' && msg.level) return respond(setAutoEagerness(msg.level));
   if (msg.type === 'protected-list') return respond(protectedList());
   if (msg.type === 'protect-remove' && msg.host) return respond(protectRemove(msg.host));
   if (msg.type === 'auto-summary') return respond(autoSummary());

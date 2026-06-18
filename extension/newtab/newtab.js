@@ -86,9 +86,65 @@
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   }
 
+  function settingsGroup(title) {
+    const g = document.createElement('section'); g.className = 'settings-group';
+    const h = document.createElement('div'); h.className = 'settings-group-label'; h.textContent = title;
+    g.appendChild(h);
+    return g;
+  }
+
+  // Auto-let-go group (U3): on/off + a Timid/Balanced/Bold segmented control (muted
+  // when off), with the real window shown. Reads/writes via the SW (single writer).
+  function buildAutoGroup(container) {
+    const E = window.ypuf.eagerness;
+    const g = settingsGroup('Auto-let-go');
+    const body = document.createElement('div'); body.className = 'auto-body';
+    g.appendChild(body); container.appendChild(g);
+
+    const draw = (state) => {
+      body.textContent = '';
+      const enabled = !!(state && state.enabled);
+      const level = (state && state.eagerness) || E.DEFAULT;
+
+      const sw = document.createElement('button');
+      sw.type = 'button'; sw.className = 'switch' + (enabled ? ' on' : '');
+      sw.setAttribute('role', 'switch'); sw.setAttribute('aria-checked', String(enabled));
+      sw.setAttribute('aria-label', 'Auto-let-go'); sw.title = enabled ? 'On' : 'Off';
+      sw.addEventListener('click', () => {
+        if (enabled) { send('auto-disable').then(draw).catch(() => {}); return; }
+        // Enabling needs the <all_urls> grant — request it in-gesture, then enable.
+        chrome.permissions.request({ origins: ['<all_urls>'] }, (granted) => {
+          if (!granted) return;
+          refreshHasAllUrls();
+          send('auto-enable').then(draw).catch(() => {});
+        });
+      });
+      const swLabel = document.createElement('span'); swLabel.className = 'toggle-label';
+      swLabel.textContent = enabled ? 'On — clearing tabs you’ve stopped caring about' : 'Off';
+      const row = document.createElement('div'); row.className = 'toggle-row'; row.append(sw, swLabel);
+
+      const seg = document.createElement('div'); seg.className = 'segmented' + (enabled ? '' : ' muted');
+      for (const lv of E.LEVELS) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'seg' + (lv.key === level ? ' selected' : '');
+        b.textContent = lv.label; b.setAttribute('aria-pressed', String(lv.key === level));
+        if (!enabled) b.disabled = true;
+        b.addEventListener('click', () => send('set-auto-eagerness', { level: lv.key }).then(draw).catch(() => {}));
+        seg.appendChild(b);
+      }
+
+      const days = (E.LEVELS.find((l) => l.key === level) || {}).days;
+      const sub = document.createElement('div'); sub.className = 'auto-sub';
+      sub.textContent = `Lets go after ~${days} quiet day${days === 1 ? '' : 's'}.`;
+
+      body.append(row, seg, sub);
+    };
+
+    send('auto-state').then(draw).catch(() => draw(null));
+  }
+
   function buildSettingsGroups(container) {
-    // Groups are appended here by U3 (auto-let-go), U4 (never-touch), U5 (board).
-    void container;
+    buildAutoGroup(container);   // U4 (never-touch) and U5 (board) append after this
   }
 
   function openSettings() {
