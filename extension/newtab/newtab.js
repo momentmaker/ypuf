@@ -821,15 +821,17 @@
           e.stopPropagation();
           if (undoTimer) {                                   // within the grace window → undo
             clearTimeout(undoTimer); undoTimer = null;
-            send('forget-page-undo', { recordId: it.id })
-              .then(() => { li.classList.remove('struck'); forget.textContent = 'forget'; });
+            send('forget-page-undo', { recordId: it.id }).then((resp) => {
+              if (!resp || !resp.ok) { li.remove(); return; } // undo too late — the page is truly gone
+              li.classList.remove('struck'); forget.textContent = 'forget';
+            });
             return;
           }
           send('forget-page', { recordId: it.id }).then((resp) => {
             if (!resp || !resp.ok) return;                   // forget failed → don't fake success
             li.classList.add('struck');
             forget.textContent = 'undo';
-            undoTimer = setTimeout(() => li.remove(), 6000);
+            undoTimer = setTimeout(() => { if (!destroyed) li.remove(); }, 6000); // don't touch a torn-down row
           });
         });
         li.appendChild(forget);
