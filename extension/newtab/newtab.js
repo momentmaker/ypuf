@@ -22,6 +22,7 @@
   const theme = window.ypuf.theme;                // pure light/dark/star mode core (tested in lib/theme.js)
   const moonphase = window.ypuf.moonphase;        // pure lunar phase (tested in lib/moonphase.js)
   const moonrender = window.ypuf.moonrender;      // moon/star toggle glyph (DOM helper)
+  const starfield = window.ypuf.starfield;        // pure star-field generation (tested in lib/starfield.js)
 
   const docBody = document.body;
   const grid = document.getElementById('board-grid');
@@ -57,6 +58,7 @@
     document.documentElement.setAttribute('data-theme', theme.normalize(mode));
     renderThemeToggle();
     postThemeToPanels(currentTheme());   // U7: propagate into the sandboxed panels
+    syncStarfield();                     // U8: start/stop the starfield for star mode
     if (typeof refreshThemeControl === 'function') refreshThemeControl();
   }
   function setTheme(mode) {
@@ -91,6 +93,117 @@
   const panelFrames = new Set();
   function postThemeToPanels(mode) { panelFrames.forEach((p) => { if (p.postTheme) p.postTheme(mode); }); }
   let refreshThemeControl = null;   // set by the settings theme control when the overlay is open
+
+  // --- starfield (U8, R4/R9) -----------------------------------------------
+  // A slow, calm star drift behind the board — ONLY in star mode and ONLY when motion is
+  // welcome. Positions come from the pure lib/starfield.js; this is the canvas host (size +
+  // RAF + teardown). The canvas is behind content (z-index 0) and pointer-events:none, so
+  // text on the opaque panels stays legible; the stars are low-alpha lavender.
+  const starCanvas = document.getElementById('starfield');
+  const reduceMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  let starRAF = null;
+  let onStarResize = null;
+
+  // A soft radial-glow sprite (lavender / warm) — drawing a scaled sprite is what makes a
+  // star read as a glow that grows and shrinks with its breath (vs a hard dot).
+  function starSprite(rgb) {
+    const S = 32, c = document.createElement('canvas'); c.width = c.height = S;
+    const g = c.getContext('2d'); const cx = S / 2;
+    const grad = g.createRadialGradient(cx, cx, 0, cx, cx, cx);
+    grad.addColorStop(0, `rgba(${rgb},1)`);
+    grad.addColorStop(0.35, `rgba(${rgb},0.45)`);
+    grad.addColorStop(1, `rgba(${rgb},0)`);
+    g.fillStyle = grad; g.fillRect(0, 0, S, S);
+    return c;
+  }
+
+  function startStarfield() {
+    if (!starCanvas || starRAF) return;
+    const ctx = starCanvas.getContext('2d');
+    if (!ctx) return;
+    const cool = starSprite('232,224,255'), warm = starSprite('255,232,220');
+    let dpr = 1, stars = [];
+    const size = () => {
+      dpr = window.devicePixelRatio || 1;
+      starCanvas.width = Math.floor(window.innerWidth * dpr);
+      starCanvas.height = Math.floor(window.innerHeight * dpr);
+      const density = Math.round((window.innerWidth * window.innerHeight) / 11000);
+      stars = starfield.generate(Math.min(200, density), starCanvas.width, starCanvas.height, 0x9e3779b1);
+    };
+    size();
+    starCanvas.hidden = false;
+
+    // Occasional shooting star (ported from pilgrim Universe.js): a streak with a fading
+    // tail + a bright head, eased, ~900 ms. The first comes soon so it's noticeable.
+    let shooting = null, nextShootAt = performance.now() + 4000 + Math.random() * 4000;
+    const spawnShoot = (now) => {
+      const w = starCanvas.width, h = starCanvas.height, fromLeft = Math.random() < 0.5;
+      shooting = {
+        x0: fromLeft ? -50 * dpr : w + 50 * dpr, y0: Math.random() * h * 0.45,
+        dx: (fromLeft ? 1 : -1) * (w * 0.65), dy: h * 0.4, t0: now, dur: 900,
+      };
+    };
+    const drawShoot = (now) => {
+      if (!shooting) return;
+      const p = (now - shooting.t0) / shooting.dur;
+      if (p >= 1) { shooting = null; return; }
+      const e = 1 - Math.pow(1 - p, 3), fade = 1 - p;
+      const hx = shooting.x0 + shooting.dx * e, hy = shooting.y0 + shooting.dy * e;
+      const ang = Math.atan2(shooting.dy, shooting.dx), len = 150 * dpr;
+      const tx = hx - Math.cos(ang) * len, ty = hy - Math.sin(ang) * len;
+      ctx.globalAlpha = 1;
+      const grad = ctx.createLinearGradient(hx, hy, tx, ty);
+      grad.addColorStop(0, `rgba(255,255,255,${0.95 * fade})`);
+      grad.addColorStop(1, 'rgba(232,224,255,0)');
+      ctx.strokeStyle = grad; ctx.lineWidth = 2 * dpr;
+      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
+      ctx.fillStyle = `rgba(255,255,255,${0.95 * fade})`;   // bright head
+      ctx.beginPath(); ctx.arc(hx, hy, 1.8 * dpr, 0, Math.PI * 2); ctx.fill();
+    };
+
+    const frame = (now) => {
+      const w = starCanvas.width, h = starCanvas.height;
+      ctx.clearRect(0, 0, w, h);
+      ctx.globalCompositeOperation = 'lighter';   // additive: glows blend softly
+      for (const s of stars) {
+        const breath = 0.7 + 0.5 * Math.sin((now / s.period) * Math.PI * 2 + s.phase);  // grows + shrinks
+        const d = Math.max(0, s.r * dpr * 3 * breath);
+        ctx.globalAlpha = Math.min(s.a * (0.6 + 0.4 * Math.max(0, breath)), 1);
+        ctx.drawImage(s.warm ? warm : cool, s.x - d, s.y - d, d * 2, d * 2);
+      }
+      ctx.globalAlpha = 1;   // reset before the shooting star (was inheriting a star's low alpha)
+      if (!shooting && now >= nextShootAt) { spawnShoot(now); nextShootAt = now + 12000 + Math.random() * 14000; }
+      drawShoot(now);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      starRAF = requestAnimationFrame(frame);
+    };
+    starRAF = requestAnimationFrame(frame);
+    onStarResize = size;
+    window.addEventListener('resize', onStarResize);
+  }
+
+  function stopStarfield() {
+    if (starRAF) { cancelAnimationFrame(starRAF); starRAF = null; }
+    if (onStarResize) { window.removeEventListener('resize', onStarResize); onStarResize = null; }
+    if (starCanvas) {
+      const ctx = starCanvas.getContext('2d');
+      if (ctx) ctx.clearRect(0, 0, starCanvas.width, starCanvas.height);
+      starCanvas.hidden = true;
+    }
+  }
+
+  function syncStarfield() {
+    if (currentTheme() === 'star' && !reduceMotion()) startStarfield();
+    else stopStarfield();
+  }
+  // Toggling the OS "reduce motion" while in star mode starts/stops the field live.
+  if (window.matchMedia) {
+    const mm = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onChange = () => syncStarfield();
+    if (mm.addEventListener) mm.addEventListener('change', onChange);
+    else if (mm.addListener) mm.addListener(onChange);
+  }
   const boardSub = document.getElementById('board-sub');
   const oneLineEl = document.getElementById('board-oneline');
 
@@ -1094,6 +1207,7 @@
   window.addEventListener('storage', (e) => {
     if (e.key === THEME_KEY && e.newValue) applyTheme(e.newValue);
   });
+  syncStarfield();    // U8: start the field if the pre-paint theme is already star
   reconcileTheme();   // durable chrome.storage ⇄ pre-paint mirror, after first paint
 
   addBtn.addEventListener('click', openAddPicker);
