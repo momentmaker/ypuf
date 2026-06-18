@@ -3,16 +3,46 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ypuf — close tabs, find them by content</title>
-  <meta name="description" content="ypuf clears the tabs you've stopped using and gives you instant full-text recall of everything you've had open. Close everything; lose nothing. 100% on your device." />
+  <title>ypuf — close tabs, find them by content | a calm tab manager</title>
+  <meta name="description" content="ypuf is a privacy-first Chrome extension that clears the tabs you've stopped using and lets you recall any page by its content. Close everything; lose nothing — 100% on your device." />
+  <link rel="canonical" href="https://ypuf.com/" />
+  <meta name="keywords" content="tab manager, close tabs, tab recall, browser history search, privacy chrome extension, auto close tabs, snooze tabs, tab management" />
+  <meta name="author" content="momentmaker" />
+  <meta name="theme-color" content="#f8f5f0" />
+
   <meta property="og:title" content="ypuf — close everything, lose nothing" />
   <meta property="og:description" content="A calm Chrome extension that lets tabs go and recalls any page by what it said. Everything stays on your device." />
   <meta property="og:type" content="website" />
-  <meta property="og:url" content="https://ypuf.com" />
-  <meta name="theme-color" content="#f8f5f0" />
+  <meta property="og:url" content="https://ypuf.com/" />
+  <meta property="og:site_name" content="ypuf" />
+  <meta property="og:image" content="https://ypuf.com/img/og.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="ypuf — close everything, lose nothing" />
+  <meta name="twitter:description" content="A calm Chrome extension that lets tabs go and recalls any page by what it said. 100% on your device." />
+  <meta name="twitter:image" content="https://ypuf.com/img/og.png" />
+
   <link rel="icon" type="image/svg+xml" href="img/ypuf-mark.svg" />
+  <link rel="preload" as="font" type="font/woff2" href="fonts/cormorant-garamond-600.woff2" crossorigin />
+  <link rel="preload" as="font" type="font/woff2" href="fonts/lato-400.woff2" crossorigin />
   <script src="theme-preinit.js"></script>
   <link rel="stylesheet" href="styles.css" />
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "ypuf",
+    "description": "A privacy-first Chrome extension that clears the tabs you've stopped using and lets you recall any page by its content. Everything stays on your device.",
+    "applicationCategory": "BrowserApplication",
+    "operatingSystem": "Chrome",
+    "url": "https://ypuf.com/",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "author": { "@type": "Organization", "name": "momentmaker", "url": "https://github.com/momentmaker/ypuf" },
+    "license": "https://opensource.org/licenses/MIT"
+  }
+  </script>
 </head>
 <body>
   <canvas id="starfield" hidden aria-hidden="true"></canvas>
@@ -26,6 +56,7 @@
       <span class="spacer"></span>
       <a class="link hide-sm" href="#how">How it works</a>
       <a class="link hide-sm" href="#privacy">Privacy</a>
+      <a class="link hide-sm" href="#faq">FAQ</a>
       <a class="link hide-sm" href="https://github.com/momentmaker/ypuf">GitHub</a>
       <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Theme"></button>
       <a class="btn btn-primary" href="#get">Get ypuf</a>
@@ -34,7 +65,10 @@
 
   <header class="hero" id="top">
     <div class="wrap">
-      <svg class="puff" viewBox="0 0 16 16" aria-hidden="true"><g fill="currentColor"><circle cx="5.3" cy="10.7" r="3.5"/><circle cx="9.7" cy="7.3" r="1.75" opacity=".72"/><circle cx="12.3" cy="4.9" r="1.05" opacity=".5"/><circle cx="14" cy="3.2" r=".62" opacity=".32"/></g></svg>
+      <!-- The puff: a cluttered tab strip lets go, one chip at a time, into calm. -->
+      <div class="tabstrip" id="tabstrip" aria-hidden="true"></div>
+
+      <svg class="puff breathe" viewBox="0 0 16 16" aria-hidden="true"><g fill="currentColor"><circle cx="5.3" cy="10.7" r="3.5"/><circle cx="9.7" cy="7.3" r="1.75" opacity=".72"/><circle cx="12.3" cy="4.9" r="1.05" opacity=".5"/><circle cx="14" cy="3.2" r=".62" opacity=".32"/></g></svg>
       <h1>Close everything.<br /><span class="em">Lose nothing.</span></h1>
       <p class="sub">ypuf quietly clears the tabs you've stopped caring about — and lets you find any page you've ever had open again by <em>what it said</em>. A calmer browser, entirely on your device.</p>
       <div class="cta">
@@ -43,19 +77,12 @@
       </div>
       <p class="note">Chrome · open source · nothing ever leaves your machine</p>
 
+      <!-- Live recall demo: types a query, results filter in. -->
       <div class="demo reveal" aria-hidden="true">
         <div class="bar">
           <div class="barhead"><span class="dot"></span><span><b>ypuf</b> · recall</span></div>
-          <div class="q">the <span class="cur">founder who quit…</span></div>
-          <div class="row on">
-            <div class="t">The <span class="hl">founder</span> who quit Google to farm goats</div>
-            <div class="m">nytimes.com · <span class="f">often revisited</span></div>
-            <div class="s">… a long interview about the <span class="hl">founder</span> who left a staff-engineer role to raise goats …</div>
-          </div>
-          <div class="row">
-            <div class="t">YC — how to talk to a <span class="hl">founder</span></div>
-            <div class="m">ycombinator.com</div>
-          </div>
+          <div class="q" id="demo-q"><span id="demo-typed"></span><span class="cur" id="demo-caret">▏</span></div>
+          <div class="results" id="demo-results"></div>
           <div class="barfoot"><span><b>↑↓</b> navigate</span><span><b>↵</b> open</span><span><b>esc</b> close</span></div>
         </div>
       </div>
@@ -64,6 +91,30 @@
 
   <section id="how">
     <div class="wrap center">
+      <p class="eyebrow">How it works</p>
+      <h2>Three quiet steps. No upkeep.</h2>
+      <div class="steps">
+        <div class="step reveal">
+          <span class="num">1</span>
+          <h3>Let it go</h3>
+          <p>Tabs you've left open for days and stopped using fade away with a soft puff — or let one go yourself with <kbd>⌘⇧L</kbd>. Always undoable.</p>
+        </div>
+        <div class="step reveal">
+          <span class="num">2</span>
+          <h3>Indexed on your device</h3>
+          <p>Each page's readable text is captured <em>locally</em> and added to a private index. Nothing is transmitted, ever.</p>
+        </div>
+        <div class="step reveal">
+          <span class="num">3</span>
+          <h3>Recall in a keystroke</h3>
+          <p>Press <kbd>⌘⇧K</kbd> and search by what a page <em>said</em>. It's back in under a second — faster than re-googling.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="story">
+    <div class="wrap center">
       <p class="eyebrow">Ebb &amp; flow</p>
       <h2>Tabs are open loops. Treat them like one.</h2>
       <p class="lead">Let go of what's dead. Recall what matters the moment you need it. You never organize, and you never lose anything.</p>
@@ -71,7 +122,7 @@
         <div class="card reveal">
           <span class="glyph">ebb</span>
           <h3>Let it go</h3>
-          <p>ypuf conservatively archives tabs you've left open for days and stopped using. They fade with a soft <em>puff</em>; the bar gets lighter. Always undoable, never your pinned tabs, logins, forms, or sites you protect.</p>
+          <p>ypuf conservatively archives tabs you've left open for days and stopped using. They fade with a soft <em>puff</em>; the bar gets lighter. Never your pinned tabs, logins, forms, or sites you protect.</p>
         </div>
         <div class="card reveal">
           <span class="glyph">flow</span>
@@ -107,6 +158,16 @@
     </div>
   </section>
 
+  <!-- Star scene: lean into night mode -->
+  <section class="nightscene">
+    <canvas id="nightstars" aria-hidden="true"></canvas>
+    <div class="wrap center">
+      <p class="eyebrow" style="color:#c3b3ff;">A calmer desk</p>
+      <h2 style="color:rgba(232,224,255,.95)">When you've let everything go,<br />the desk is clear — and nothing is lost.</h2>
+      <p class="lead" style="color:rgba(232,224,255,.6); margin-left:auto;margin-right:auto;">Three themes, including a starlit night the rest of your browser doesn't have.</p>
+    </div>
+  </section>
+
   <section id="privacy" class="privacy">
     <div class="wrap">
       <p class="eyebrow">Privacy is the whole point</p>
@@ -125,10 +186,25 @@
     </div>
   </section>
 
+  <section id="faq">
+    <div class="wrap">
+      <p class="eyebrow center">Questions</p>
+      <h2 class="center">The honest answers</h2>
+      <div class="faq">
+        <details class="reveal"><summary>Does anything I browse leave my device?</summary><p>No. ypuf has no servers and makes no tracking requests. Page text is extracted and searched entirely on your machine. The only network requests come from optional panels <em>you</em> add to your new tab (like an RSS feed), to the source you picked.</p></details>
+        <details class="reveal"><summary>Will it slow my browser down?</summary><p>No — quite the opposite. Fewer open tabs means less memory. The index is a lightweight local search store; recall runs in milliseconds.</p></details>
+        <details class="reveal"><summary>What happens to a tab when it's "let go"?</summary><p>It closes, but its content is saved to your local recall index first. There's always an instant undo, and you can search it back anytime. ypuf never touches pinned tabs, tabs playing audio, logins, unsaved forms, or sites you protect.</p></details>
+        <details class="reveal"><summary>What's the catch — is it really free?</summary><p>It's free and open source (MIT). No accounts, no upsell, no data business. ypuf's whole promise is calm, and that includes how it treats you.</p></details>
+        <details class="reveal"><summary>Which browsers does it support?</summary><p>Chrome today (Manifest V3). Other Chromium browsers are likely to work; Firefox and Safari are later.</p></details>
+      </div>
+    </div>
+  </section>
+
   <section id="get" class="final">
     <div class="wrap">
       <h2>Close everything.<br /><span style="font-style:italic;font-weight:400;color:var(--accent)">Trust that nothing's lost.</span></h2>
-      <div class="cta" style="margin-top:30px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+      <p class="relief">0 lost · everything findable</p>
+      <div class="cta" style="margin-top:26px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
         <a class="btn btn-primary" href="https://chromewebstore.google.com/" id="store-link">Add to Chrome — free</a>
         <a class="btn btn-ghost" href="https://github.com/momentmaker/ypuf">Install from source</a>
       </div>
@@ -148,6 +224,7 @@
 
   <script src="theme.js"></script>
   <script src="starfield.js"></script>
+  <script src="demo.js"></script>
   <script src="reveal.js"></script>
 </body>
 </html>
