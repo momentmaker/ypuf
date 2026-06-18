@@ -511,3 +511,14 @@ boundary, and the host-permission grants — is verified by hand.
       non-matching badges dim and the second letter resolves it.
 - [ ] `Esc` (or a key that matches no label) clears all badges. Nothing is drawn before
       `f` is pressed, and nothing lingers after select/cancel (invisible at rest).
+
+## `?` cheatsheet + calm guarantees (U10 / R11, R12 / AE5, AE6)
+
+- [ ] Press `?` (not in a field) → a calm centered **Keyboard shortcuts** card lists all
+      bindings; it notes that `f`-hints don't reach inside the RSS/crypto panels.
+- [ ] `Esc`, the backdrop, or the close button dismisses it; focus returns to where it
+      was; Tab cycles within the card (focus-trapped). Reduced-motion → no animation.
+- [ ] The **settings overlay footer** reads "Keyboard shortcuts: press ? on the board."
+- [ ] **In a field, `?` types a literal `?`** (the layer never hijacks typing).
+- [ ] **Invisible at rest:** with no key pressed, the board carries no cursor, no badges,
+      and no keyboard chrome — the whole layer is summoned, never ambient. *(AE6)*

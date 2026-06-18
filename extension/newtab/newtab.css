@@ -91,6 +91,28 @@ body[data-mood="night"] { --paper: #f1eadf; --warm-gray: #e3d9cc; --card-bg: #ff
 .settings-groups { display: flex; flex-direction: column; gap: 20px; }
 .settings-group { display: flex; flex-direction: column; gap: 9px; }
 .settings-group-label { font-size: 12px; color: var(--muted); }
+/* Passive keyboard-layer discoverability (U10): a quiet footer line in the overlay. */
+.settings-foot { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--warm-gray); font-size: 11.5px; }
+
+/* The ? cheatsheet (U10): a calm centered help card — reuses the settings backdrop/head,
+   invisible until ? is pressed, reduced-motion-gated entrance. */
+.cheatsheet-overlay { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; }
+.cheatsheet-backdrop { position: absolute; inset: 0; background: rgba(26, 22, 19, 0.20); }
+.cheatsheet-card {
+  position: relative;
+  width: min(420px, 92vw); max-height: 86vh; overflow-y: auto;
+  background: var(--card-bg); color: var(--ink);
+  box-shadow: 0 18px 50px rgba(26, 22, 19, 0.22);
+  border-radius: var(--radius); padding: 18px 20px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cheatsheet-card { animation: cheat-in 0.18s ease-out; }
+  @keyframes cheat-in { from { transform: translateY(6px); opacity: 0; } to { transform: none; opacity: 1; } }
+}
+.cheatsheet-list { display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; align-items: baseline; margin: 0; }
+.cheatsheet-list dt { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent-slate); white-space: nowrap; }
+.cheatsheet-list dd { margin: 0; font-size: 13px; color: var(--ink); }
+.cheatsheet-note { margin-top: 14px; font-size: 11.5px; }
 
 /* Auto-let-go group (U3): a pill switch + a segmented eagerness control. */
 .auto-body { display: flex; flex-direction: column; gap: 11px; }

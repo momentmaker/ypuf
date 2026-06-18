@@ -68,6 +68,7 @@
   // close, focus restores to the gear. The groups (auto-let-go U3, never-touch U4,
   // board U5) populate `buildSettingsGroups`; U10's cheatsheet reuses this shell.
   let settingsPrevFocus = null;
+  let cheatsheetPrevFocus = null;
   const settingsOpen = () => !!document.querySelector('.settings-overlay');
 
   function closeSettings() {
@@ -76,16 +77,36 @@
     try { if (settingsPrevFocus && settingsPrevFocus.focus) settingsPrevFocus.focus(); } catch (e) { /* gone */ }
   }
 
-  function settingsKeydown(e) {
-    if (e.key === 'Escape') { e.preventDefault(); closeSettings(); return; }
+  // Shared Tab-cycle for the modal overlays (U2 settings + U10 cheatsheet): keep focus
+  // inside `panel` so Tab/Shift-Tab wrap at the ends.
+  function trapTab(e, panel) {
     if (e.key !== 'Tab') return;
-    const f = [...e.currentTarget.querySelectorAll('button, input, select, [href], [tabindex]:not([tabindex="-1"])')]
+    const f = [...panel.querySelectorAll('button, input, select, [href], [tabindex]:not([tabindex="-1"])')]
       .filter((el) => !el.disabled && el.offsetParent !== null);
     if (!f.length) return;
     const first = f[0], last = f[f.length - 1];
     if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   }
+
+  function settingsKeydown(e) {
+    if (e.key === 'Escape') { e.preventDefault(); closeSettings(); return; }
+    trapTab(e, e.currentTarget);
+  }
+
+  // The keyboard layer's bindings, shared by the ? cheatsheet (U10).
+  const CHEATSHEET = [
+    ['j / k', 'Move the recall cursor'],
+    ['g g / G', 'Jump to top / bottom'],
+    ['o / Enter', 'Open the cursored page'],
+    ['x / u', 'Forget / undo'],
+    ['p', 'Never-touch this site'],
+    ['/', 'Jump to recall search'],
+    ['f', 'Hint every link — type a label to open'],
+    ['e', 'Toggle edit mode'],
+    ['?', 'This cheatsheet'],
+    ['Esc', 'Clear cursor · close'],
+  ];
 
   function settingsGroup(title) {
     const g = document.createElement('section'); g.className = 'settings-group';
@@ -223,7 +244,12 @@
     head.append(title, close);
     const groups = document.createElement('div'); groups.className = 'settings-groups';
     buildSettingsGroups(groups);
-    panel.append(head, groups);
+    // Passive discoverability (U10): the keyboard layer is invisible until used, so the
+    // one place it can be mentioned without costing board calm is here, where the user
+    // already came looking for controls.
+    const kbdHint = document.createElement('p'); kbdHint.className = 'settings-foot muted';
+    kbdHint.textContent = 'Keyboard shortcuts: press ? on the board.';
+    panel.append(head, groups, kbdHint);
     overlay.append(backdrop, panel);
     docBody.appendChild(overlay);
     // Initial focus = the first group control (e.g. the auto toggle), else the close.
@@ -1052,8 +1078,55 @@
     }
   }
 
+  // The ? cheatsheet (U10): a calm static help overlay listing the keyboard layer.
+  // Reuses U2's focus-trap; Esc/backdrop closes; focus restores to where it was. The
+  // layer is invisible until used — this is the only thing ? ever draws.
   const cheatsheetOpen = () => !!document.querySelector('.cheatsheet-overlay');
-  function openCheatsheet() {}   // U10
+
+  function closeCheatsheet() {
+    const o = document.querySelector('.cheatsheet-overlay');
+    if (o) o.remove();
+    try { if (cheatsheetPrevFocus && cheatsheetPrevFocus.focus) cheatsheetPrevFocus.focus(); } catch (e) { /* gone */ }
+  }
+
+  function cheatsheetKeydown(e) {
+    if (e.key === 'Escape') { e.preventDefault(); closeCheatsheet(); return; }
+    trapTab(e, e.currentTarget);
+  }
+
+  function openCheatsheet() {
+    if (cheatsheetOpen()) return;
+    cheatsheetPrevFocus = document.activeElement;
+    const overlay = document.createElement('div');
+    overlay.className = 'cheatsheet-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Keyboard shortcuts');
+    const backdrop = document.createElement('div'); backdrop.className = 'cheatsheet-backdrop';
+    backdrop.addEventListener('click', closeCheatsheet);
+    const card = document.createElement('div'); card.className = 'cheatsheet-card';
+    card.addEventListener('keydown', cheatsheetKeydown);
+    const head = document.createElement('div'); head.className = 'settings-head';
+    const title = document.createElement('span'); title.className = 'settings-title'; title.textContent = 'Keyboard shortcuts';
+    const close = document.createElement('button');
+    close.type = 'button'; close.className = 'settings-close icon-btn';
+    close.setAttribute('aria-label', 'Close'); close.title = 'Close';
+    close.append(icon('close'));
+    close.addEventListener('click', closeCheatsheet);
+    head.append(title, close);
+    const list = document.createElement('dl'); list.className = 'cheatsheet-list';
+    for (const [keys, desc] of CHEATSHEET) {
+      const dt = document.createElement('dt'); dt.textContent = keys;
+      const dd = document.createElement('dd'); dd.textContent = desc;
+      list.append(dt, dd);
+    }
+    const note = document.createElement('p'); note.className = 'cheatsheet-note muted';
+    note.textContent = 'f-hints label host-rendered links only — not inside the RSS/crypto panels.';
+    card.append(head, list, note);
+    overlay.append(backdrop, card);
+    docBody.appendChild(overlay);
+    close.focus();
+  }
 
   document.addEventListener('keydown', (e) => {
     if (settingsOpen() || cheatsheetOpen()) return;   // overlays trap their own keys
