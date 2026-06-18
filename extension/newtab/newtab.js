@@ -101,6 +101,7 @@
     g.appendChild(body); container.appendChild(g);
 
     const draw = (state) => {
+      if (!document.body.contains(body)) return;   // overlay closed before the SW replied
       body.textContent = '';
       const enabled = !!(state && state.enabled);
       const level = (state && state.eagerness) || E.DEFAULT;
@@ -113,7 +114,7 @@
         if (enabled) { send('auto-disable').then(draw).catch(() => {}); return; }
         // Enabling needs the <all_urls> grant — request it in-gesture, then enable.
         chrome.permissions.request({ origins: ['<all_urls>'] }, (granted) => {
-          if (!granted) return;
+          if (!granted || !document.body.contains(body)) return;
           refreshHasAllUrls();
           send('auto-enable').then(draw).catch(() => {});
         });
@@ -123,6 +124,7 @@
       const row = document.createElement('div'); row.className = 'toggle-row'; row.append(sw, swLabel);
 
       const seg = document.createElement('div'); seg.className = 'segmented' + (enabled ? '' : ' muted');
+      seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', 'Eagerness');
       for (const lv of E.LEVELS) {
         const b = document.createElement('button');
         b.type = 'button'; b.className = 'seg' + (lv.key === level ? ' selected' : '');
@@ -132,7 +134,7 @@
         seg.appendChild(b);
       }
 
-      const days = (E.LEVELS.find((l) => l.key === level) || {}).days;
+      const days = (E.LEVELS.find((l) => l.key === level) || E.LEVELS.find((l) => l.key === E.DEFAULT)).days;
       const sub = document.createElement('div'); sub.className = 'auto-sub';
       sub.textContent = `Lets go after ~${days} quiet day${days === 1 ? '' : 's'}.`;
 
@@ -150,6 +152,7 @@
     g.appendChild(list); container.appendChild(g);
 
     const draw = (resp) => {
+      if (!document.body.contains(list)) return;   // overlay closed before the SW replied
       list.textContent = '';
       const items = (resp && resp.items) || [];
       if (!items.length) {
@@ -164,7 +167,8 @@
         rm.type = 'button'; rm.className = 'link'; rm.textContent = 'remove';
         rm.setAttribute('aria-label', `Stop protecting ${host}`);
         rm.addEventListener('click', () => send('protect-remove', { host })
-          .then(() => send('protected-list')).then(draw).catch(() => {}));
+          .then((r) => (r && r.ok) ? send('protected-list') : null)   // only refresh on a real removal
+          .then(draw).catch(() => {}));
         row.append(name, rm); list.appendChild(row);
       }
     };
@@ -937,6 +941,7 @@
     if (!next || !Array.isArray(next.panels) || editing || boardBusy) return;
     if (JSON.stringify(next) === JSON.stringify(config)) return;
     config = next;
+    if (settingsOpen()) closeSettings();   // don't leave a stale settings overlay over a converged board
     renderBoard();
   });
 
@@ -1015,7 +1020,7 @@
           e.stopPropagation();
           if (!host) return;
           send('protect-add', { host }).then((resp) => {
-            if (!resp || !resp.ok) return;
+            if (destroyed || !resp || !resp.ok) return;   // panel torn down before the SW replied
             protect.classList.add('protected'); protect.title = 'Protected — never auto-closed';
             protect.setAttribute('aria-label', 'Site protected');
           }).catch(() => {});
@@ -1038,6 +1043,7 @@
           if (undoTimer) {                                   // within the grace window → undo
             clearTimeout(undoTimer); undoTimer = null;
             send('forget-page-undo', { recordId: it.id }).then((resp) => {
+              if (destroyed) return;                          // panel torn down before the SW replied
               if (!resp || !resp.ok) { li.remove(); return; } // undo too late — the page is truly gone
               li.classList.remove('struck'); showForget();
             });

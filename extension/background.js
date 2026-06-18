@@ -432,7 +432,10 @@ const SWEEP_PERIOD_MIN = 5;
 const HOST_ACCESS = { origins: ['<all_urls>'] };
 
 const isAutoEnabled = async () => (await local.get(AUTO_KEY)) === true;
-const getEagerness = async () => { const v = await local.get(EAGERNESS_KEY); return (typeof v === 'string') ? v : eagerness.DEFAULT; };
+const getEagerness = async () => {
+  try { const v = await local.get(EAGERNESS_KEY); return (typeof v === 'string') ? v : eagerness.DEFAULT; }
+  catch { return eagerness.DEFAULT; }   // a storage read failure must not abort the sweep
+};
 const hasHostAccess = () => chrome.permissions.contains(HOST_ACCESS).catch(() => false);
 
 function ensureAutoAlarm() {
@@ -447,9 +450,10 @@ async function autoState() {
 // Persist the eagerness label (validated against the lib's known levels); a bolder
 // or timider setting just changes the staleness window the next sweep reads.
 async function setAutoEagerness(level) {
-  const ok = eagerness.LEVELS.some((l) => l.key === level);
-  if (ok) await local.set(EAGERNESS_KEY, level);
-  return { ok, ...(await autoState()) };
+  if (!eagerness.LEVELS.some((l) => l.key === level)) return { ok: false, ...(await autoState()) };
+  try { await local.set(EAGERNESS_KEY, level); }
+  catch { return { ok: false, ...(await autoState()) }; }   // report the real state, not a silent snap-back
+  return { ok: true, ...(await autoState()) };
 }
 
 // The popup obtained the grant in its own click handler; here we persist intent
@@ -473,7 +477,6 @@ async function autoDisable() {
 // ways: the host grant, the user's enable flag, and a minimum-observation bar
 // so we never calibrate against an empty signal store.
 
-const STALE_WINDOW_MS = 3 * 86400000;   // 3 days since last activation
 const DWELL_FLOOR_MS = 60000;           // < 60s total foreground = low investment
 const ACTIVATION_FLOOR = 3;             // returned to ≥ 3 times = engaged (URL-stable)
 const MIN_OBSERVED_URLS = 20;           // signal must have banked this many URLs first
@@ -498,8 +501,9 @@ function projectTab(t) {
 }
 
 // `staleWindowMs` is pre-read by the sweep from the eagerness setting (U3) and
-// threaded in; defaults to the shipped 3-day constant so any other caller is safe.
-function eligDeps(signalMap, blocklist, protState, staleWindowMs = STALE_WINDOW_MS) {
+// threaded in; defaults to the eagerness DEFAULT (3 days), the single source of
+// truth, so any other caller stays safe and can't drift from the lib.
+function eligDeps(signalMap, blocklist, protState, staleWindowMs = eagerness.toWindowMs(eagerness.DEFAULT)) {
   return {
     tabstate,
     signal: signalMap,
