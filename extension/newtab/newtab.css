@@ -348,6 +348,19 @@ body[data-mood="night"] { --paper: #f1eadf; --warm-gray: #e3d9cc; --card-bg: #ff
 .recall-protect:focus-visible { opacity: 0.65; }
 .recall-protect:hover { color: var(--accent-sage); opacity: 1; }
 .recall-protect.protected { color: var(--accent-sage); opacity: 1; }   /* stays lit once protected */
+/* f-hints (U9): amber badges over host-rendered clickables — present only while in
+   hint mode, removed on select/Esc (invisible at rest). Page-coordinate positioned. */
+.hint-layer { position: absolute; top: 0; left: 0; z-index: 50; pointer-events: none; }
+.hint-badge {
+  position: absolute;
+  transform: translate(-3px, -9px);
+  font: 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  background: var(--accent-amber); color: var(--ink);
+  padding: 1px 4px; border-radius: 4px;
+  box-shadow: 0 1px 3px var(--shadow);
+}
+.hint-badge.stale { opacity: 0.2; }
 /* The relief moment (U5): a calm once-a-day acknowledgement. */
 .board-relief {
   background: var(--paper);

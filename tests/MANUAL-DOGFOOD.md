@@ -500,3 +500,14 @@ boundary, and the host-permission grants — is verified by hand.
       mode (the board layer is `j`/`k`, so it never collides).
 - [ ] **Invisible at rest:** before any key is pressed, the board shows no cursor and
       no keyboard chrome.
+
+## `f` link-hints (U9 / R10 / AE5)
+
+- [ ] Press `f` → an **amber letter badge** appears over every host-rendered clickable
+      (recall row titles + top-sites). Type a label → that page opens.
+- [ ] Badges appear **only** on host-rendered clickables — **not inside** the RSS or
+      crypto panels (those are sandboxed iframes the host can't badge; pattern 16).
+- [ ] With many targets, labels escalate to **two letters**; after the first letter,
+      non-matching badges dim and the second letter resolves it.
+- [ ] `Esc` (or a key that matches no label) clears all badges. Nothing is drawn before
+      `f` is pressed, and nothing lingers after select/cancel (invisible at rest).

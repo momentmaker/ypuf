@@ -18,6 +18,7 @@
   const { PROTO, VERSION } = window.ypuf.channel; // single source of the protocol id/version
   const lanes = window.ypuf.lanes;                // pure lane-placement math (tested in lib/lanes.js)
   const boardkeys = window.ypuf.boardkeys;        // pure cursor + key→intent (tested in lib/boardkeys.js)
+  const hints = window.ypuf.hints;                // pure f-hint label assign/match (tested in lib/hints.js)
 
   const docBody = document.body;
   const grid = document.getElementById('board-grid');
@@ -988,13 +989,71 @@
   }
   const clickIn = (row, sel) => { const b = row && row.querySelector(sel); if (b) b.click(); };
 
-  // f-hints (U9) and the ? cheatsheet (U10) wire into the keydown below; defined here
-  // so the U8 layer is self-contained. (f / ? are inert until those units land.)
+  // f-hints (U9): label every host-rendered clickable, type a label to open it. Targets
+  // are host DOM only (recall titles + top-sites) — sandboxed RSS/crypto iframes are a
+  // separate origin we can't badge into (pattern 16; noted in the U10 cheatsheet).
   let hintsActive = false;
+  let hintBuf = '';
+  let hintLabels = [];
+  let hintTargets = [];
+
+  const hintTargetEls = () => [...document.querySelectorAll('.recent-item[data-id] .title.clickable, .topsite')]
+    .filter((el) => el.offsetParent !== null);
+
+  function enterHints() {
+    if (hintsActive) return;
+    const targets = hintTargetEls();
+    if (!targets.length) return;   // nothing to label — stay quiet
+    clearKbdCursor();
+    hintLabels = hints.assign(targets.length);
+    hintTargets = targets.slice(0, hintLabels.length);
+    hintBuf = '';
+    const layer = document.createElement('div');
+    layer.className = 'hint-layer';
+    hintTargets.forEach((el, i) => {
+      const r = el.getBoundingClientRect();
+      const badge = document.createElement('span');
+      badge.className = 'hint-badge';
+      badge.dataset.label = hintLabels[i];
+      badge.textContent = hintLabels[i];
+      badge.style.left = `${r.left + window.scrollX}px`;
+      badge.style.top = `${r.top + window.scrollY}px`;
+      layer.appendChild(badge);
+    });
+    docBody.appendChild(layer);
+    hintsActive = true;
+  }
+
+  function exitHints() {
+    hintsActive = false;
+    hintBuf = '';
+    hintTargets = [];
+    hintLabels = [];
+    const layer = document.querySelector('.hint-layer');
+    if (layer) layer.remove();
+  }
+
+  function handleHintKey(e) {
+    if (e.key === 'Escape') { e.preventDefault(); exitHints(); return; }
+    if (e.key.length !== 1 || !/[a-z]/i.test(e.key)) return;   // only letters select a hint
+    e.preventDefault();
+    hintBuf += e.key.toLowerCase();
+    const m = hints.match(hintBuf, hintLabels);
+    if (m.index != null) {
+      const target = hintTargets[m.index];
+      exitHints();
+      if (target) target.click();
+    } else if (m.noMatch) {
+      exitHints();   // a typo cancels — calm, predictable
+    } else {
+      // needMore: dim the badges that no longer match the typed prefix
+      document.querySelectorAll('.hint-badge').forEach((b) =>
+        b.classList.toggle('stale', b.dataset.label.indexOf(hintBuf) !== 0));
+    }
+  }
+
   const cheatsheetOpen = () => !!document.querySelector('.cheatsheet-overlay');
-  function handleHintKey() {}
-  function enterHints() {}
-  function openCheatsheet() {}
+  function openCheatsheet() {}   // U10
 
   document.addEventListener('keydown', (e) => {
     if (settingsOpen() || cheatsheetOpen()) return;   // overlays trap their own keys
