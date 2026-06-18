@@ -1280,8 +1280,8 @@
       badge.className = 'hint-badge';
       badge.dataset.label = hintLabels[i];
       badge.textContent = hintLabels[i];
-      badge.style.left = `${r.left + window.scrollX}px`;
-      badge.style.top = `${r.top + window.scrollY}px`;
+      badge.style.left = `${r.left}px`;
+      badge.style.top = `${r.top}px`;
       layer.appendChild(badge);
     });
     docBody.appendChild(layer);

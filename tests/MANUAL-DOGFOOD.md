@@ -589,3 +589,34 @@ boundary, and the host-permission grants — is verified by hand.
       starfield; turning reduce-motion off while in star starts it live, and back on stops it.
 - [ ] No runaway CPU: leaving star mode (or closing the tab) stops the RAF — the board
       stays cool with the starfield off. Resizing the window re-fits the field.
+
+# Puff logo, polish & quick-open unify — slice 3 (U9 / U10 / U11)
+
+## The puff mark (U9)
+
+- [ ] The **toolbar icon** is the amber puff (a dot scattering up-and-right), not the old
+      placeholder; it reads cleanly at toolbar size.
+- [ ] The **new-tab favicon** (browser tab strip) shows the same puff mark.
+- [ ] The puff sits beside the **ypuf** wordmark in the board masthead **and** the popup
+      shelf-head; it **themes live** — amber in light/dark, lavender in star — and recolors
+      the instant you cycle the toggle (no reload).
+
+## Restrained polish (U10)
+
+- [ ] Recall rows, panel cards, and the settings/cheatsheet overlays have the softer
+      pilgrim corner radii and shadows; the surface feels **calmer**, with no layout shift,
+      no new controls, and the panel set / lanes / snooze internals unchanged.
+- [ ] With macOS **Reduce motion** on, none of the polish adds movement (hover/transition
+      effects are motion-gated).
+
+## Quick-open unify — popup f-hints (U11)
+
+- [ ] In the popup, pressing **`f`** badges every visible recall row with a letter; typing
+      the letter opens that page (same amber badge style as the board). `Esc` (or a
+      non-matching key) dismisses the badges without opening anything.
+- [ ] The badges sit **correctly over each row even after scrolling** the shelf, and the
+      readable **`1`–`9` numbers are still present** (f-hints ride alongside them for now).
+- [ ] `j`/`k`/`Enter` cursor nav still works; typing `f` in the snooze **Custom…** datetime
+      field is **not** hijacked into hint mode.
+- [ ] Pressing `f` while the **What's indexed / Protected sites** sub-view is open does
+      nothing (no badges over the hidden shelf).
