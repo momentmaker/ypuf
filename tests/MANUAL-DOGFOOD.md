@@ -415,3 +415,47 @@ boundary, and the host-permission grants — is verified by hand.
       **no new grant** (short-circuit).
 - [ ] Revoke a **feed's** per-origin permission in chrome://extensions →
       auto-let-go **stays on** (only revoking `<all_urls>` disables it).
+
+---
+
+# Board calm settings & soul — Phase A (calm chrome & control)
+
+## Icons (U1 / R1)
+
+- [ ] The masthead **Edit board** is a pencil icon; the recall-row **forget** is a
+      trash icon (still hover/focus-revealed, swaps to **undo** text in the 6s window).
+      Each has a tooltip + an aria-label; nothing is cryptic.
+
+## Settings overlay (U2 / R2)
+
+- [ ] A **gear** icon in the masthead opens a calm right-side **settings** slide-over;
+      `Esc`, the backdrop, the ✕, and a second gear click all close it; focus returns
+      to the gear; with reduced-motion set, no slide animation.
+- [ ] **Focus trap:** initial focus lands on the first control (the auto switch); Tab
+      cycles only within the overlay (never reaches the board behind it).
+
+## Auto-let-go control (U3 / R3 / AE1)
+
+- [ ] The overlay's **Auto-let-go** group: a pill switch (on/off) + a segmented
+      **Timid · Balanced · Bold** with a subline ("Lets go after ~3 quiet days").
+- [ ] Enabling from **off** requests the `<all_urls>` grant **in the same click**; once
+      on, picking **Bold** says ~1 day, **Timid** ~7 days; the SW honors it (a tab idle
+      past the chosen window becomes an auto-close candidate). *(Covers AE1)*
+- [ ] Toggling **off** mutes the segmented control (still visible, non-interactive).
+- [ ] **Untouched default** stays **Balanced** (~3 days) — existing behavior unchanged.
+
+## Never-touch + one-tap protect (U4 / R4, R6 / AE2)
+
+- [ ] Hovering a recall row reveals **protect** (shield) + **forget** (trash) as a pair.
+- [ ] Click **protect** → the shield stays lit; the site appears in the overlay's
+      **Never-touch** group and is **never auto-closed**; **remove** there clears it; an
+      empty list shows "protect a site from a recall row." *(Covers AE2)*
+
+## One-line relocation (U5 / R5 / AE6)
+
+- [ ] The masthead no longer has a one-line button (just gear + edit). The **Board**
+      group in the overlay has a **Daily one-line** switch; enabling it requests the
+      `raw.githubusercontent.com` grant **in the same click**, then the footer shows a
+      quiet aphorism (disclosed as `um.fz.ax`); the switch reflects the new state.
+- [ ] The overlay stays calm — **three small groups** (Auto-let-go · Never-touch ·
+      Board), no knobs wall. *(Covers AE6)*
