@@ -67,7 +67,14 @@
     try { chrome.storage.local.set({ [THEME_KEY]: m }); } catch (e) { /* durable write best-effort */ }
     applyTheme(m);
   }
-  const cycleTheme = () => setTheme(theme.next(currentTheme()));
+  function spinToggle() {
+    if (!themeToggle) return;
+    themeToggle.classList.remove('spin');
+    void themeToggle.offsetWidth;   // restart the keyframes on a rapid re-click
+    themeToggle.classList.add('spin');
+  }
+  // Re-render to the new phase first, then spin the freshly-drawn moon into place.
+  const cycleTheme = () => { setTheme(theme.next(currentTheme())); spinToggle(); };
 
   // Boot reconcile: the durable chrome.storage value wins; resolveInitial applies the
   // first-run prefers-color-scheme rule. Re-seeds the localStorage mirror so a cleared

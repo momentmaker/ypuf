@@ -601,6 +601,20 @@ boundary, and the host-permission grants — is verified by hand.
       shelf-head; it **themes live** — amber in light/dark, lavender in star — and recolors
       the instant you cycle the toggle (no reload).
 
+## Living masthead (slice-3 polish)
+
+- [ ] Opening a new tab, the puff mark **drifts in up-and-right and settles** once (the
+      signature let-go gesture); re-rendering the board (edit/drag) does **not** replay it,
+      and the popup mark does **not** animate on open (it's opened too often to delight).
+- [ ] In **star** mode the mark's scattered dots **twinkle** faintly (staggered, the anchor
+      dot stays solid); leaving star stops it.
+- [ ] Clicking the moon toggle makes it **rotate-and-settle** as it cycles to the next mode
+      (lunar turn, not a snap); rapid clicks each re-trigger it.
+- [ ] The **ypuf wordmark** is the Cormorant serif in both the board masthead and the popup
+      shelf-head (crafted, not the old sans).
+- [ ] With macOS **Reduce motion** on, none of the above animate — the mark is simply present,
+      the toggle simply changes.
+
 ## Restrained polish (U10)
 
 - [ ] Recall rows, panel cards, and the settings/cheatsheet overlays have the softer

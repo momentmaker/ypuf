@@ -40,9 +40,15 @@
     try { chrome.storage.local.set({ [THEME_KEY]: m }); } catch (e) { /* durable write best-effort */ }
     applyTheme(m);
   }
+  function spinToggle() {
+    if (!themeToggle) return;
+    themeToggle.classList.remove('spin');
+    void themeToggle.offsetWidth;   // restart the keyframes on a rapid re-click
+    themeToggle.classList.add('spin');
+  }
   if (themeToggle) {
     renderThemeToggle();
-    themeToggle.addEventListener('click', () => setTheme(theme.next(currentTheme())));
+    themeToggle.addEventListener('click', () => { setTheme(theme.next(currentTheme())); spinToggle(); });
   }
   window.addEventListener('storage', (e) => {
     if (e.key === THEME_KEY && e.newValue) applyTheme(e.newValue);
