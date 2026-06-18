@@ -130,6 +130,7 @@ body.popup { width: 340px; max-height: 560px; overflow-y: auto; }
   justify-content: space-between;
   margin-bottom: 12px;
 }
+.shelf-actions { display: flex; align-items: center; gap: 10px; }
 
 .wordmark {
   font-weight: 700;
@@ -198,6 +199,25 @@ body.popup { width: 340px; max-height: 560px; overflow-y: auto; }
 .link:focus-visible { outline: 2px solid var(--accent-amber); outline-offset: 2px; border-radius: 3px; }
 .hotkey { font-size: 11px; color: var(--muted); }
 
+/* The cycling moon-phase / star theme toggle (U5/U6), shared by board + popup. The
+   glyph's lit colour is the button's `color`; a stroked rim keeps it legible on
+   dark/navy. Star mode adds a slow, reduced-motion-gated lavender breath. */
+.theme-toggle {
+  background: none; border: none; cursor: pointer; padding: 4px; line-height: 0;
+  display: inline-flex; align-items: center; justify-content: center; color: var(--muted);
+}
+.theme-toggle:hover { color: var(--ink); }
+.theme-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 6px; }
+.theme-toggle svg { display: block; }
+@media (prefers-reduced-motion: no-preference) {
+  .theme-toggle { transition: color 0.2s ease; }
+  [data-theme="star"] .theme-toggle svg { animation: theme-toggle-breathe 4s ease-in-out infinite; }
+  @keyframes theme-toggle-breathe {
+    0%, 100% { filter: drop-shadow(0 0 1px transparent); }
+    50%      { filter: drop-shadow(0 0 4px var(--accent-amber)); }
+  }
+}
+
 /* ---- What's-indexed / protected panels (U8) ---- */
 .indexed { padding: 14px; }
 .actions { display: flex; gap: 12px; margin-top: 6px; flex-wrap: wrap; align-items: center; }
@@ -246,14 +266,16 @@ body.popup { width: 340px; max-height: 560px; overflow-y: auto; }
 
 /* Vim-style quick-open hints (popup only). Each row shows its key; j/k move a cursor. */
 .popup .recent-item { position: relative; }
+/* R12: a filled ink-on-card badge so the quick-open key is clearly legible in every
+   theme (the old muted-on-transparent washed out, esp. on warm paper). */
 .popup .recent-item .hint {
   position: absolute; top: 7px; right: 9px;
-  font: 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: var(--muted); border: 1px solid var(--warm-gray);
-  border-radius: 4px; padding: 1px 4px;
+  font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--ink); background: var(--card-bg); border: 1px solid var(--warm-gray);
+  border-radius: 4px; padding: 1px 5px;
 }
 .popup .recent-item.cursor { background: var(--warm-gray); }
-.popup .recent-item.cursor .hint { color: var(--ink); border-color: var(--muted); }
+.popup .recent-item.cursor .hint { border-color: var(--muted); }
 
 /* ---- Restore the working set (slice 4) ---- */
 .recent-item .title.clickable { cursor: pointer; }

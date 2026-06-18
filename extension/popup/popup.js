@@ -11,6 +11,40 @@
   const recent = document.getElementById('recent');
   const empty = document.getElementById('empty');
 
+  // Theme (U6): mirrors the board controller — applied pre-paint by lib/theme-preinit.js;
+  // this wires the cycling moon/star toggle, persists to localStorage (shared across
+  // extension pages, local-only), and converges via the storage event.
+  const theme = window.ypuf.theme;
+  const moonphase = window.ypuf.moonphase;
+  const moonrender = window.ypuf.moonrender;
+  const themeToggle = document.getElementById('theme-toggle');
+  const THEME_KEY = 'ypuf-theme';
+  const currentTheme = () => theme.normalize(document.documentElement.getAttribute('data-theme'));
+  function renderThemeToggle() {
+    if (!themeToggle) return;
+    const mode = currentTheme();
+    const star = mode === 'star';
+    moonrender.render(themeToggle, { star, phase: star ? 0 : moonphase.phase(new Date()) });
+    const nextMode = theme.next(mode);
+    themeToggle.setAttribute('aria-label', `Theme: ${mode} — switch to ${nextMode}`);
+    themeToggle.title = `Theme: ${mode} (click for ${nextMode})`;
+  }
+  function applyTheme(mode) {
+    document.documentElement.setAttribute('data-theme', theme.normalize(mode));
+    renderThemeToggle();
+  }
+  if (themeToggle) {
+    renderThemeToggle();
+    themeToggle.addEventListener('click', () => {
+      const m = theme.next(currentTheme());
+      try { localStorage.setItem(THEME_KEY, m); } catch (e) { /* storage blocked */ }
+      applyTheme(m);
+    });
+  }
+  window.addEventListener('storage', (e) => {
+    if (e.key === THEME_KEY && e.newValue) applyTheme(e.newValue);
+  });
+
   // Let-go trigger (U5): the SW owns the capture; the popup just asks.
   const letgo = document.getElementById('letgo');
   if (letgo) {
