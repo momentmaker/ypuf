@@ -83,6 +83,9 @@ math) is covered by `node --test`. The behavior below depends on real
       title, with the **matched words highlighted** in both title and snippet (a content-only
       match with no title hit still shows its snippet). No script runs from snippet text.
 - [ ] **Craft:** the bar **fades/rises in** on open (still, with Reduce Motion on).
+- [ ] **Typing works with a vim extension active:** on a page with **Vimium / Surfingkeys**,
+      open the bar and type — keystrokes go to the **search box**, not the page (the host is
+      marked editable so the extension yields). Recall results stay sealed in the closed root.
 
 ## Privacy controls — what's-indexed / forget / block (U8)
 

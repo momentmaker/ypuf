@@ -91,6 +91,13 @@
 
   const host = document.createElement('div');
   host.id = HOST_ID;
+  // With a CLOSED shadow root the page sees the host (a <div>) as document.activeElement
+  // even while our input is focused, so vim-style page extensions (Vimium, Surfingkeys)
+  // think you're NOT in a field and swallow your keystrokes. Marking the host editable
+  // makes activeElement.isContentEditable true → they yield insert mode to us. The host's
+  // light DOM is empty (everything lives in the shadow), so nothing on the page is actually
+  // editable; focus stays on the real input, which receives the typing.
+  host.setAttribute('contenteditable', 'true');
   // CLOSED shadow root: host.shadowRoot returns null, so no script on the page
   // can read the user's let-go titles/URLs or attach a listener to the recall
   // input. Refs are kept in this closure. (Privacy: nothing leaves the device.)
