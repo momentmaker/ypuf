@@ -156,13 +156,15 @@
     try { if (prevFocus && prevFocus.focus) prevFocus.focus(); } catch { /* ignore */ }
   }
 
-  const SVGNS = 'http://www.w3.org/2000/svg';
   function puffMark() {   // the brand mark — amber/lavender dot mid-dissipation (currentColor → --accent)
-    const svg = document.createElementNS(SVGNS, 'svg');
+    // NS is declared in-function so puffMark stays self-contained: it's called during the
+    // synchronous build (above), before any const declared later in this closure initializes.
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('viewBox', '0 0 16 16'); svg.setAttribute('class', 'mark'); svg.setAttribute('aria-hidden', 'true');
-    const g = document.createElementNS(SVGNS, 'g'); g.setAttribute('fill', 'currentColor');
+    const g = document.createElementNS(NS, 'g'); g.setAttribute('fill', 'currentColor');
     for (const [cx, cy, r, o] of [[5.3, 10.7, 3.5, 1], [9.7, 7.3, 1.75, 0.72], [12.3, 4.9, 1.05, 0.5], [14, 3.2, 0.62, 0.32]]) {
-      const c = document.createElementNS(SVGNS, 'circle');
+      const c = document.createElementNS(NS, 'circle');
       c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', r);
       if (o < 1) c.setAttribute('opacity', o);
       g.appendChild(c);
