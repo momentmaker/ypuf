@@ -63,10 +63,12 @@
   }
 
   // --- ambient one-line (U6) ----------------------------------------------
-  // A quiet daily aphorism at the board footer, from um.fz.ax. Opt-in (it's a network
-  // source): the list is cached daily, a line is picked LOCALLY each open, rendered
-  // text-only. Governed like a panel (validate, hardened fetch, grant, disclosure).
-  const ONELINE_URL = 'https://um.fz.ax/self/one-line.md';
+  // A quiet daily aphorism at the board footer, from the open-source momentmaker/um repo
+  // on GitHub (the raw source — um.fz.ax republishes it via GitBook, which injects footer
+  // boilerplate, so we read the clean source directly). Opt-in (it's a network source):
+  // the list is cached daily, a line is picked LOCALLY each open, rendered text-only.
+  // Governed like a panel (validate, hardened fetch, grant, disclosure).
+  const ONELINE_URL = 'https://raw.githubusercontent.com/momentmaker/um/refs/heads/master/self/one-line.md';
   const ONELINE_TTL = 24 * 60 * 60 * 1000;
 
   function renderOneLine() {
@@ -77,7 +79,7 @@
     if (!config.oneLine || !config.oneLine.enabled) return;
     panelHasAccess(ONELINE_URL).then((ok) => {
       if (!ok || mine !== oneLineSeq) return;   // no grant, or superseded → stays hidden (calm)
-      broker.load({ cacheKey: 'panel:oneline', url: ONELINE_URL, ttlMs: ONELINE_TTL, parse: (md) => window.ypuf.oneline.parse(md) })
+      broker.load({ cacheKey: 'panel:oneline:gh', url: ONELINE_URL, ttlMs: ONELINE_TTL, parse: (md) => window.ypuf.oneline.parse(md) })
         .then((r) => {
           if (mine !== oneLineSeq) return;   // a later render/disable won; never double-append
           const lines = r && r.value;
@@ -88,7 +90,7 @@
           text.textContent = line;                 // text-only, inert (R14)
           const src = document.createElement('span');
           src.className = 'oneline-src';
-          src.textContent = 'um.fz.ax';            // disclosure (R16)
+          src.textContent = 'github · momentmaker/um';   // disclosure (R16) — the actual fetch host
           oneLineEl.append(text, src);
           oneLineEl.hidden = false;
           if (r.refresh) r.refresh.catch(() => {}); // background refresh of the daily list
@@ -102,8 +104,8 @@
       saveConfig(); renderBoard(); renderOneLine();
       return;
     }
-    // Enable: request the um.fz.ax grant in-gesture (request-first), then turn it on.
-    grantThenAdd('https://um.fz.ax', () => {
+    // Enable: request the raw.githubusercontent.com grant in-gesture (request-first), then on.
+    grantThenAdd('https://raw.githubusercontent.com', () => {
       config.oneLine = { enabled: true };
       saveConfig(); renderBoard(); renderOneLine();
     });
