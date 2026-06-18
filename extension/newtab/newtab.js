@@ -23,6 +23,7 @@
   const emptyNote = document.getElementById('board-empty');
   const addBtn = document.getElementById('add-panel');
   const editBtn = document.getElementById('board-edit');
+  const settingsBtn = document.getElementById('board-settings');
   const minimalNote = document.getElementById('minimal-note');
   const boardSub = document.getElementById('board-sub');
   const oneLineEl = document.getElementById('board-oneline');
@@ -46,6 +47,7 @@
     shield: [['path', { d: 'M8 2l5 2v4c0 3-2.2 5.2-5 6-2.8-.8-5-3-5-6V4z' }]],
     gear: [['circle', { cx: 8, cy: 8, r: 2.2 }],
            ['path', { d: 'M8 1.6v1.6M8 12.8v1.6M14.4 8h-1.6M3.2 8H1.6M12.5 3.5l-1.1 1.1M4.6 11.4l-1.1 1.1M12.5 12.5l-1.1-1.1M4.6 4.6L3.5 3.5' }]],
+    close: [['path', { d: 'M4 4l8 8M12 4l-8 8' }]],
   };
   function icon(name) {
     const svg = document.createElementNS(SVGNS, 'svg');
@@ -58,6 +60,64 @@
       svg.appendChild(el);
     }
     return svg;
+  }
+
+  // --- settings overlay (U2) ----------------------------------------------
+  // A calm first-party slide-over: gear → role=dialog, focus-trapped, Esc/backdrop
+  // close, focus restores to the gear. The groups (auto-let-go U3, never-touch U4,
+  // board U5) populate `buildSettingsGroups`; U10's cheatsheet reuses this shell.
+  let settingsPrevFocus = null;
+  const settingsOpen = () => !!document.querySelector('.settings-overlay');
+
+  function closeSettings() {
+    const o = document.querySelector('.settings-overlay');
+    if (o) o.remove();
+    try { if (settingsPrevFocus && settingsPrevFocus.focus) settingsPrevFocus.focus(); } catch (e) { /* gone */ }
+  }
+
+  function settingsKeydown(e) {
+    if (e.key === 'Escape') { e.preventDefault(); closeSettings(); return; }
+    if (e.key !== 'Tab') return;
+    const f = [...e.currentTarget.querySelectorAll('button, input, select, [href], [tabindex]:not([tabindex="-1"])')]
+      .filter((el) => !el.disabled && el.offsetParent !== null);
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+
+  function buildSettingsGroups(container) {
+    // Groups are appended here by U3 (auto-let-go), U4 (never-touch), U5 (board).
+    void container;
+  }
+
+  function openSettings() {
+    if (settingsOpen()) return;
+    settingsPrevFocus = document.activeElement;
+    const overlay = document.createElement('div');
+    overlay.className = 'settings-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Settings');
+    const backdrop = document.createElement('div'); backdrop.className = 'settings-backdrop';
+    backdrop.addEventListener('click', closeSettings);
+    const panel = document.createElement('div'); panel.className = 'settings-panel';
+    panel.addEventListener('keydown', settingsKeydown);
+    const head = document.createElement('div'); head.className = 'settings-head';
+    const title = document.createElement('span'); title.className = 'settings-title'; title.textContent = 'Settings';
+    const close = document.createElement('button');
+    close.type = 'button'; close.className = 'settings-close icon-btn';
+    close.setAttribute('aria-label', 'Close settings'); close.title = 'Close';
+    close.append(icon('close'));
+    close.addEventListener('click', closeSettings);
+    head.append(title, close);
+    const groups = document.createElement('div'); groups.className = 'settings-groups';
+    buildSettingsGroups(groups);
+    panel.append(head, groups);
+    overlay.append(backdrop, panel);
+    docBody.appendChild(overlay);
+    // Initial focus = the first group control (e.g. the auto toggle), else the close.
+    (groups.querySelector('button, input, select, [tabindex]:not([tabindex="-1"])') || close).focus();
   }
   let mounted = [];   // panel teardown fns; run before each re-render so intervals,
                       // message listeners, and focus handlers never leak.
@@ -587,6 +647,7 @@
     docBody.classList.toggle('editing', editing);
     docBody.classList.toggle('minimal', !!config.minimalMode);
     editBtn.hidden = false;
+    if (settingsBtn) settingsBtn.hidden = false;
     if (oneLineToggle) {
       oneLineToggle.hidden = !editing;
       oneLineToggle.textContent = (config.oneLine && config.oneLine.enabled) ? 'Remove one-line' : '+ daily one-line';
@@ -758,6 +819,11 @@
   editBtn.textContent = ''; editBtn.append(icon('pencil'));   // U1: iconify the edit affordance
   editBtn.setAttribute('aria-label', 'Edit board'); editBtn.title = 'Edit board';
   editBtn.addEventListener('click', () => { editing = !editing; renderBoard(); });
+  if (settingsBtn) {   // U2: the gear opens/closes the settings overlay
+    settingsBtn.append(icon('gear'));
+    settingsBtn.setAttribute('aria-label', 'Settings'); settingsBtn.title = 'Settings';
+    settingsBtn.addEventListener('click', () => { settingsOpen() ? closeSettings() : openSettings(); });
+  }
   if (oneLineToggle) oneLineToggle.addEventListener('click', toggleOneLine);
   addBtn.addEventListener('click', openAddPicker);
   window.addEventListener('hashchange', renderBoard);
