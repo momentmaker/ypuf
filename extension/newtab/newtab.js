@@ -230,6 +230,11 @@
   let mounted = [];   // panel teardown fns; run before each re-render so intervals,
                       // message listeners, and focus handlers never leak.
   let firstPaint = true; // the gentle card entrance plays once on open, not on every re-render
+  // The puff (U6): the soft "let go" arrival on recall rows let go since you last
+  // opened the board. `boardLastOpen` holds the PREVIOUS open's stamp; `puffArmed`
+  // fires the animation once on this open, then disarms so re-renders don't re-puff.
+  let boardLastOpen = 0;
+  let puffArmed = false;
 
   // Atmosphere (U4): the board greets the hour. Local clock only — no data, no network.
   const MOODS = [
@@ -911,12 +916,25 @@
 
   const saveConfig = () => send('board-save-config', { config });
 
+  const BOARD_LAST_OPEN_KEY = 'boardLastOpen';
+  function readBoardLastOpen() {
+    return new Promise((res) => {
+      try { chrome.storage.local.get(BOARD_LAST_OPEN_KEY, (o) => res((o && o[BOARD_LAST_OPEN_KEY]) || 0)); }
+      catch { res(0); }
+    });
+  }
+
   async function loadAndRender() {
     const loaded = await send('board-get-config');
     if (loaded && Array.isArray(loaded.panels)) config = loaded;
     // One-time migration: panels from before lanes existed get spread across the
     // columns (round-robin) so the board looks composed rather than all stacked left.
     if (lanes.migrateCols(config.panels, COLS)) saveConfig();
+    // U6: capture the prior open's stamp (for the puff), then advance it. Read before
+    // write so this open's "new since last time" comparison uses the previous value.
+    boardLastOpen = await readBoardLastOpen();
+    puffArmed = true;
+    try { chrome.storage.local.set({ [BOARD_LAST_OPEN_KEY]: Date.now() }); } catch {}
     renderBoard();
     renderOneLine();
   }
@@ -1085,7 +1103,18 @@
       }
 
       send('list-recent', { limit: 12 }).then((resp) => {
-        if (!destroyed) renderList(recentWrap, resp && resp.items, { action: 'open' });
+        if (destroyed) return;
+        const items = (resp && resp.items) || [];
+        renderList(recentWrap, items, { action: 'open' });
+        // U6: the puff — rows let go since the last board open arrive with a soft
+        // settle. One-shot: disarm after the first paint so re-renders stay still.
+        if (puffArmed) {
+          const rows = recentWrap.querySelectorAll('.recent-item');
+          items.forEach((it, i) => {
+            if (it.autoClosed && it.timestamp > boardLastOpen && rows[i]) rows[i].classList.add('puff');
+          });
+          puffArmed = false;
+        }
       });
 
       let seq = 0;

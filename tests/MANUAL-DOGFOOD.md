@@ -459,3 +459,24 @@ boundary, and the host-permission grants — is verified by hand.
       quiet aphorism (disclosed as `um.fz.ax`); the switch reflects the new state.
 - [ ] The overlay stays calm — **three small groups** (Auto-let-go · Never-touch ·
       Board), no knobs wall. *(Covers AE6)*
+
+# Board calm settings & soul — Phase B (soul: puff + digest)
+
+## The puff on open (U6 / R7)
+
+- [ ] Let a page auto-let-go (or use a Bold window so it happens fast), then open a
+      **fresh** new-tab. In the ypuf recall panel, the newly-let-go row(s) **settle in
+      from a soft haze** once — a calm exhale, not a flashy bounce.
+- [ ] Toggling edit / re-rendering the board does **not** re-trigger the puff (one-shot
+      per open). Re-opening a new tab puffs only rows let go *since the last open*.
+- [ ] With **Reduce motion** on (System Settings → Accessibility), the rows just appear
+      — no animation. Manual let-go and snooze-wake rows never puff (auto-closed only).
+
+## "Your week, unburdened" digest (U7 / R8)
+
+- [ ] After some auto-let-go activity, the ypuf panel shows a quiet line below the relief
+      moment: **"N let go this week · 0 lost · M recalled"** — muted, no box, no badge.
+- [ ] On a **fresh profile** with no auto-let-go yet, the line is **absent entirely**
+      (no cold "0 let go this week"). It reappears once there's something to count.
+- [ ] The tally counts only the **last 7 days** and only **auto-closed** records;
+      recalling a page later still counts it under *recalled*. **lost is always 0.**
