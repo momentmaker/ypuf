@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Privacy — ypuf</title>
+  <meta name="description" content="ypuf is 100% local. Nothing it records about your tabs or pages ever leaves your device." />
+  <meta name="theme-color" content="#f8f5f0" />
+  <link rel="icon" type="image/svg+xml" href="img/ypuf-mark.svg" />
+  <script src="theme-preinit.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <nav class="nav">
+    <div class="wrap">
+      <a class="brand" href="index.html" aria-label="ypuf home">
+        <svg class="mark" viewBox="0 0 16 16" aria-hidden="true"><g fill="currentColor"><circle cx="5.3" cy="10.7" r="3.5"/><circle cx="9.7" cy="7.3" r="1.75" opacity=".72"/><circle cx="12.3" cy="4.9" r="1.05" opacity=".5"/><circle cx="14" cy="3.2" r=".62" opacity=".32"/></g></svg>
+        ypuf
+      </a>
+      <span class="spacer"></span>
+      <a class="link hide-sm" href="index.html#how">How it works</a>
+      <a class="link hide-sm" href="https://github.com/momentmaker/ypuf">GitHub</a>
+      <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Theme"></button>
+      <a class="btn btn-primary" href="index.html#get">Get ypuf</a>
+    </div>
+  </nav>
+
+  <main class="prose">
+    <h1>Privacy</h1>
+    <p class="meta">Effective 2026-06-18 · the ypuf Chrome extension</p>
+
+    <p class="big">ypuf is 100% local. Nothing ypuf records about your tabs or pages
+      ever leaves your device — there are no ypuf servers, no accounts, no analytics,
+      and nothing is ever sold or shared.</p>
+    <p class="muted">ypuf is a <em>local index</em>, like your browser's own history — not a data processor.</p>
+
+    <h2>What ypuf stores (all on your device)</h2>
+    <p>To let you close tabs and find them again, ypuf keeps the following in your
+      browser's own local storage, on your computer only:</p>
+    <ul>
+      <li><b>A content index of pages you let go</b> — the title, the address
+        (query string stripped off), and the readable article text, extracted
+        on-device with Mozilla Readability (which skips navigation, ads, and form fields).</li>
+      <li><b>Dwell / revisit signals</b> — how long and how often you keep a tab open,
+        so ypuf can tell a tab you care about from a forgotten one.</li>
+      <li><b>Your settings</b> — board panels, theme, protected sites, snooze schedules.</li>
+    </ul>
+    <p>Uninstalling ypuf deletes all of it.</p>
+
+    <h2>What ypuf never does</h2>
+    <ul>
+      <li><b>Never transmits</b> your browsing history, page content, or tab data off your device.</li>
+      <li><b>No analytics, no telemetry, no tracking.</b> ypuf has no servers and makes no "phone home" requests.</li>
+      <li><b>No accounts, no sign-in.</b></li>
+      <li><b>Never sells, rents, or shares</b> your data with anyone.</li>
+    </ul>
+
+    <h2>What ypuf deliberately excludes</h2>
+    <ul>
+      <li><b>Incognito windows are not indexed at all</b> (ypuf is disabled in incognito).</li>
+      <li><b>Sensitive sites are excluded by default</b> — a built-in blocklist covers
+        banking, health, government, and password-manager domains; those pages are
+        recorded as title + address only, never their text, and you can add your own.</li>
+      <li><b>Form fields and input values are never captured.</b></li>
+    </ul>
+
+    <h2>Network requests</h2>
+    <p>The core of ypuf — letting tabs go and recalling them — makes <b>zero network
+      requests</b>. Page text is extracted locally; recall search runs locally.</p>
+    <p>The only outbound requests come from <b>optional panels you choose to add</b> to
+      your new-tab board (e.g. an RSS feed or a crypto-price panel). Those fetch from the
+      source you picked, are disclosed in the panel, and add no tracking — the same as
+      visiting that source in a tab. If you add no such panels, ypuf makes no network
+      requests at all.</p>
+
+    <h2>Data this maps to</h2>
+    <table>
+      <tr><th>Type</th><th>Handled?</th><th>How</th></tr>
+      <tr><td>Web history</td><td>Yes</td><td>Stored locally only; never transmitted.</td></tr>
+      <tr><td>Website content</td><td>Yes</td><td>Readable text, extracted + stored on-device only.</td></tr>
+      <tr><td>User activity</td><td>Yes</td><td>Dwell time + revisit counts, locally only. No keystroke/click logging.</td></tr>
+      <tr><td>PII · financial · auth · health · location · communications</td><td>No</td><td>Not collected; sensitive sites excluded by default.</td></tr>
+    </table>
+    <p class="muted">ypuf does not sell or transfer user data to anyone, does not use it
+      for purposes unrelated to recalling your tabs, and does not use it for
+      creditworthiness or lending.</p>
+
+    <h2>Your controls</h2>
+    <ul>
+      <li><b>"What's indexed"</b> — a view of everything ypuf has stored.</li>
+      <li><b>Forget</b> — one click to remove any page or every page from a domain.</li>
+      <li><b>Protected sites</b> — keep any site from ever being auto-closed.</li>
+      <li><b>Uninstall</b> — removes ypuf and all local data.</li>
+    </ul>
+
+    <h2>Contact</h2>
+    <p>Questions? Open an issue at
+      <a href="https://github.com/momentmaker/ypuf">github.com/momentmaker/ypuf</a>
+      or email <a href="mailto:privacy@ypuf.com">privacy@ypuf.com</a>.</p>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <a class="brand" href="index.html" style="font-size:18px;"><svg class="mark" viewBox="0 0 16 16" aria-hidden="true" style="width:18px;height:18px;"><g fill="currentColor"><circle cx="5.3" cy="10.7" r="3.5"/><circle cx="9.7" cy="7.3" r="1.75" opacity=".72"/><circle cx="12.3" cy="4.9" r="1.05" opacity=".5"/><circle cx="14" cy="3.2" r=".62" opacity=".32"/></g></svg> ypuf</a>
+      <span class="spacer"></span>
+      <a href="privacy.html">Privacy</a>
+      <a href="https://github.com/momentmaker/ypuf">GitHub</a>
+      <span style="color:var(--muted);">© 2026 momentmaker</span>
+    </div>
+  </footer>
+
+  <script src="theme.js"></script>
+  <script src="starfield.js"></script>
+</body>
+</html>
