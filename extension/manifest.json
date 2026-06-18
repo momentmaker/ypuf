@@ -9,7 +9,7 @@
   "chrome_url_overrides": { "newtab": "newtab/newtab.html" },
   "sandbox": { "pages": ["panels/sandbox.html"] },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'",
+    "extension_pages": "script-src 'self'; object-src 'self'; font-src 'self'",
     "sandbox": "sandbox allow-scripts; default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; object-src 'none'; connect-src 'none'; img-src 'none'; child-src 'none'; frame-src 'none';"
   },
   "background": { "service_worker": "background.js" },

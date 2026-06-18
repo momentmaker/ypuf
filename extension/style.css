@@ -10,13 +10,32 @@
  * Fonts are self-hosted / system (no external CDN — nothing leaves the machine).
  */
 
-/* Self-hosted display serif for the masthead/headings (Fraunces, SIL OFL — see
-   extension/fonts/. No external CDN: nothing leaves the machine). */
+/* Self-hosted type system (U2): Cormorant Garamond (display serif) + Lato (UI sans),
+   both SIL OFL, in extension/fonts/. No external CDN — nothing leaves the machine
+   (manifest `font-src 'self'` enforces it). */
 @font-face {
-  font-family: "Fraunces";
-  src: url("fonts/fraunces.woff2") format("woff2");
-  font-weight: 400 600;
-  font-display: swap;
+  font-family: "Cormorant Garamond"; src: url("fonts/cormorant-garamond-300.woff2") format("woff2");
+  font-weight: 300; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Cormorant Garamond"; src: url("fonts/cormorant-garamond-400.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Cormorant Garamond"; src: url("fonts/cormorant-garamond-600.woff2") format("woff2");
+  font-weight: 600; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Cormorant Garamond"; src: url("fonts/cormorant-garamond-400-italic.woff2") format("woff2");
+  font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: "Lato"; src: url("fonts/lato-400.woff2") format("woff2");
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Lato"; src: url("fonts/lato-700.woff2") format("woff2");
+  font-weight: 700; font-style: normal; font-display: swap;
 }
 
 /*
@@ -41,8 +60,10 @@
   --focus-ring: #c8713a;   /* high-contrast against light paper */
   --on-accent: #fff;       /* button foreground on --accent-amber */
   --radius: 10px;
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-display: "Fraunces", "Iowan Old Style", Georgia, ui-serif, serif;
+  /* Type system (U2): Lato for UI/body, Cormorant Garamond for the display moments. */
+  --font: "Lato", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-ui: var(--font);
+  --font-display: "Cormorant Garamond", "Iowan Old Style", Georgia, ui-serif, serif;
 }
 
 [data-theme="dark"] {

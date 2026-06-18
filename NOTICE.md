@@ -41,12 +41,17 @@ SOFTWARE.
 
 ---
 
-## Fraunces (display font)
+## Cormorant Garamond + Lato (type system)
 
-`extension/fonts/fraunces.woff2` (Latin subset) is **Fraunces**, an open-source
-optical serif by The Fraunces Project Authors.
+`extension/fonts/cormorant-garamond-*.woff2` (Latin subset) is **Cormorant Garamond**
+by Christian Thalmann / Catharsis Fonts; `extension/fonts/lato-*.woff2` (Latin subset)
+is **Lato** by Łukasz Dziedzic. Both are used self-hosted (no external CDN) for the
+ypuf display serif (masthead/headings) and UI sans respectively, matching the sibling
+pilgrim pages.
 
-- Copyright 2018 The Fraunces Project Authors (https://github.com/undercasetype/Fraunces)
-- Licensed under the SIL Open Font License, Version 1.1 — https://scripts.sil.org/OFL
+- Cormorant Garamond — Copyright The Cormorant Project Authors
+  (https://github.com/CatharsisFonts/Cormorant)
+- Lato — Copyright Łukasz Dziedzic (https://www.latofonts.com)
+- Both licensed under the SIL Open Font License, Version 1.1 — https://scripts.sil.org/OFL
 
-Used self-hosted (no external CDN) for the board masthead and headings.
+(Fraunces, the prior display serif, was retired in the light/dark/star theming pass.)
