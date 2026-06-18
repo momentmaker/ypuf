@@ -158,6 +158,7 @@
   let closed = false;
 
   function close() {
+    if (closed) return;
     closed = true;
     host.remove();
     try { if (prevFocus && prevFocus.focus) prevFocus.focus(); } catch { /* ignore */ }
@@ -322,12 +323,20 @@
 
   input.addEventListener('input', query);
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    if (e.key === 'Escape') { e.preventDefault(); close(); }   // plain pages: input gets Escape directly
     else if (e.key === 'ArrowDown') { e.preventDefault(); if (items.length) setActive(Math.min(active + 1, items.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); if (items.length) setActive(Math.max(active - 1, 0)); }
     else if (e.key === 'Enter') { e.preventDefault(); if (active >= 0) choose(active); }
   });
   backdrop.addEventListener('click', close);
+
+  // Vimium/Surfingkeys own Escape in insert mode (they grab it to exit, before our input
+  // handler runs) — but exiting BLURS the host, firing focusout. So if focus leaves the
+  // overlay entirely (the host is no longer activeElement), close. Focus moving WITHIN the
+  // closed shadow (clicking a result/checkbox) keeps the host as activeElement → stay open.
+  host.addEventListener('focusout', () => {
+    setTimeout(() => { if (!closed && document.activeElement !== host) close(); }, 0);
+  });
 
   input.focus();
   query();
