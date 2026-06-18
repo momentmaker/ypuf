@@ -69,6 +69,25 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
 .board-edit:hover { color: var(--ink); border-color: var(--warm-gray); }
 .board.editing #board-edit { color: var(--accent-amber); border-color: var(--accent-amber); }
 
+/* The cycling moon-phase / star theme toggle (U5). The glyph's lit colour is the
+   button's `color`; a stroked rim keeps it legible on dark/navy. Star mode adds a
+   slow, reduced-motion-gated lavender breath. */
+.theme-toggle {
+  background: none; border: none; cursor: pointer; padding: 4px; line-height: 0;
+  display: inline-flex; align-items: center; justify-content: center; color: var(--muted);
+}
+.theme-toggle:hover { color: var(--ink); }
+.theme-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 6px; }
+.theme-toggle svg { display: block; }
+@media (prefers-reduced-motion: no-preference) {
+  .theme-toggle { transition: color 0.2s ease; }
+  [data-theme="star"] .theme-toggle svg { animation: star-toggle-breathe 4s ease-in-out infinite; }
+  @keyframes star-toggle-breathe {
+    0%, 100% { filter: drop-shadow(0 0 1px transparent); }
+    50%      { filter: drop-shadow(0 0 4px var(--accent-amber)); }
+  }
+}
+
 /* Settings overlay (U2): a calm right-side slide-over. Groups land in U3/U4/U5. */
 .settings-overlay { position: fixed; inset: 0; z-index: 50; }
 .settings-backdrop { position: absolute; inset: 0; background: rgba(26, 22, 19, 0.20); }

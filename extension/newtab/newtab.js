@@ -19,6 +19,9 @@
   const lanes = window.ypuf.lanes;                // pure lane-placement math (tested in lib/lanes.js)
   const boardkeys = window.ypuf.boardkeys;        // pure cursor + key→intent (tested in lib/boardkeys.js)
   const hints = window.ypuf.hints;                // pure f-hint label assign/match (tested in lib/hints.js)
+  const theme = window.ypuf.theme;                // pure light/dark/star mode core (tested in lib/theme.js)
+  const moonphase = window.ypuf.moonphase;        // pure lunar phase (tested in lib/moonphase.js)
+  const moonrender = window.ypuf.moonrender;      // moon/star toggle glyph (DOM helper)
 
   const docBody = document.body;
   const grid = document.getElementById('board-grid');
@@ -26,7 +29,42 @@
   const addBtn = document.getElementById('add-panel');
   const editBtn = document.getElementById('board-edit');
   const settingsBtn = document.getElementById('board-settings');
+  const themeToggle = document.getElementById('theme-toggle');
   const minimalNote = document.getElementById('minimal-note');
+
+  // --- theme controller (U5, R2/R3/R9/R15) ---------------------------------
+  // Light/dark/star, applied pre-paint by lib/theme-preinit.js; this wires the cycling
+  // moon-phase toggle, persists to localStorage (synchronous, shared across extension
+  // pages, local-only), and converges other open surfaces via the `storage` event.
+  const THEME_KEY = 'ypuf-theme';
+  const currentTheme = () => theme.normalize(document.documentElement.getAttribute('data-theme'));
+
+  function renderThemeToggle() {
+    if (!themeToggle) return;
+    const mode = currentTheme();
+    const star = mode === 'star';
+    moonrender.render(themeToggle, { star, phase: star ? 0 : moonphase.phase(new Date()) });
+    const nextMode = theme.next(mode);
+    themeToggle.setAttribute('aria-label', `Theme: ${mode} — switch to ${nextMode}`);
+    themeToggle.title = `Theme: ${mode} (click for ${nextMode})`;
+  }
+
+  function applyTheme(mode) {
+    document.documentElement.setAttribute('data-theme', theme.normalize(mode));
+    renderThemeToggle();
+    postThemeToPanels(currentTheme());   // U7: propagate into the sandboxed panels
+    if (typeof refreshThemeControl === 'function') refreshThemeControl();
+  }
+  function setTheme(mode) {
+    const m = theme.normalize(mode);
+    try { localStorage.setItem(THEME_KEY, m); } catch (e) { /* storage blocked */ }
+    applyTheme(m);
+  }
+  const cycleTheme = () => setTheme(theme.next(currentTheme()));
+
+  // U7 fills this in (panel theming); a no-op until then so applyTheme stays stable.
+  function postThemeToPanels() {}
+  let refreshThemeControl = null;   // set by the settings theme control when the overlay is open
   const boardSub = document.getElementById('board-sub');
   const oneLineEl = document.getElementById('board-oneline');
 
@@ -218,7 +256,32 @@
     g.append(row, sub); container.appendChild(g);
   }
 
+  // Appearance group (U5): an explicit segmented Light/Dark/Star control — the
+  // settings surface gets the named choice (vs the masthead's glyph toggle). Reflects
+  // external theme changes (toggle/storage) while the overlay is open.
+  function buildThemeControl(container) {
+    const g = settingsGroup('Appearance');
+    const seg = document.createElement('div'); seg.className = 'segmented';
+    seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', 'Theme');
+    const LABELS = { light: 'Light', dark: 'Dark', star: 'Star' };
+    const draw = () => {
+      const mode = currentTheme();
+      seg.textContent = '';
+      for (const m of theme.MODES) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'seg' + (m === mode ? ' selected' : '');
+        b.textContent = LABELS[m]; b.setAttribute('aria-pressed', String(m === mode));
+        b.addEventListener('click', () => setTheme(m));
+        seg.appendChild(b);
+      }
+    };
+    draw();
+    refreshThemeControl = () => { document.body.contains(seg) ? draw() : (refreshThemeControl = null); };
+    g.appendChild(seg); container.appendChild(g);
+  }
+
   function buildSettingsGroups(container) {
+    buildThemeControl(container);
     buildAutoGroup(container);
     buildNeverTouchGroup(container);
     buildBoardGroup(container);
@@ -979,6 +1042,16 @@
     settingsBtn.setAttribute('aria-label', 'Settings'); settingsBtn.title = 'Settings';
     settingsBtn.addEventListener('click', () => { settingsOpen() ? closeSettings() : openSettings(); });
   }
+  if (themeToggle) {   // U5: the cycling moon-phase toggle (light → dark → star)
+    themeToggle.setAttribute('aria-label', 'Theme');
+    renderThemeToggle();
+    themeToggle.addEventListener('click', cycleTheme);
+  }
+  // Another extension surface (a second board tab, the popup) changed the theme — converge.
+  window.addEventListener('storage', (e) => {
+    if (e.key === THEME_KEY && e.newValue) applyTheme(e.newValue);
+  });
+
   addBtn.addEventListener('click', openAddPicker);
   window.addEventListener('hashchange', renderBoard);
 
