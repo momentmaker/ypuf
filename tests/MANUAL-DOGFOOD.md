@@ -360,6 +360,10 @@ boundary, and the host-permission grants — is verified by hand.
       clicking a row **opens** it (regression: the row click must reopen the page —
       `itemRow` now defaults the click id to the row's own id, covered by
       `tests/shelf-render.test.js`); recall search returns + opens a result.
+- [ ] **Search focus:** typing a query **collapses the panel to just the matches** (the
+      recent/snoozed/digest sections hide), with a calm "No matches for …" when nothing hits.
+      Pressing **`/`** focuses the search; **Esc** (or the × / clearing the box) **clears the
+      query and restores** the recent list — it never gets stuck mid-search.
 - [ ] A let-go page whose **title contains markup** renders **inert** in the panel
       (host-rendered, `textContent`) — covered automatically by
       `tests/shelf-render.test.js`, spot-check visually.

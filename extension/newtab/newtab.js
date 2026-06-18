@@ -1665,11 +1665,11 @@
 
       let seq = 0;
       let timer = null;
-      search.addEventListener('input', () => {
+      const applyQuery = () => {
         const q = search.value.trim();
         searchMode(!!q);                 // toggle immediately so the recent list hides as you type
         clearTimeout(timer);
-        if (!q) { results.textContent = ''; return; }
+        if (!q) { results.textContent = ''; return; }   // empty → restore the full panel
         timer = setTimeout(() => {
           const mine = ++seq;
           send('recall-search', { q }).then((resp) => {
@@ -1684,6 +1684,18 @@
             }
           });
         }, 180);
+      };
+      search.addEventListener('input', applyQuery);
+      search.addEventListener('search', applyQuery);   // native clear (× button / type=search reset)
+      // Esc owns the search field: clear the query, restore the panel, then blur — so the
+      // board's generic 'escape' (which only blurs) can't leave it stuck mid-search.
+      search.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        e.preventDefault();
+        e.stopPropagation();
+        search.value = '';
+        applyQuery();
+        search.blur();
       });
 
       send('snooze-list').then((resp) => {
