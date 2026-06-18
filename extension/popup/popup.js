@@ -42,7 +42,7 @@
   }
   if (themeToggle) {
     renderThemeToggle();
-    themeToggle.addEventListener('click', () => setTheme(theme.next(currentTheme())));
+    themeToggle.addEventListener('click', () => { setTheme(theme.next(currentTheme())); moonrender.spinToggle(themeToggle); });
   }
   window.addEventListener('storage', (e) => {
     if (e.key === THEME_KEY && e.newValue) applyTheme(e.newValue);
@@ -180,6 +180,7 @@
     recentEmpty = !(items && items.length);
     updateEmpty();
     quick = []; cursor = -1;
+    if (hintsActive) exitHints();   // a refresh mid-hint would orphan the badges (pattern 20)
     if (recentEmpty) return;
     items.forEach((it, i) => {
       const ago = T.timeAgo ? T.timeAgo(it.timestamp) : '';
@@ -207,11 +208,76 @@
     const start = cursor < 0 ? (d > 0 ? 0 : quick.length - 1) : cursor + d;
     setCursor(Math.max(0, Math.min(quick.length - 1, start)));
   }
+
+  // f-hints (U11): press f to badge every recall row with a letter label; typing it opens
+  // that page — the same vim layer the board uses (lib/boardkeys.js + lib/hints.js). The
+  // readable 1–9 numbers stay alongside for now; a dogfood decides their fate later.
+  const boardkeys = window.ypuf.boardkeys;
+  const hints = window.ypuf.hints;
+  let hintsActive = false, hintBuf = '', hintLabels = [], hintTargets = [];
+
+  function enterHints() {
+    if (hintsActive) return;
+    // Only badge rows the user can actually see — the shelf is hidden while the
+    // indexed/protected sub-views are open. Keep each row's quick-index id alongside it.
+    const rows = [...recent.children]
+      .map((el, i) => ({ el, id: quick[i] }))
+      .filter((r) => r.el.offsetParent !== null);
+    if (!rows.length) return;
+    hintLabels = hints.assign(rows.length);
+    hintTargets = rows.slice(0, hintLabels.length);
+    hintBuf = '';
+    const layer = document.createElement('div');
+    layer.className = 'hint-layer';
+    layer.setAttribute('aria-hidden', 'true');   // floating badges are coordinate artifacts, not content
+    hintTargets.forEach((row, i) => {
+      const r = row.el.getBoundingClientRect();
+      const badge = document.createElement('span');
+      badge.className = 'hint-badge';
+      badge.dataset.label = hintLabels[i];
+      badge.textContent = hintLabels[i];
+      badge.style.left = `${r.left}px`;
+      badge.style.top = `${r.top}px`;
+      layer.appendChild(badge);
+    });
+    document.body.appendChild(layer);
+    hintsActive = true;
+    // The fixed badges are pinned to enter-time viewport coords; scrolling the shelf would
+    // slide the rows out from under them (body.popup is the scroll container). Dismiss on
+    // any scroll — calm + predictable, like a typo. capture:true catches the body scroll.
+    window.addEventListener('scroll', exitHints, { capture: true, passive: true });
+  }
+
+  function exitHints() {
+    hintsActive = false; hintBuf = ''; hintTargets = []; hintLabels = [];
+    window.removeEventListener('scroll', exitHints, { capture: true });
+    const layer = document.querySelector('.hint-layer');
+    if (layer) layer.remove();
+  }
+
+  function handleHintKey(e) {
+    if (e.key === 'Escape') { e.preventDefault(); exitHints(); return; }
+    if (e.key.length !== 1 || !/[a-z]/i.test(e.key)) return;   // only letters select a hint
+    e.preventDefault();
+    hintBuf += e.key.toLowerCase();
+    const m = hints.match(hintBuf, hintLabels);
+    if (m.index !== undefined) {
+      const row = hintTargets[m.index];
+      exitHints();
+      if (row && row.id) recallOpen(row.id);
+    } else if (m.noMatch) {
+      exitHints();   // a typo cancels — calm, predictable
+    } else {
+      document.querySelectorAll('.hint-badge').forEach((b) =>
+        b.classList.toggle('stale', b.dataset.label.indexOf(hintBuf) !== 0));
+    }
+  }
   // 1–9/0 open a row directly; j/k+Enter for cursor nav; Esc closes. A focused input
   // (the snooze datetime) or button keeps its own keys.
   document.addEventListener('keydown', (e) => {
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    if (hintsActive) { handleHintKey(e); return; }   // f-hint mode owns letters + its own Esc
     if (e.key === 'Escape') { window.close(); return; }
     if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); moveCursor(1); return; }
     if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); moveCursor(-1); return; }
@@ -221,6 +287,7 @@
       }
       return;
     }
+    if (boardkeys.intent(e.key) === 'hints') { e.preventDefault(); enterHints(); return; }
     const idx = HINT_KEYS.indexOf(e.key);
     if (idx >= 0 && quick[idx]) { e.preventDefault(); recallOpen(quick[idx]); }
   });

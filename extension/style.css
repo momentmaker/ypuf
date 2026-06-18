@@ -60,7 +60,12 @@
   --shadow: rgba(26, 22, 19, 0.06);
   --focus-ring: #c8713a;   /* high-contrast against light paper */
   --on-accent: #fff;       /* button foreground on --accent-amber */
-  --radius: 10px;
+  --card-highlight: rgba(255, 255, 255, 0.7);   /* the top-edge light-catch on cards */
+  --radius: 10px;   /* legacy default — still used by components U10 deliberately left un-repolished (btn-letgo, relief, add-panel/picker, lane edit) */
+  /* Polish radius scale (U10): rows · cards · overlays. */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 20px;
   /* Type system (U2): Lato for UI/body, Cormorant Garamond for the display moments. */
   --font: "Lato", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-ui: var(--font);
@@ -81,6 +86,7 @@
   --shadow: rgba(0, 0, 0, 0.45);
   --focus-ring: #e6a96f;   /* amber, high-contrast on dark */
   --on-accent: #1c1914;    /* dark text reads on the lifted amber */
+  --card-highlight: rgba(255, 255, 255, 0.05);   /* a whisper, not a bright edge */
 }
 
 [data-theme="star"] {
@@ -97,6 +103,7 @@
   --shadow: rgba(0, 0, 0, 0.6);
   --focus-ring: #d9ccff;             /* lavender, high-contrast on navy */
   --on-accent: #14142a;              /* dark text reads on the lavender accent */
+  --card-highlight: rgba(232, 224, 255, 0.06);   /* a faint lavender edge */
 }
 
 /* The theme switch eases color, but only when motion is welcome (R9). It does not fire
@@ -141,10 +148,57 @@ body.popup { width: 340px; max-height: 560px; overflow-y: auto; }
 }
 .shelf-actions { display: flex; align-items: center; gap: 10px; }
 
+/* The wordmark wears the display serif (Cormorant) so the popup shelf-head reads as
+   crafted as the board masthead — 600 gives it presence at the compact popup size. */
 .wordmark {
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1;
   color: var(--accent-amber);
+}
+
+/* f-hints (board + popup, U11): amber badges over host-rendered clickables — present only
+   in hint mode, removed on select/Esc (invisible at rest). `position: fixed` + viewport
+   coords so it works over both the window-scrolled board and the body-scrolled popup. */
+.hint-layer { position: fixed; inset: 0; z-index: 50; pointer-events: none; }
+.hint-badge {
+  position: fixed;
+  transform: translate(-3px, -9px);
+  font: 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  background: var(--accent-amber); color: var(--on-accent);
+  padding: 1px 4px; border-radius: 4px;
+  box-shadow: 0 1px 3px var(--shadow);
+}
+.hint-badge.stale { opacity: 0.2; }
+
+/* The puff mark (U9) beside the wordmark — inline themed SVG (currentColor → the amber
+   accent in light/dark, lavender in star). */
+.board-title { display: inline-flex; align-items: center; gap: 8px; }
+.puff-mark { width: 18px; height: 18px; flex: none; display: block; color: var(--accent-amber); }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* The puff finally puffs (slice-3 polish): on each new-tab open the mark drifts in
+     up-and-right and settles — the signature let-go gesture made literal (CONTEXT.md §5e).
+     One-shot via body.intro so board re-renders don't replay it; the popup mark (opened far
+     more often) stays calm and static. */
+  body.intro .puff-mark { animation: puff-in 620ms cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+  @keyframes puff-in {
+    0%   { opacity: 0; transform: translate(-3px, 4px) scale(0.7); }
+    60%  { opacity: 1; }
+    100% { opacity: 1; transform: translate(0, 0) scale(1); }
+  }
+  /* In star mode the scattered dots pick up a faint, staggered twinkle — the mark joining
+     the starfield behind it. The anchor dot (first child) stays solid. */
+  [data-theme="star"] .puff-mark circle:nth-child(2) { animation: puff-twinkle 4.2s ease-in-out infinite; }
+  [data-theme="star"] .puff-mark circle:nth-child(3) { animation: puff-twinkle 5.4s ease-in-out 0.7s infinite; }
+  [data-theme="star"] .puff-mark circle:nth-child(4) { animation: puff-twinkle 6.3s ease-in-out 1.2s infinite; }
+  @keyframes puff-twinkle {
+    0%, 100% { opacity: 0.42; }
+    50%      { opacity: 0.85; }
+  }
 }
 
 .btn-letgo {
@@ -166,7 +220,7 @@ body.popup { width: 340px; max-height: 560px; overflow-y: auto; }
   flex-direction: column;
   gap: 2px;
   padding: 8px 10px;
-  border-radius: var(--radius);
+  border-radius: var(--r-sm);
   cursor: pointer;
 }
 .recent-item:hover { background: var(--warm-gray); }
@@ -224,6 +278,14 @@ body.popup { width: 340px; max-height: 560px; overflow-y: auto; }
   @keyframes theme-toggle-breathe {
     0%, 100% { filter: drop-shadow(0 0 1px transparent); }
     50%      { filter: drop-shadow(0 0 4px var(--accent-amber)); }
+  }
+  /* The moon turns as the mode cycles: the host re-renders the new phase, then adds .spin
+     for one gentle rotate-and-settle so the change feels lunar, not a snap. */
+  .theme-toggle.spin { animation: moon-turn 520ms cubic-bezier(0.4, 0, 0.2, 1); }
+  @keyframes moon-turn {
+    0%   { transform: rotate(0) scale(1); }
+    45%  { transform: rotate(150deg) scale(0.78); opacity: 0.7; }
+    100% { transform: rotate(360deg) scale(1); opacity: 1; }
   }
 }
 

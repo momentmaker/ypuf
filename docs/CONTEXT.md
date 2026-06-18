@@ -317,6 +317,30 @@ jivx vocab panel · cross-device sync (paid tier) · content-similarity clusteri
 · near-duplicate detection · "opened but never read" surfacing · other browsers
 · sharing.
 
+**Dreamed-up next-level directions (2026-06-18 — parked, not yet brainstormed).**
+With v1 + the calm redesign + keyboard/soul + theming all shipped, the "ebb" half
+(let-go) is essentially complete; the next altitude is the **"flow" half — the
+recall/knowledge layer that is the actual moat (§3, "build the part browsers
+won't").** Two related directions, sharing one spine — *surface data the engine
+already captures, calmly*:
+- **Flow knowledge layer.** *Local semantic recall* — recall by meaning, not
+  keywords ("that article about the guy who quit Google to farm"); 100%
+  on-device, keyword/BM25-first (zero download) then an optional small (~30MB)
+  embedding model. Distinct from the §9-parked embedding *clustering* — this is
+  semantic *search* over the content index. Plus *resumable research threads* —
+  the slice-4 session clusters surfaced as named, resumable trails. Reuse
+  `extension/lib/search.js`, `extension/lib/cluster.js`, the IndexedDB index.
+- **Relief & trust layer.** A pull-only weekly *ebb report* (Zeigarnik relief —
+  "240 let go, 12 recalled, 0 lost"; never a notification — §9 holds) + *"what
+  ypuf has learned about you"* (the inferred protected classes + tuned rhythm
+  made glanceable — §4's "visibly gets smarter," directly serving the #1 trust
+  risk §14). Reuse `extension/lib/digest.js` + the let-go/recall history.
+
+Constraints unchanged: calm-by-design (§5f/§9), local-only/purgeable (§7), no
+runtime LLM (§6 — embedding/retrieval is *not* generative, but flag first-run
+model-download cost honestly). **Brainstorm before planning** — open question:
+one chapter or two slices, and the honest on-device semantic-recall feasibility.
+
 ---
 
 ## 13. Status & next step

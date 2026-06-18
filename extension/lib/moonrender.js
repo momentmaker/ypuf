@@ -60,7 +60,20 @@
     container.appendChild(svg);
   }
 
-  const api = { render, geometry };
+  // Re-trigger the moon-turn keyframes on the toggle element when the theme cycles (host
+  // glue, not node-tested). Reduced-motion users get nothing — no animation, no forced
+  // reflow. The reflow flush between remove+add restarts the animation on a rapid re-click;
+  // the class is cleared on completion so `.spin` is present only while the turn is running.
+  function spinToggle(el) {
+    if (!el) return;
+    if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    el.classList.remove('spin');
+    void el.offsetWidth;
+    el.classList.add('spin');
+    el.addEventListener('animationend', () => el.classList.remove('spin'), { once: true });
+  }
+
+  const api = { render, geometry, spinToggle };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ypuf = Object.assign(root.ypuf || {}, { moonrender: api });
 })(typeof self !== 'undefined' ? self : globalThis);
