@@ -147,6 +147,11 @@ body.popup { width: 340px; max-height: 560px; overflow-y: auto; }
   color: var(--accent-amber);
 }
 
+/* The puff mark (U9) beside the wordmark — inline themed SVG (currentColor → the amber
+   accent in light/dark, lavender in star). */
+.board-title { display: inline-flex; align-items: center; gap: 8px; }
+.puff-mark { width: 18px; height: 18px; flex: none; display: block; color: var(--accent-amber); }
+
 .btn-letgo {
   font: inherit;
   font-size: 13px;
