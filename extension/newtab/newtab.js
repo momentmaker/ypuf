@@ -143,8 +143,38 @@
     send('auto-state').then(draw).catch(() => draw(null));
   }
 
+  // Never-touch group (U4): the protected sites auto-let-go must never close. Add is
+  // recall-row-only in v1 (no manual domain input); remove + empty-state live here.
+  function buildNeverTouchGroup(container) {
+    const g = settingsGroup('Never-touch');
+    const list = document.createElement('div'); list.className = 'nevertouch-list';
+    g.appendChild(list); container.appendChild(g);
+
+    const draw = (resp) => {
+      list.textContent = '';
+      const items = (resp && resp.items) || [];
+      if (!items.length) {
+        const empty = document.createElement('p'); empty.className = 'muted nevertouch-empty';
+        empty.textContent = 'No sites protected yet — protect a site from a recall row.';
+        list.appendChild(empty); return;
+      }
+      for (const host of items) {
+        const row = document.createElement('div'); row.className = 'nevertouch-row';
+        const name = document.createElement('span'); name.className = 'nevertouch-host'; name.textContent = host;
+        const rm = document.createElement('button');
+        rm.type = 'button'; rm.className = 'link'; rm.textContent = 'remove';
+        rm.setAttribute('aria-label', `Stop protecting ${host}`);
+        rm.addEventListener('click', () => send('protect-remove', { host })
+          .then(() => send('protected-list')).then(draw).catch(() => {}));
+        row.append(name, rm); list.appendChild(row);
+      }
+    };
+    send('protected-list').then(draw).catch(() => draw(null));
+  }
+
   function buildSettingsGroups(container) {
-    buildAutoGroup(container);   // U4 (never-touch) and U5 (board) append after this
+    buildAutoGroup(container);
+    buildNeverTouchGroup(container);   // U5 (board group) appends after this
   }
 
   function openSettings() {
@@ -953,8 +983,29 @@
           restore.addEventListener('click', () => send('restore-set', { recordId: it.id, urls }));
           li.appendChild(restore);
         }
-        if (it.id) addForget(li, it);
+        if (it.id) { addProtect(li, it); addForget(li, it); }   // hover-revealed pair: protect · forget
         return li;
+      }
+
+      // One-tap never-touch (U4): protect this page's site so auto-let-go never closes
+      // it. Hover/focus-reveals as a calm pair with forget. Uses the row's STORED host.
+      function addProtect(li, it) {
+        const host = it.host || hostOfUrl(it.url || '');
+        const protect = document.createElement('button');
+        protect.type = 'button';
+        protect.className = 'recall-protect icon-btn';
+        protect.append(icon('shield'));
+        protect.setAttribute('aria-label', 'Never let this site go'); protect.title = 'Never-touch this site';
+        protect.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (!host) return;
+          send('protect-add', { host }).then((resp) => {
+            if (!resp || !resp.ok) return;
+            protect.classList.add('protected'); protect.title = 'Protected — never auto-closed';
+            protect.setAttribute('aria-label', 'Site protected');
+          }).catch(() => {});
+        });
+        li.appendChild(protect);
       }
 
       // Delete-in-place (forget) from the board — mirrors the popup's What's-indexed

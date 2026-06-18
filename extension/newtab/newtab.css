@@ -117,6 +117,12 @@ body[data-mood="night"] { --paper: #f1eadf; --warm-gray: #e3d9cc; --card-bg: #ff
 .segmented.muted { opacity: 0.45; pointer-events: none; }
 .auto-sub { font-size: 11.5px; color: var(--muted); }
 
+/* Never-touch group (U4). */
+.nevertouch-list { display: flex; flex-direction: column; gap: 5px; }
+.nevertouch-empty { font-size: 12px; }
+.nevertouch-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
+.nevertouch-host { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* Explicit lanes: panels are placed in — and dragged between — up to 3 columns.
    Unlabeled (no kanban chrome): arrange-your-desk, not a board to manage. */
 .board-grid {
@@ -306,6 +312,17 @@ body[data-mood="night"] { --paper: #f1eadf; --warm-gray: #e3d9cc; --card-bg: #ff
 .panel .recent-item:hover .recall-forget,
 .recall-forget:focus-visible { opacity: 0.65; }
 .recall-forget:hover { color: var(--accent-rose); opacity: 1; }
+/* Protect (never-touch) — the calm twin of forget, one slot to its left (U4). */
+.recall-protect {
+  position: absolute; top: 5px; right: 26px;
+  color: var(--muted); opacity: 0;
+  display: inline-flex; align-items: center; line-height: 1;
+}
+.recall-protect svg { width: 14px; height: 14px; display: block; }
+.panel .recent-item:hover .recall-protect,
+.recall-protect:focus-visible { opacity: 0.65; }
+.recall-protect:hover { color: var(--accent-sage); opacity: 1; }
+.recall-protect.protected { color: var(--accent-sage); opacity: 1; }   /* stays lit once protected */
 /* The relief moment (U5): a calm once-a-day acknowledgement. */
 .board-relief {
   background: var(--paper);

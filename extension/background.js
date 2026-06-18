@@ -917,6 +917,13 @@ async function protectRemove(host) {
   return { ok: true };
 }
 
+async function protectAdd(host) {
+  const ps = await loadProtection();
+  protection.protect(ps, host);
+  await saveProtection(ps);
+  return { ok: true };
+}
+
 async function handleRecall() {
   await initIndex();
   const tab = await getActiveTab();
@@ -997,6 +1004,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'set-auto-eagerness' && msg.level) return respond(setAutoEagerness(msg.level));
   if (msg.type === 'protected-list') return respond(protectedList());
   if (msg.type === 'protect-remove' && msg.host) return respond(protectRemove(msg.host));
+  if (msg.type === 'protect-add' && msg.host) return respond(protectAdd(msg.host));
   if (msg.type === 'auto-summary') return respond(autoSummary());
   if (msg.type === 'relief-claim') return respond(reliefClaim());
   if (msg.type === 'seen-badge') return respond(seenBadge());
