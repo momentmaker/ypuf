@@ -453,6 +453,64 @@ re-target-the-wrong-thing bug waiting for a no-user-input re-render (cross-tab c
 an alarm, a storage event) to trigger it — and those triggers never appear in a click-driven
 manual test.
 
+### 21. A closed-shadow command bar must ACTIVELY coexist with vim-style page extensions
+
+The recall command bar (`extension/overlay/overlay.js`) is injected into arbitrary pages and
+renders the user's let-go titles/URLs/snippets, so its results live in a **closed** shadow root
+(`mode: 'closed'`) — page scripts can't read `host.shadowRoot`, and that closed root is the
+privacy boundary. But a closed root makes the page see the **host `<div>`** as
+`document.activeElement` even while our shadow `<input>` is focused. Vim-style extensions
+(Vimium, Surfingkeys) read `document.activeElement` to decide insert-vs-normal mode; they see a
+div, stay in normal mode, and `preventDefault` your keystrokes — you literally cannot type in the
+bar. Two fixes, both preserving the closed root: (a) mark the **host `contenteditable`** so
+`activeElement.isContentEditable` is true → the extensions yield insert mode and the keystrokes
+reach the (still-focused) shadow input; the host's light DOM is empty, so no user data becomes
+page-reachable. (b) But insert mode means the extension now **owns Escape** (it grabs Escape to
+exit insert mode), so our input's Escape handler never fires and the bar won't close — *racing*
+its key handler is unreliable. The trick: exiting insert mode **blurs the host**, so listen for
+the host `focusout` and close when focus has left the overlay entirely (`document.activeElement
+!== host` on the next tick); focus moving *within* the closed shadow (clicking a result/checkbox)
+keeps the host as `activeElement`, so the bar doesn't close prematurely. The rule: a closed-shadow
+overlay that takes keyboard focus on a third-party page is not passive — it must spoof an editable
+`activeElement` to get typing and react to the blur the extension causes to get Escape, all without
+opening the root.
+
+### 22. A function called during an IIFE's synchronous build must be self-contained — the TDZ node can't see
+
+`overlay.js` is one big IIFE whose top half synchronously builds the DOM and whose bottom half
+declares helper `const`s and functions. A `puffMark()` **function declaration** (hoisted, so
+callable from the build) referenced `const SVGNS` declared *lower in the same closure* — and when
+the build called `puffMark()`, `SVGNS` was still in its temporal dead zone, so it threw
+`ReferenceError: Cannot access 'SVGNS' before initialization` **before the overlay ever attached**.
+The hotkey silently did nothing. The trap: `node --check` passes (it's valid syntax) and the node
+test suite passes (it `require()`s pure libs; it never executes the browser IIFE's imperative
+body), so CI is green while the feature is dead on every real page. Two compounding lessons: (1)
+any function invoked during an IIFE's synchronous initialization must be **self-contained** — it
+may reference hoisted functions and *earlier* consts, never a `const`/`let` declared later in the
+same scope (move the binding inside the function, or above the call). (2) browser-only surfaces
+(content-script overlays, shadow DOM, `chrome.*`) need a **runtime check**, not just parse + node
+tests: a tiny HTML harness that stubs `chrome` + the page globals and loads the real source catches
+this class (TDZ throws, focus/shadow interactions, Vimium coexistence) in seconds, *before* a
+dogfood does. This slice shipped two browser-only runtime bugs to the user precisely because that
+harness step was missing; adding it turned the third, fourth, and fifth would-be regressions into
+pre-commit catches.
+
+### 23. Theme a content-script overlay from chrome.storage.local with a prefers-color-scheme instant guess
+
+The overlay must match the extension's light/dark/star theme, but it's injected into a page that
+knows nothing about the theme. The theme lives in `chrome.storage.local` (the durable source of
+truth), which content scripts **can** read — but `localStorage` in a content script is the *page's*
+localStorage, not the extension's, so the board's synchronous localStorage mirror is unavailable
+here. `chrome.storage.local.get` is async, which risks a flash of the wrong theme on open. The
+shape that works: define the palette as CSS custom properties on `:host([data-theme=…])` variants
+in the shadow stylesheet; **synchronously** set an instant guess from `matchMedia('(prefers-color
+-scheme: dark)')` before first paint (so a dark-OS user never flashes white); then **asynchronously
+refine** from `chrome.storage.local` (which can carry the `star` variant the media query can't
+express). Guard the storage read in `try/catch` (it can throw on restricted hosts) and guard its
+callback against a fast close (`if (closed) return`) so a hotkey-open-then-close before the read
+resolves doesn't mutate a detached host. Reusable for any injected content-script UI that must
+match the extension's palette without a flash.
+
 ## Why This Matters
 
 Each of these is a real failure mode that shipped past unit tests and was only
@@ -610,6 +668,15 @@ suites.
   existing `dragId`/`closeAddPicker()` resets, and the `.hint-layer` lifetime is bounded by
   that teardown rather than the grid it floats over. The `storage.onChanged` converge also
   closes a stale settings/cheatsheet overlay before re-rendering.
+- **Closed-shadow bar vs. vim extensions (21):** `extension/overlay/overlay.js` — `host`
+  `contenteditable` (so Vimium yields insert mode) + a `focusout`-based close (so Vimium's
+  Escape-blur still dismisses the bar), both keeping the `mode:'closed'` shadow root.
+- **TDZ-in-IIFE-build + browser harness (22):** `extension/overlay/overlay.js` — `puffMark()`
+  declares its `NS` in-function (self-contained, callable from the synchronous build); browser-
+  only runtime bugs are caught by a stubbed-`chrome` HTML harness, not `node --check`/node tests.
+- **Content-script overlay theming (23):** `extension/overlay/overlay.js` — `:host([data-theme])`
+  CSS-var palettes, an instant `prefers-color-scheme` guess, then an async `chrome.storage.local`
+  refine (guarded by `try/catch` + an `if (closed) return` on the callback).
 
 ## Related
 
