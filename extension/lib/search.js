@@ -113,9 +113,32 @@
     return added;
   }
 
+  // Pull a short content excerpt around the first query-term match — the "recall by
+  // what it said" snippet for the command bar (the moat: recall by content, not metadata).
+  // Pure + tested. Returns '' when no term appears in the content (e.g. the hit matched
+  // on title/url only), so the caller can omit the line rather than show a head-of-doc stub.
+  function excerptAround(content, query, radius) {
+    if (!content || !query) return '';
+    const r = radius > 0 ? radius : 90;
+    const lc = content.toLowerCase();
+    const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+    let pos = -1;
+    for (const t of terms) {
+      const i = lc.indexOf(t);
+      if (i >= 0 && (pos < 0 || i < pos)) pos = i;
+    }
+    if (pos < 0) return '';
+    const start = Math.max(0, pos - r);
+    const end = Math.min(content.length, pos + r);
+    let s = content.slice(start, end).replace(/\s+/g, ' ').trim();
+    if (start > 0) s = '… ' + s;
+    if (end < content.length) s += ' …';
+    return s;
+  }
+
   const api = {
     create, addRecord, removeRecord, buildFrom, search, has,
-    snapshot, load, reconcile, CONFIG, SEARCH_OPTS,
+    snapshot, load, reconcile, excerptAround, CONFIG, SEARCH_OPTS,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

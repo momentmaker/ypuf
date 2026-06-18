@@ -72,6 +72,20 @@ math) is covered by `node --test`. The behavior below depends on real
       of failing silently.
 - [ ] A result whose title contains `<img src=x onerror=alert(1)>` renders as
       inert text — no script runs (textContent rendering).
+- [ ] **Theme:** the command bar follows the chosen theme — set **dark** (or **star**)
+      and trigger recall on a normal page → the bar is the dark/navy palette (not a bright
+      white box), with the branded **puff-mark · ypuf · recall** header, an accent active-row
+      bar, and the **↑↓ / ↵ / esc** hint footer. A dark-OS user sees no white flash first.
+- [ ] **Instant recent:** opening the bar (no query) shows your **latest let-go pages**,
+      grouped **Today / Yesterday / This week**, top row pre-selected — bare **↵** recalls the
+      most recent. A page you've revisited a lot shows an **"often revisited"** accent marker.
+- [ ] **Recall by content:** searching shows the **matching line of page text** under the
+      title, with the **matched words highlighted** in both title and snippet (a content-only
+      match with no title hit still shows its snippet). No script runs from snippet text.
+- [ ] **Craft:** the bar **fades/rises in** on open (still, with Reduce Motion on).
+- [ ] **Typing works with a vim extension active:** on a page with **Vimium / Surfingkeys**,
+      open the bar and type — keystrokes go to the **search box**, not the page (the host is
+      marked editable so the extension yields). Recall results stay sealed in the closed root.
 
 ## Privacy controls — what's-indexed / forget / block (U8)
 
@@ -346,6 +360,11 @@ boundary, and the host-permission grants — is verified by hand.
 - [ ] In edit mode, **reorder** a panel with the ◀ ▶ buttons and with the arrow
       keys when the panel is focused; **remove** a panel → focus moves to the next
       panel (or the add affordance if none remain).
+- [ ] In edit mode, an **RSS or Crypto** panel shows a **gear (configure)** control →
+      clicking it reopens the form **pre-filled** with the current feed / tickers; editing
+      and **Save changes** updates that panel **in place** (no remove + re-add), persists,
+      and re-requests access if an RSS feed's origin changed. Non-configurable panels
+      (Top sites) show no gear.
 - [ ] Open **two** new-tab pages, reorder in one, reload the other → no lost-write
       (the SW is the single writer).
 
@@ -355,6 +374,10 @@ boundary, and the host-permission grants — is verified by hand.
       clicking a row **opens** it (regression: the row click must reopen the page —
       `itemRow` now defaults the click id to the row's own id, covered by
       `tests/shelf-render.test.js`); recall search returns + opens a result.
+- [ ] **Search focus:** typing a query **collapses the panel to just the matches** (the
+      recent/snoozed/digest sections hide), with a calm "No matches for …" when nothing hits.
+      Pressing **`/`** focuses the search; **Esc** (or the × / clearing the box) **clears the
+      query and restores** the recent list — it never gets stuck mid-search.
 - [ ] A let-go page whose **title contains markup** renders **inert** in the panel
       (host-rendered, `textContent`) — covered automatically by
       `tests/shelf-render.test.js`, spot-check visually.
@@ -364,6 +387,11 @@ boundary, and the host-permission grants — is verified by hand.
       clicking it strikes the row + swaps to **undo** for ~6s, then removes it.
       Clicking **undo** within the window restores the page. (Forget also scrubs
       the page from any working-set siblings — same `forget-page` path as the popup.)
+- [ ] **Protect/unprotect toggle:** the hover-revealed **shield** (a check-shield) and
+      **trash** sit in matched, aligned boxes (no size mismatch). Clicking the shield
+      **protects** the site (shield lights sage); clicking it **again unprotects** it
+      (un-lights). An already-protected site's row shows the shield **lit on render**, and
+      the change agrees with the popup's **Protected sites** list.
 
 ## RSS feed panel (U5 / R5, R8, R10, R12, R13 / AE2, AE6, AE10, AE11)
 

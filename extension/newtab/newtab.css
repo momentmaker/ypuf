@@ -352,6 +352,7 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
   padding: 6px 9px; margin-bottom: 8px;
   border: 1px solid var(--warm-gray); border-radius: 6px; background: var(--paper);
 }
+.recall-no-match { padding: 6px 2px; font-size: 12px; }
 .panel .recent-item { padding: 6px 8px; position: relative; border-radius: var(--r-sm); }
 /* Keyboard cursor (U8): a calm 2px amber left-bar on the focused recall row —
    invisible at rest (the class is added only while navigating), matching the accent
@@ -363,27 +364,32 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
 }
 .recent-item.kbd-cursor .recall-forget,
 .recent-item.kbd-cursor .recall-protect { opacity: 0.65; }
-/* Forget: a quiet hover-revealed delete-in-place. Calm at rest, rose on intent. */
+/* Forget: a quiet hover-revealed delete-in-place. Calm at rest, rose on intent. The
+   icon sits in a fixed square so it stays optically matched + aligned with protect;
+   the box grows only when it swaps to the "undo" text affordance. */
 .recall-forget {
-  position: absolute; top: 5px; right: 6px;
+  position: absolute; top: 4px; right: 5px;
+  min-width: 16px; height: 16px;
   font-size: 11px; color: var(--muted); opacity: 0;
-  display: inline-flex; align-items: center; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center; line-height: 1;
 }
-.recall-forget svg { width: 14px; height: 14px; display: block; }
+.recall-forget svg { width: 15px; height: 15px; display: block; }
 .panel .recent-item:hover .recall-forget,
 .recall-forget:focus-visible { opacity: 0.65; }
 .recall-forget:hover { color: var(--accent-rose); opacity: 1; }
-/* Protect (never-touch) — the calm twin of forget, one slot to its left (U4). */
+/* Protect (never-touch) — the calm twin of forget, one slot to its left (U4). Same
+   16px box so the shield + trash line up exactly (fits the title's reserved 42px, R13). */
 .recall-protect {
-  position: absolute; top: 5px; right: 26px;
+  position: absolute; top: 4px; right: 25px;
+  width: 16px; height: 16px;
   color: var(--muted); opacity: 0;
-  display: inline-flex; align-items: center; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center; line-height: 1;
 }
-.recall-protect svg { width: 14px; height: 14px; display: block; }
+.recall-protect svg { width: 15px; height: 15px; display: block; }
 .panel .recent-item:hover .recall-protect,
 .recall-protect:focus-visible { opacity: 0.65; }
 .recall-protect:hover { color: var(--accent-sage); opacity: 1; }
-.recall-protect.protected { color: var(--accent-sage); opacity: 1; }   /* stays lit once protected */
+.recall-protect.protected { color: var(--accent-sage); opacity: 1; }   /* lit while the site is protected */
 /* f-hints badge styling lives in style.css (shared with the popup, U11). */
 /* The relief moment (U5): a calm once-a-day acknowledgement. */
 .board-relief {

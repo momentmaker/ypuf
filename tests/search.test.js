@@ -75,3 +75,36 @@ test('replacing an existing id updates its searchable content', () => {
   assert.equal(search.search('oldword').length, 0);
   assert.ok(search.search('newword').map((r) => r.id).includes('a'));
 });
+
+test('excerptAround pulls a snippet centered on the first matched term', () => {
+  const content = 'A long lead-in sentence. The interview about the founder who quit Google to farm goats. Trailing text after.';
+  const s = search.excerptAround(content, 'quit Google', 30);
+  assert.ok(s.includes('quit Google'), 'snippet contains the match');
+  assert.ok(s.startsWith('…') && s.endsWith('…'), 'ellipses mark the trim on both sides');
+});
+
+test('excerptAround returns empty when no term appears in the content', () => {
+  assert.equal(search.excerptAround('nothing relevant here', 'airdrop', 90), '');
+  assert.equal(search.excerptAround('', 'x', 90), '');
+  assert.equal(search.excerptAround('body', '', 90), '');
+});
+
+test('excerptAround does not prepend an ellipsis when the match is at the start', () => {
+  const s = search.excerptAround('airdrop rewards distribution details', 'airdrop', 90);
+  assert.ok(!s.startsWith('…'), 'no leading ellipsis when start === 0');
+  assert.ok(s.includes('airdrop'));
+});
+
+test('excerptAround does not append a trailing ellipsis when the match runs to the end', () => {
+  const content = 'intro text then the airdrop';
+  const s = search.excerptAround(content, 'airdrop', 90);
+  assert.ok(!s.endsWith('…'), 'no trailing ellipsis when end === content.length');
+  assert.ok(s.includes('airdrop'));
+});
+
+test('excerptAround centers on the earliest-matching term across a multi-term query', () => {
+  const content = 'AAA airdrop ' + 'x'.repeat(300) + ' rewards BBB';
+  const s = search.excerptAround(content, 'rewards airdrop', 30);
+  assert.ok(s.includes('airdrop'), 'snippet centers on the earlier term (airdrop), not rewards');
+  assert.ok(!s.includes('rewards'), 'the far term is outside the window');
+});
