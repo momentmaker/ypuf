@@ -321,7 +321,10 @@
   // overlay entirely (the host is no longer activeElement), close. Focus moving WITHIN the
   // closed shadow (clicking a result/checkbox) keeps the host as activeElement → stay open.
   host.addEventListener('focusout', () => {
-    setTimeout(() => { if (!closed && document.activeElement !== host) close(); }, 0);
+    setTimeout(() => {
+      if (closed || !document.hasFocus()) return;   // whole-window blur (alt-tab) is NOT a dismiss
+      if (document.activeElement !== host) close();
+    }, 0);
   });
 
   // Defer one frame: focusing while .panel is still on its entrance keyframe (opacity 0)

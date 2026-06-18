@@ -213,6 +213,9 @@ verified by hand.
       on a normal page opens a centered **"Snooze this tab until…"** overlay (not
       the popup). `1`–`6` jump to a preset, `↑/↓`+`Enter` choose, `0` reveals Custom,
       `Esc` / backdrop / a second hotkey press close it (focus returns to the page).
+      It **follows the theme** (dark/navy, not a bright box) with the **0/Custom row
+      aligned** to 1–6, and the **number keys work even with a vim extension** (Vimium/
+      Surfingkeys) active. Alt-tabbing away and back does **not** close it.
 - [ ] Choosing a time in the overlay closes the tab + schedules the return, same
       as the popup path.
 - [ ] **Right tab even after switching:** open the overlay on tab A, switch to tab B,
