@@ -378,6 +378,17 @@ boundary, and the host-permission grants — is verified by hand.
 
 ## ypuf recall panel (U3 / R4 / AE1)
 
+- [ ] **Bounded peek (redesign):** the recall list is **grouped by time** (Today /
+      Yesterday / Earlier this week / Earlier) with quiet headers; each group shows a few
+      rows then a **"Show N more"** expander; the panel fills the page height and **scrolls
+      within** (with a soft edge fade) instead of growing the board. A **"Search all
+      let-go pages…"** link at the foot focuses the search.
+- [ ] **Scannable rows:** each row shows a **favicon** (broken icons drop quietly); long
+      titles **clamp to 2 lines** (full title on hover); "bring back the set" is a quiet
+      **⊕ N** chip revealed on hover / focus / cursor.
+- [ ] **Accessibility:** group headers are `<h3>` with a screen-reader count; the j/k
+      cursor sets `aria-current`; the set chip + actions have descriptive labels; meta text
+      meets contrast in light / dark / star.
 - [ ] The ypuf panel shows recent let-go items + the back-now/snoozed groups;
       clicking a row **opens** it (regression: the row click must reopen the page —
       `itemRow` now defaults the click id to the row's own id, covered by

@@ -19,6 +19,7 @@
   const lanes = window.ypuf.lanes;                // pure lane-placement math (tested in lib/lanes.js)
   const boardkeys = window.ypuf.boardkeys;        // pure cursor + key→intent (tested in lib/boardkeys.js)
   const hints = window.ypuf.hints;                // pure f-hint label assign/match (tested in lib/hints.js)
+  const timegroup = window.ypuf.timegroup;        // pure recall time-bucketing (tested in lib/timegroup.js)
   const theme = window.ypuf.theme;                // pure light/dark/star mode core (tested in lib/theme.js)
   const moonphase = window.ypuf.moonphase;        // pure lunar phase (tested in lib/moonphase.js)
   const moonrender = window.ypuf.moonrender;      // moon/star toggle glyph (DOM helper)
@@ -1276,12 +1277,16 @@
     [...document.querySelectorAll('.recent-item[data-id]')].filter((el) => el.offsetParent !== null);
 
   function paintCursor(rows) {
-    rows.forEach((el, i) => el.classList.toggle('kbd-cursor', i === kbdCursor));
+    rows.forEach((el, i) => {
+      const on = i === kbdCursor;
+      el.classList.toggle('kbd-cursor', on);
+      if (on) el.setAttribute('aria-current', 'true'); else el.removeAttribute('aria-current'); // announce the cursored row
+    });
     if (rows[kbdCursor]) rows[kbdCursor].scrollIntoView({ block: 'nearest' });
   }
   function clearKbdCursor() {
     kbdCursor = -1;
-    document.querySelectorAll('.recent-item.kbd-cursor').forEach((el) => el.classList.remove('kbd-cursor'));
+    document.querySelectorAll('.recent-item.kbd-cursor').forEach((el) => { el.classList.remove('kbd-cursor'); el.removeAttribute('aria-current'); });
   }
   function moveKbd(delta) {
     const rows = recallRows();
@@ -1534,7 +1539,12 @@
       const results = document.createElement('div');
       const recentWrap = document.createElement('div');
       const snoozeWrap = document.createElement('div');
-      body.append(reliefWrap, digestWrap, search, results, recentWrap, snoozeWrap);
+      // Search + relief/digest stay pinned; the lists live in a bounded scroll region so
+      // the panel is a calm peek that never grows the board (the "indefinite list" fix).
+      const recallScroll = document.createElement('div');
+      recallScroll.className = 'recall-scroll';
+      recallScroll.append(results, recentWrap, snoozeWrap);
+      body.append(reliefWrap, digestWrap, search, recallScroll);
 
       // The relief moment (U5/R12): once a day, a calm acknowledgement that what you
       // let go is safe. The SW gates the claim, so it shows on whichever surface you
@@ -1576,7 +1586,11 @@
       }).catch(() => {});
 
       function row(it, tags, action) {
+        if (it.url && !it.faviconUrl) it.faviconUrl = faviconUrl(it.url); // local _favicon, no network
         const li = SR.toDom(SR.itemRow(it, tags, T, action), document, handlers);
+        const fav = li.querySelector('.fav');
+        if (fav) fav.addEventListener('error', () => { fav.remove(); li.classList.remove('has-fav'); }); // hide a broken icon, reflow
+
         // Set-bearing recall items offer a one-tap "bring back the set" (the
         // granular checkbox restore stays in the popup); restore-set intersects
         // the requested URLs against the record's stored siblings in the SW.
@@ -1584,8 +1598,11 @@
           const urls = it.siblings.map((s) => s.url);
           const restore = document.createElement('button');
           restore.type = 'button';
-          restore.className = 'link set-restore';
-          restore.textContent = `bring back the set? (${it.siblings.length})`;
+          restore.className = 'set-restore';   // a quiet hover/focus-revealed chip (CSS), not a permanent link
+          const n = it.siblings.length;
+          restore.textContent = `⊕ ${n}`;
+          restore.title = `Bring back the ${n} tab${n === 1 ? '' : 's'} this was open with`;
+          restore.setAttribute('aria-label', `Bring back the ${n} tab${n === 1 ? '' : 's'} this page was open with`);
           let restoreInflight = false;   // ignore a double-press / double-click until the round-trip settles
           restore.addEventListener('click', () => {
             if (restoreInflight) return;
@@ -1664,29 +1681,80 @@
         }
       }
 
-      function group(label) {
-        const h = document.createElement('div');
+      const RECENT_GROUP_CAP = 6;   // keep each time-group a calm peek; overflow hides behind "Show N more"
+      const SNOOZE_GROUP_CAP = 4;
+      const cssEsc = (s) => ((window.CSS && CSS.escape) ? CSS.escape(String(s)) : String(s));
+
+      // Quiet group heading (h3 for heading semantics); the visible text stays just the
+      // label — the count rides as the accessible name so screen readers announce it.
+      function group(label, count) {
+        const h = document.createElement('h3');
         h.className = 'panel-group-label';
         h.textContent = label;
+        if (count != null) h.setAttribute('aria-label', `${label} — ${count} ${count === 1 ? 'page' : 'pages'}`);
         return h;
       }
 
-      send('list-recent', { limit: 12 }).then((resp) => {
+      function moreButton(n, onExpand) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'shelf-more';
+        b.textContent = `Show ${n} more`;
+        b.setAttribute('aria-expanded', 'false');
+        b.addEventListener('click', () => { onExpand(); b.remove(); });
+        return b;
+      }
+
+      // A labelled, capped group: header + a role=list of up to `cap` rows + a
+      // "Show N more" expander for the overflow. `build` lets the snoozed group use
+      // its own row builder (with the Wake control); the rest use the shared row().
+      function groupBlock(target, label, items, action, cap, build) {
+        build = build || ((it) => row(it, [T.timeAgo ? T.timeAgo(it.returnAt || it.timestamp) : ''], action));
+        target.appendChild(group(label, items.length));
+        const ul = document.createElement('ul');
+        ul.className = 'recent';
+        ul.setAttribute('role', 'list');
+        const fill = (arr) => { for (const it of arr) ul.appendChild(build(it)); };
+        const overflow = cap && items.length > cap;
+        fill(overflow ? items.slice(0, cap) : items);
+        target.appendChild(ul);
+        if (overflow) target.appendChild(moreButton(items.length - cap, () => { fill(items.slice(cap)); syncProtectMarks(); }));
+      }
+
+      // Recent shelf: bucket into calm time groups (Today / Yesterday / …) instead of an
+      // endless flat list, each capped to a peek.
+      function renderRecent(target, items, action) {
+        target.textContent = '';
+        for (const g of timegroup.bucketByTime(items, Date.now())) groupBlock(target, g.label, g.items, action, RECENT_GROUP_CAP);
+      }
+
+      send('list-recent', { limit: 30 }).then((resp) => {
         if (destroyed) return;
         const items = (resp && resp.items) || [];
-        renderList(recentWrap, items, { action: 'open' });
+        renderRecent(recentWrap, items, { action: 'open' });
         syncProtectMarks();   // protected-list may have resolved before any rows existed — re-mark now
         // U6: the puff — rows let go since the last board open arrive with a soft
         // settle. One-shot: disarm after the first paint so re-renders stay still.
         // boardLastOpen === 0 means first-ever open (or a read error) — stay quiet
-        // rather than animate the whole backlog at once.
+        // rather than animate the whole backlog at once. Match rows by id, not index,
+        // since the list is now grouped (DOM order ≠ items order).
         if (puffArmed && boardLastOpen > 0) {
-          const rows = recentWrap.querySelectorAll('.recent-item');
-          items.forEach((it, i) => {
-            if (it.autoClosed && it.timestamp > boardLastOpen && rows[i]) rows[i].classList.add('puff');
-          });
+          for (const it of items) {
+            if (it.autoClosed && it.timestamp > boardLastOpen) {
+              const r = recentWrap.querySelector('[data-id="' + cssEsc(it.id) + '"]');
+              if (r) r.classList.add('puff');
+            }
+          }
         }
         if (puffArmed) puffArmed = false;
+        if (items.length) {   // a quiet route into search for anything older than the peek
+          const older = document.createElement('button');
+          older.type = 'button';
+          older.className = 'shelf-older';
+          older.textContent = 'Search all let-go pages…';
+          older.addEventListener('click', () => search.focus());
+          recentWrap.appendChild(older);
+        }
       });
 
       // While a query is active, collapse the panel to JUST the matches — the recent +
@@ -1736,24 +1804,11 @@
       send('snooze-list').then((resp) => {
         if (destroyed) return;
         snoozeWrap.textContent = '';
-        const back = resp && resp.back;
-        const snoozed = resp && resp.snoozed;
-        if (back && back.length) {
-          snoozeWrap.appendChild(group('Back now'));
-          renderListInto(snoozeWrap, back, { action: 'open' });
-        }
-        if (snoozed && snoozed.length) {
-          snoozeWrap.appendChild(group('Snoozed'));
-          for (const it of snoozed) snoozeWrap.appendChild(snoozedRow(it));
-        }
+        const back = (resp && resp.back) || [];
+        const snoozed = (resp && resp.snoozed) || [];
+        if (back.length) groupBlock(snoozeWrap, 'Back now', back, { action: 'open' }, SNOOZE_GROUP_CAP);
+        if (snoozed.length) groupBlock(snoozeWrap, 'Snoozed', snoozed, { action: 'open' }, SNOOZE_GROUP_CAP, snoozedRow);
       });
-
-      function renderListInto(target, items, action) {
-        const ul = document.createElement('ul');
-        ul.className = 'recent';
-        for (const it of items) ul.appendChild(row(it, [T.timeAgo ? T.timeAgo(it.returnAt || it.timestamp) : ''], action));
-        target.appendChild(ul);
-      }
 
       function snoozedRow(it) {
         const li = SR.toDom(SR.itemRow(it, ['snoozed'], T, null), document, {});

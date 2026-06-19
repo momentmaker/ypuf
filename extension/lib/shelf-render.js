@@ -32,14 +32,24 @@
   // descriptor stays pure and serialisable. The id defaults to this row's own id,
   // so a caller can pass just { action } and still open the right record.
   function itemRow(it, tags, T, action) {
-    const title = el('div', { cls: 'title' + (action ? ' clickable' : ''), text: titleOf(it, T) });
+    const fullTitle = titleOf(it, T);
+    // The visible title is clamped to 2 lines in CSS; the `title` attr gives sighted
+    // users the full text on hover (the DOM textContent stays full, so the accessible
+    // name is the full title too).
+    const title = el('div', { cls: 'title' + (action ? ' clickable' : ''), text: fullTitle, attrs: { title: fullTitle } });
     if (action) title.click = { action: action.action, id: (action.id != null ? action.id : it.id) };
     const metaText = [hostOf(it, T)].concat(tags || []).filter(Boolean).join('  ·  ');
     const meta = el('div', { cls: 'meta', text: metaText });
+    const children = [title, meta];
+    // Optional favicon — the host builds a LOCAL `_favicon` URL (no network). Decorative
+    // (alt empty): the title + host already carry the meaning for assistive tech.
+    if (it.faviconUrl) {
+      children.unshift(el('img', { cls: 'fav', attrs: { src: it.faviconUrl, alt: '', width: '16', height: '16', loading: 'lazy' } }));
+    }
     return el('li', {
-      cls: 'recent-item' + (it.contentLess ? ' content-less' : ''),
+      cls: 'recent-item' + (it.contentLess ? ' content-less' : '') + (it.faviconUrl ? ' has-fav' : ''),
       attrs: { 'data-id': it.id || '' },
-      children: [title, meta],
+      children,
     });
   }
 
