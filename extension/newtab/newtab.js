@@ -1497,7 +1497,18 @@
       const SR = window.ypuf.shelfRender;
       const T = (window.ypuf && window.ypuf.titles) || {};
       const body = ctx.body;
-      const handlers = { open: (id) => send('recall-open', { recordId: id }) };
+      const handlers = {
+        open: (id) => {
+          send('recall-open', { recordId: id });
+          // Opening a page dismisses its row from the shelf — it's a live tab now,
+          // not a let-go page. It stays in the searchable archive (and the recent
+          // shelf omits currently-open pages), so it won't reappear until it's let
+          // go again. Covers recent, back-now, and search-result rows alike.
+          const sel = (window.CSS && CSS.escape) ? CSS.escape(String(id)) : String(id);
+          const el = body.querySelector('[data-id="' + sel + '"]');
+          if (el) el.remove();
+        },
+      };
       let destroyed = false;   // armed by the teardown so late SW replies can't write into a torn-down panel
       const undoTimers = new Set();   // pending forget-undo timers, cleared on teardown so none outlive the mount
 

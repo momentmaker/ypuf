@@ -234,6 +234,9 @@ verified by hand.
       next startup** (within the per-sweep cap of 8) — never lost. Snoozes beyond
       the cap surface in the pinned **"Back now"** group with a **badge** instead.
 - [ ] A back-now item (cap overflow / non-web) still **clicks to reopen + clears**.
+- [ ] Opening any board row — **recent, back-now, or a search result** — removes it
+      from the shelf immediately; a currently-open page no longer shows under recent
+      (it returns to the shelf only after it's let go again). Search still finds it.
 - [ ] **"When I'm back"** does *not* return on a mid-session SW wake; it surfaces
       on the **next browser startup** (snoozed row reads "next time you're back").
 - [ ] Returning several snoozes at once shows them all under "Back now"; the

@@ -857,9 +857,14 @@ async function getRecallResults(q) {
     results = recs.filter(Boolean).map((r) => project(r, search.excerptAround((r.content || '').slice(0, 8000), q, 90)));
   } else {
     // Instant recent: opening the bar surfaces your latest let-go pages, ready to recall
-    // (recovery faster than re-googling — F2). Snooze/back-now live in their own surfaces.
-    const recs = await store.listRecent(8);
-    results = recs.filter((r) => !r.snoozeState).map((r) => project(r, ''));
+    // (recovery faster than re-googling — F2). A page you currently have OPEN is no
+    // longer "let go", so omit it — reopening one drops it from the shelf until it's
+    // let go again. Snooze/back-now live in their own surfaces.
+    const openTabs = await chrome.tabs.query({}).catch(() => []);
+    const openKeys = new Set(openTabs.map((t) => (t.url ? cluster.originPathKey(t.url) : null)).filter(Boolean));
+    const recs = await store.listRecent(24);
+    results = recs.filter((r) => !r.snoozeState && r.url && !openKeys.has(cluster.originPathKey(r.url)))
+      .slice(0, 8).map((r) => project(r, ''));
   }
   return { results, total };
 }
