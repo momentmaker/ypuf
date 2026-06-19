@@ -281,7 +281,7 @@
     ['j / k', 'Move the recall cursor'],
     ['g g / G', 'Jump to top / bottom'],
     ['o / Enter', 'Open the cursored page'],
-    ['x / u', 'Forget / undo'],
+    ['d / u', 'Delete (forget) / undo'],
     ['p', 'Never-touch this site'],
     ['/', 'Jump to recall search'],
     ['f', 'Hint every link — type a label to open'],

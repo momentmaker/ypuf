@@ -30,7 +30,7 @@ test('intent maps the vim normal-mode keys', () => {
   const m = (k) => bk.intent(k, {});
   assert.equal(m('j'), 'down'); assert.equal(m('k'), 'up');
   assert.equal(m('o'), 'open'); assert.equal(m('Enter'), 'open');
-  assert.equal(m('x'), 'forget'); assert.equal(m('u'), 'undo');
+  assert.equal(m('d'), 'forget'); assert.equal(m('u'), 'undo');
   assert.equal(m('p'), 'protect'); assert.equal(m('/'), 'search');
   assert.equal(m('g'), 'g'); assert.equal(m('G'), 'bottom');
   assert.equal(m('e'), 'edit'); assert.equal(m('f'), 'hints');
@@ -39,6 +39,7 @@ test('intent maps the vim normal-mode keys', () => {
 
 test('intent returns none for unhandled keys, incl. arrows (cells own lane reorder)', () => {
   assert.equal(bk.intent('z', {}), 'none');
+  assert.equal(bk.intent('x', {}), 'none');   // freed: delete moved to 'd'
   assert.equal(bk.intent('1', {}), 'none');
   assert.equal(bk.intent('Tab', {}), 'none');
   assert.equal(bk.intent('ArrowDown', {}), 'none');
@@ -49,6 +50,6 @@ test('intent yields to a focused field — only Escape passes through', () => {
   const ctx = { fieldFocused: true };
   assert.equal(bk.intent('j', ctx), 'none');
   assert.equal(bk.intent('?', ctx), 'none');     // ? must type a literal ? in a field
-  assert.equal(bk.intent('x', ctx), 'none');
+  assert.equal(bk.intent('d', ctx), 'none');
   assert.equal(bk.intent('Escape', ctx), 'escape'); // Esc still blurs the field
 });

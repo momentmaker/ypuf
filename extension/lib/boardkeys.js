@@ -23,7 +23,7 @@
   const MAP = {
     j: 'down', k: 'up',
     o: 'open', Enter: 'open',
-    x: 'forget', u: 'undo', p: 'protect',
+    d: 'forget', u: 'undo', p: 'protect',
     '/': 'search', g: 'g', G: 'bottom',
     e: 'edit', f: 'hints', '?': 'help', Escape: 'escape',
   };

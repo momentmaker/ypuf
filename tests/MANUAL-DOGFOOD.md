@@ -527,11 +527,11 @@ boundary, and the host-permission grants — is verified by hand.
 - [ ] On the board (not focused in a field), `j` / `k` move a calm **amber left-bar**
       cursor over the recall rows; `g g` jumps to the top, `G` to the bottom. The
       cursored row reveals its protect/forget icons.
-- [ ] `o` or `Enter` opens the cursored page; `x` forgets it (row strikes + **`u`**
-      undoes within the grace window); `p` protects its site (shield lights).
+- [ ] `o` or `Enter` opens the cursored page; `d` deletes (forgets) it (row strikes +
+      **`u`** undoes within the grace window); `p` protects its site (shield lights).
 - [ ] `/` jumps focus to the recall search; `e` toggles edit mode; `Esc` clears the
       cursor (and blurs the search if it was focused).
-- [ ] **Typing is never hijacked:** with the search focused, `j`/`x`/`p`/`?` type
+- [ ] **Typing is never hijacked:** with the search focused, `j`/`d`/`p`/`?` type
       literally; only `Esc` leaves the field. Arrow keys still reorder panels in edit
       mode (the board layer is `j`/`k`, so it never collides).
 - [ ] **Invisible at rest:** before any key is pressed, the board shows no cursor and
@@ -568,7 +568,7 @@ boundary, and the host-permission grants — is verified by hand.
       `?` cheatsheet, press `Esc` → the cheatsheet closes and the recall cursor is *still*
       where it was (the Esc doesn't leak through to clear it).
 - [ ] **Held keys are safe:** holding `j`/`k` scrolls the cursor smoothly, but holding
-      `x` forgets the row only **once** (no double-forget); a stray `g` long ago never
+      `d` forgets the row only **once** (no double-forget); a stray `g` long ago never
       triggers a later jump-to-top.
 
 # Light / dark / star theming — slice 1 (token system, toggle, panels)
