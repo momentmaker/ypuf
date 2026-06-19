@@ -104,6 +104,41 @@ test('pendingStartup returns the snoozed untilStartup records', () => {
   assert.deepEqual(snooze.pendingStartup(recs()).map((r) => r.id), ['c']);
 });
 
+// --- splitDue: auto-reopen vs surface-only partition (U3 auto-reopen) --------
+
+const isWeb = (u) => /^https?:/.test(u || '');
+const dueRecs = () => [
+  { id: 'w1', snoozeState: 'snoozed', returnAt: NOW - 3000, url: 'https://a.com' }, // oldest due
+  { id: 'w2', snoozeState: 'snoozed', returnAt: NOW - 1000, url: 'https://b.com' }, // newest due
+  { id: 'nonweb', snoozeState: 'snoozed', returnAt: NOW - 2000, url: 'chrome://x' }, // due but not web
+  { id: 'future', snoozeState: 'snoozed', returnAt: NOW + 5000, url: 'https://c.com' },
+  { id: 'startup', snoozeState: 'snoozed', untilStartup: true, url: 'https://d.com' },
+];
+
+test('splitDue reopens due web snoozes soonest-first; non-web fall to back-now', () => {
+  const { reopen, backNow } = snooze.splitDue(dueRecs(), NOW, 10, isWeb);
+  assert.deepEqual(reopen.map((r) => r.id), ['w1', 'w2']);
+  assert.deepEqual(backNow.map((r) => r.id), ['nonweb']);
+});
+
+test('splitDue caps the reopen set; the overflow surfaces as back-now', () => {
+  const { reopen, backNow } = snooze.splitDue(dueRecs(), NOW, 1, isWeb);
+  assert.deepEqual(reopen.map((r) => r.id), ['w1']);
+  assert.deepEqual(backNow.map((r) => r.id), ['nonweb', 'w2']);
+});
+
+test('splitDue ignores future, untilStartup, and non-due records', () => {
+  const { reopen, backNow } = snooze.splitDue(dueRecs(), NOW, 10, isWeb);
+  const touched = reopen.concat(backNow).map((r) => r.id);
+  assert.ok(!touched.includes('future') && !touched.includes('startup'));
+});
+
+test('splitDue returns empty partitions when nothing is due', () => {
+  const { reopen, backNow } = snooze.splitDue([{ id: 'x' }], NOW, 10, isWeb);
+  assert.deepEqual(reopen, []);
+  assert.deepEqual(backNow, []);
+});
+
 // --- mark -------------------------------------------------------------------
 
 test('mark sets snoozeState without touching other fields', () => {

@@ -227,11 +227,13 @@ verified by hand.
 
 ## The return (U3 / F2 / R9)
 
-- [ ] At its time, a clock snooze moves to a pinned **"Back now"** group at the
-      top of the shelf and the icon shows a **badge**; clicking it **reopens the
-      page and clears the snooze** (it leaves both groups).
-- [ ] A snooze whose time passed **while Chrome was closed** is **"back now"** on
-      next startup (shown as overdue, e.g. "back · due 2h ago") — never lost.
+- [ ] At its time, a clock snooze **auto-reopens its tab in the background**
+      (focus is not yanked) and the snooze clears (it leaves both groups). If the
+      page is already open, it is not duplicated.
+- [ ] A snooze whose time passed **while Chrome was closed** **auto-reopens on
+      next startup** (within the per-sweep cap of 8) — never lost. Snoozes beyond
+      the cap surface in the pinned **"Back now"** group with a **badge** instead.
+- [ ] A back-now item (cap overflow / non-web) still **clicks to reopen + clears**.
 - [ ] **"When I'm back"** does *not* return on a mid-session SW wake; it surfaces
       on the **next browser startup** (snoozed row reads "next time you're back").
 - [ ] Returning several snoozes at once shows them all under "Back now"; the
