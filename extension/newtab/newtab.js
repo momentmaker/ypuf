@@ -26,6 +26,8 @@
   const moonphase = window.ypuf.moonphase;        // pure lunar phase (tested in lib/moonphase.js)
   const moonrender = window.ypuf.moonrender;      // moon/star toggle glyph (DOM helper)
   const starfield = window.ypuf.starfield;        // pure star-field generation (tested in lib/starfield.js)
+  const barometer = window.ypuf.barometer;        // pure snooze-queue → favicon state (tested in lib/barometer.js)
+  const puffscene = window.ypuf.puffscene;        // pure living-puff scene geometry (tested in lib/puffscene.js)
 
   const docBody = document.body;
   const grid = document.getElementById('board-grid');
@@ -62,6 +64,7 @@
     renderThemeToggle();
     postThemeToPanels(currentTheme());   // U7: propagate into the sandboxed panels
     syncStarfield();                     // U8: start/stop the starfield for star mode
+    syncFavicon();                       // re-tint the living-puff favicon for the new palette
     if (typeof refreshThemeControl === 'function') refreshThemeControl();
   }
   function setTheme(mode) {
@@ -201,12 +204,131 @@
     if (currentTheme() === 'star' && !reduceMotion()) startStarfield();
     else stopStarfield();
   }
-  // Toggling the OS "reduce motion" while in star mode starts/stops the field live.
+  // Toggling the OS "reduce motion" live starts/stops the starfield and the puff breath.
   if (window.matchMedia) {
     const mm = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const onChange = () => syncStarfield();
+    const onChange = () => { syncStarfield(); syncFavicon(); };
     if (mm.addEventListener) mm.addEventListener('change', onChange);
     else if (mm.addListener) mm.addListener(onChange);
+  }
+
+  // --- living-puff favicon (slice 1) ---------------------------------------
+  // The tab's favicon as a calm barometer of the snooze queue: the ypuf puff,
+  // drawn to a tiny canvas and swapped into the <link rel=icon>, breathing (motion
+  // welcome + tab focused only), tinted by the live theme/mood palette, with a
+  // moon glow at night and a particle configuration from lib/barometer.js. Pure
+  // cores do the deciding (state) and the geometry (scene); this host glue only
+  // draws + swaps + runs the breath loop. Page-level singleton like the starfield
+  // (started/stopped, never per-mount torn down), so no alive-flag dance is needed.
+  const faviconLink = document.getElementById('favicon');
+  const FAV_S = 64;          // one reused offscreen canvas — no per-frame allocation
+  const favCanvas = document.createElement('canvas');
+  favCanvas.width = favCanvas.height = FAV_S;
+  const favCtx = favCanvas.getContext('2d');
+  let favState = { state: 'clear', particles: 0, dot: false };
+  let favLook = null;        // palette + night glow, recomputed only at sync points (not per frame)
+  let favRAF = null;
+  let favLastDraw = 0;
+  let favSeq = 0;            // supersede a slow snooze-list reply with a fresher one
+  const FAV_PERIOD = 4800;   // breath cadence (ms), matching the snooze return-loop
+
+  // The favicon is a tiny swatch of the current mode: the tile takes the theme's own
+  // surface color (cream / dark / navy), the puff its ink, the dot its accent — all read
+  // LIVE from the palette so a theme toggle re-tints the whole chip (applyTheme calls
+  // syncFavicon → readFavLook). A --muted border keeps the tile's full square visible even
+  // when its fill matches a same-colored tab strip (the dark/navy tile no longer vanishes).
+  // Rough perceived luminance of a #hex or rgba() color (0 dark .. 1 light).
+  function favLum(color) {
+    const c = String(color || '');
+    if (c[0] === '#') {
+      const h = c.slice(1).padEnd(6, '0');
+      return (0.299 * parseInt(h.slice(0, 2), 16) + 0.587 * parseInt(h.slice(2, 4), 16) + 0.114 * parseInt(h.slice(4, 6), 16)) / 255;
+    }
+    const m = c.match(/[\d.]+/g);
+    return m ? (0.299 * +m[0] + 0.587 * +m[1] + 0.114 * +m[2]) / 255 : 0;
+  }
+
+  function readFavLook() {
+    const cs = getComputedStyle(docBody);
+    const tok = (n, fb) => (cs.getPropertyValue(n).trim() || fb);
+    const night = moodNow().key === 'night';
+    const lit = (night && moonrender.geometry) ? moonrender.geometry(moonphase.phase(new Date())).f : 0;
+    const ink = tok('--ink', '#1a1613');
+    favLook = {
+      ink,
+      tile: tok('--card-bg', '#fffdf9'),
+      dot: '#d98a52',   // the back-now signal stays a recognizable amber in every mode (in star --accent-amber is lavender and would vanish into the puff)
+      border: tok('--muted', '#9a918a'),
+      glow: night ? 0.10 + 0.18 * lit : 0,   // capped low so the puff stays dominant
+      puffScale: favLum(ink) > 0.5 ? 0.84 : 1,   // a light puff on a dark tile blooms — shrink it to read the same size
+    };
+  }
+
+  function favDraw(breath) {
+    if (!faviconLink || !puffscene || !favCtx) return;
+    if (!favLook) readFavLook();
+    const BOX = puffscene.BOX || 32, S = FAV_S, k = S / BOX, L = favLook, x = favCtx;
+    x.clearRect(0, 0, S, S);
+    // The tile fills the whole favicon (maximizing the slot); the border hugs the inner edge.
+    x.beginPath(); x.roundRect(0, 0, S, S, 12); x.fillStyle = L.tile; x.fill();
+    x.lineWidth = 3.5; x.beginPath(); x.roundRect(1.75, 1.75, S - 3.5, S - 3.5, 10.5); x.strokeStyle = L.border; x.stroke();
+    if (L.glow > 0) {
+      x.save(); x.beginPath(); x.roundRect(0, 0, S, S, 12); x.clip();
+      const g = x.createRadialGradient(S * 0.64, S * 0.36, 0, S * 0.64, S * 0.36, S * 0.42);
+      g.addColorStop(0, `rgba(255,246,224,${L.glow})`);
+      g.addColorStop(1, 'rgba(255,246,224,0)');
+      x.fillStyle = g; x.fillRect(0, 0, S, S);
+      x.restore();
+    }
+    const sc = L.puffScale, cb = BOX / 2;   // shrink a light (blooming) puff around the centre
+    for (const p of puffscene.scene(favState, breath)) {
+      x.globalAlpha = p.opacity;
+      if (p.role === 'dot') {   // the back-now signal: full-size amber, never bloom-shrunk
+        x.fillStyle = L.dot;
+        x.beginPath(); x.arc(p.x * k, p.y * k, p.r * k, 0, Math.PI * 2); x.fill();
+      } else {
+        x.fillStyle = L.ink;
+        x.beginPath(); x.arc((cb + (p.x - cb) * sc) * k, (cb + (p.y - cb) * sc) * k, p.r * k * sc, 0, Math.PI * 2); x.fill();
+      }
+    }
+    x.globalAlpha = 1;
+    faviconLink.href = favCanvas.toDataURL('image/png');
+  }
+
+  function favFrame(now) {
+    // The breath spans ~5s, so a coarse redraw cadence is imperceptible and keeps the encode cheap.
+    if (now - favLastDraw >= 90) {
+      favDraw((Math.sin((now / FAV_PERIOD) * Math.PI * 2) + 1) / 2);
+      favLastDraw = now;
+    }
+    favRAF = requestAnimationFrame(favFrame);
+  }
+
+  function syncFavicon() {
+    if (!faviconLink) return;
+    readFavLook();   // theme/mood/visibility may have changed the palette or glow
+    if (!reduceMotion() && !document.hidden) { if (!favRAF) favRAF = requestAnimationFrame(favFrame); }
+    else { if (favRAF) { cancelAnimationFrame(favRAF); favRAF = null; } favDraw(0.5); }
+  }
+
+  function refreshFavState() {
+    const seq = ++favSeq;
+    send('snooze-list').then((resp) => {
+      if (seq !== favSeq) return;   // a fresher refresh already won
+      const back = (resp && Array.isArray(resp.back)) ? resp.back.length : 0;
+      const snoozed = (resp && Array.isArray(resp.snoozed)) ? resp.snoozed.length : 0;
+      favState = barometer.compute({ back, snoozed });
+      syncFavicon();
+    }).catch(() => {});
+  }
+
+  function initFavicon() {
+    if (!faviconLink) return;
+    refreshFavState();
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { if (favRAF) { cancelAnimationFrame(favRAF); favRAF = null; } }
+      else { renderMasthead(); refreshFavState(); }   // mood refreshes before the favicon re-tints (favDraw reads moodNow)
+    });
   }
   const boardSub = document.getElementById('board-sub');
   const oneLineEl = document.getElementById('board-oneline');
@@ -232,6 +354,7 @@
     gear: [['circle', { cx: 8, cy: 8, r: 2.2 }],
            ['path', { d: 'M8 1.6v1.6M8 12.8v1.6M14.4 8h-1.6M3.2 8H1.6M12.5 3.5l-1.1 1.1M4.6 11.4l-1.1 1.1M12.5 12.5l-1.1-1.1M4.6 4.6L3.5 3.5' }]],
     close: [['path', { d: 'M4 4l8 8M12 4l-8 8' }]],
+    clock: [['circle', { cx: 8, cy: 8, r: 5.6 }], ['path', { d: 'M8 4.8V8l2.2 1.6' }]],
   };
   function icon(name) {
     const svg = document.createElementNS(SVGNS, 'svg');
@@ -493,6 +616,8 @@
   function renderMasthead() {
     const m = moodNow();
     docBody.dataset.mood = m.key;
+    const title = `ypuf · ${m.line}`;   // the tab's calm caption — mood line only, no count, no date (R8/R9)
+    if (document.title !== title) document.title = title;
     if (!boardSub) return;
     let date = '';
     try { date = new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }); } catch (e) { /* locale */ }
@@ -1269,6 +1394,7 @@
     if (e.key === THEME_KEY && e.newValue) applyTheme(e.newValue);
   });
   syncStarfield();    // U8: start the field if the pre-paint theme is already star
+  initFavicon();      // living-puff favicon: fetch the snooze queue, draw + breathe
   reconcileTheme();   // durable chrome.storage ⇄ pre-paint mirror, after first paint
 
   addBtn.addEventListener('click', openAddPicker);
@@ -1520,7 +1646,7 @@
   // load-bearing here, not cosmetic (see shelf-render.js / KTD).
 
   registerPanelType('ypuf', {
-    label: 'ypuf — recall',
+    label: 'Recall',
     addable: false,          // present by default (R3); not added via the picker
     network: false,
     mount(ctx) {
@@ -1606,6 +1732,18 @@
         const fav = li.querySelector('.fav');
         // A missing favicon shouldn't shout: drop it silently rather than show a placeholder.
         if (fav) fav.addEventListener('error', () => { fav.remove(); li.classList.remove('has-fav'); });
+
+        // Search spans the whole index, so a currently-snoozed page can appear here. Flag it
+        // with a small clock so it reads as "away, coming back" rather than a plain let-go.
+        if (it.snoozeState) {
+          const meta = li.querySelector('.meta');
+          const tag = document.createElement('span');
+          tag.className = 'recall-snoozed';
+          const label = it.snoozeState === 'back-now' ? 'In Snooze — back now' : 'In Snooze — coming back';
+          tag.title = label; tag.setAttribute('aria-label', label);
+          tag.append(icon('clock'));
+          if (meta) meta.prepend(tag); else li.appendChild(tag);
+        }
 
         // Set-bearing recall items offer a one-tap "bring back the set" (the
         // granular checkbox restore stays in the popup); restore-set intersects

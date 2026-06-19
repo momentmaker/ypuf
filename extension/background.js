@@ -858,6 +858,7 @@ async function getRecallResults(q) {
     timestamp: r.timestamp,
     frequent: ((durable.revisits && durable.revisits[r.url]) || 0) >= FREQUENT_REVISITS,
     siblings: Array.isArray(r.siblings) ? r.siblings : [],
+    snoozeState: r.snoozeState || null,   // search spans snoozed records too — let the row flag them
     snippet: snippet || '',
   });
   let results = [];
