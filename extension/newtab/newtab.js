@@ -26,6 +26,8 @@
   const moonphase = window.ypuf.moonphase;        // pure lunar phase (tested in lib/moonphase.js)
   const moonrender = window.ypuf.moonrender;      // moon/star toggle glyph (DOM helper)
   const starfield = window.ypuf.starfield;        // pure star-field generation (tested in lib/starfield.js)
+  const barometer = window.ypuf.barometer;        // pure snooze-queue → favicon state (tested in lib/barometer.js)
+  const puffscene = window.ypuf.puffscene;        // pure living-puff scene geometry (tested in lib/puffscene.js)
 
   const docBody = document.body;
   const grid = document.getElementById('board-grid');
@@ -62,6 +64,7 @@
     renderThemeToggle();
     postThemeToPanels(currentTheme());   // U7: propagate into the sandboxed panels
     syncStarfield();                     // U8: start/stop the starfield for star mode
+    syncFavicon();                       // re-tint the living-puff favicon for the new palette
     if (typeof refreshThemeControl === 'function') refreshThemeControl();
   }
   function setTheme(mode) {
@@ -201,12 +204,86 @@
     if (currentTheme() === 'star' && !reduceMotion()) startStarfield();
     else stopStarfield();
   }
-  // Toggling the OS "reduce motion" while in star mode starts/stops the field live.
+  // Toggling the OS "reduce motion" live starts/stops the starfield and the puff breath.
   if (window.matchMedia) {
     const mm = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const onChange = () => syncStarfield();
+    const onChange = () => { syncStarfield(); syncFavicon(); };
     if (mm.addEventListener) mm.addEventListener('change', onChange);
     else if (mm.addListener) mm.addListener(onChange);
+  }
+
+  // --- living-puff favicon (slice 1) ---------------------------------------
+  // The tab's favicon as a calm barometer of the snooze queue: the ypuf puff,
+  // drawn to a tiny canvas and swapped into the <link rel=icon>, breathing (motion
+  // welcome + tab focused only), tinted by the live theme/mood palette, with a
+  // moon glow at night and a particle configuration from lib/barometer.js. Pure
+  // cores do the deciding (state) and the geometry (scene); this host glue only
+  // draws + swaps + runs the breath loop. Page-level singleton like the starfield
+  // (started/stopped, never per-mount torn down), so no alive-flag dance is needed.
+  const faviconLink = document.getElementById('favicon');
+  let favState = { state: 'clear', particles: 0, dot: false, drift: 'none' };
+  let favRAF = null;
+  let favLastDraw = 0;
+  const FAV_PERIOD = 4800;   // breath cadence (ms), matching the snooze return-loop
+
+  function favDraw(breath) {
+    if (!faviconLink || !puffscene || !barometer) return;
+    const BOX = puffscene.BOX || 32, S = 64, k = S / BOX;
+    const c = document.createElement('canvas'); c.width = c.height = S;
+    const x = c.getContext('2d'); if (!x) return;
+    const cs = getComputedStyle(docBody);
+    const tok = (n, fb) => (cs.getPropertyValue(n).trim() || fb);
+    const ink = tok('--ink', '#1a1613'), paper = tok('--paper', '#f8f5f0'), amber = tok('--accent-amber', '#c8713a');
+    // A warm tile carries its own contrast, so the puff stays legible on any tab-strip color.
+    x.beginPath(); x.roundRect(1, 1, S - 2, S - 2, 13); x.fillStyle = paper; x.fill();
+    if (moodNow().key === 'night') {
+      const lit = moonrender.geometry ? moonrender.geometry(moonphase.phase(new Date())).f : 0.5;
+      const g = x.createRadialGradient(S * 0.64, S * 0.36, 0, S * 0.64, S * 0.36, S * 0.42);
+      g.addColorStop(0, `rgba(255,246,224,${0.10 + 0.18 * lit})`);   // low-opacity so the amber dot stays dominant
+      g.addColorStop(1, 'rgba(255,246,224,0)');
+      x.fillStyle = g; x.fillRect(0, 0, S, S);
+    }
+    for (const p of puffscene.scene(favState, breath)) {   // core → particles → dot (dot never occluded)
+      x.globalAlpha = p.opacity;
+      x.fillStyle = (p.role === 'dot') ? amber : ink;
+      x.beginPath(); x.arc(p.x * k, p.y * k, p.r * k, 0, Math.PI * 2); x.fill();
+    }
+    x.globalAlpha = 1;
+    faviconLink.href = c.toDataURL('image/png');
+  }
+
+  function favFrame(now) {
+    if (now - favLastDraw >= 90) {   // cap the re-encode at ~11fps; the breath is slow
+      favDraw((Math.sin((now / FAV_PERIOD) * Math.PI * 2) + 1) / 2);
+      favLastDraw = now;
+    }
+    favRAF = requestAnimationFrame(favFrame);
+  }
+
+  function syncFavicon() {
+    if (!faviconLink) return;
+    if (!reduceMotion() && !document.hidden) { if (!favRAF) favRAF = requestAnimationFrame(favFrame); }
+    else { if (favRAF) { cancelAnimationFrame(favRAF); favRAF = null; } favDraw(0.5); }   // a still mark at rest
+  }
+
+  function refreshFavState() {
+    send('snooze-list').then((resp) => {
+      const back = (resp && Array.isArray(resp.back)) ? resp.back.length : 0;
+      const snoozed = (resp && Array.isArray(resp.snoozed)) ? resp.snoozed.length : 0;
+      favState = barometer.compute({ back, snoozed });
+      syncFavicon();   // running breath picks up favState next frame; a still mark redraws now
+    }).catch(() => {});
+  }
+
+  function initFavicon() {
+    if (!faviconLink) return;
+    refreshFavState();
+    // Re-read the queue (and re-tint for any mood shift) the instant the tab is focused;
+    // pause the breath when it's hidden. The tab strip is correct the moment you return.
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { if (favRAF) { cancelAnimationFrame(favRAF); favRAF = null; } }
+      else refreshFavState();
+    });
   }
   const boardSub = document.getElementById('board-sub');
   const oneLineEl = document.getElementById('board-oneline');
@@ -1269,6 +1346,7 @@
     if (e.key === THEME_KEY && e.newValue) applyTheme(e.newValue);
   });
   syncStarfield();    // U8: start the field if the pre-paint theme is already star
+  initFavicon();      // living-puff favicon: fetch the snooze queue, draw + breathe
   reconcileTheme();   // durable chrome.storage ⇄ pre-paint mirror, after first paint
 
   addBtn.addEventListener('click', openAddPicker);
