@@ -1280,7 +1280,8 @@
     rows.forEach((el, i) => {
       const on = i === kbdCursor;
       el.classList.toggle('kbd-cursor', on);
-      if (on) el.setAttribute('aria-current', 'true'); else el.removeAttribute('aria-current'); // announce the cursored row
+      // the kbd-cursor highlight is CSS-only (invisible to AT); aria-current carries it to assistive tech
+      if (on) el.setAttribute('aria-current', 'true'); else el.removeAttribute('aria-current');
     });
     if (rows[kbdCursor]) rows[kbdCursor].scrollIntoView({ block: 'nearest' });
   }
@@ -1322,7 +1323,7 @@
   let hintLabels = [];
   let hintTargets = [];
 
-  const hintTargetEls = () => [...document.querySelectorAll('.recent-item[data-id] .title.clickable, .topsite')]
+  const hintTargetEls = () => [...document.querySelectorAll('.recent-item[data-id] .title.clickable, .topsite, .shelf-more, .shelf-older')]
     .filter((el) => el.offsetParent !== null);
 
   function enterHints() {
@@ -1513,6 +1514,7 @@
       const SR = window.ypuf.shelfRender;
       const T = (window.ypuf && window.ypuf.titles) || {};
       const body = ctx.body;
+      const cssEsc = (s) => ((window.CSS && CSS.escape) ? CSS.escape(String(s)) : String(s));
       const handlers = {
         open: (id) => {
           send('recall-open', { recordId: id });
@@ -1522,8 +1524,7 @@
           // go again. Covers recent, back-now, and search-result rows alike.
           // Remove every matching row — a record can sit in both the recent and the
           // back-now lists, and leaving the duplicate behind would re-fire on click.
-          const sel = (window.CSS && CSS.escape) ? CSS.escape(String(id)) : String(id);
-          body.querySelectorAll('[data-id="' + sel + '"]').forEach((el) => el.remove());
+          body.querySelectorAll('[data-id="' + cssEsc(id) + '"]').forEach((el) => el.remove());
         },
       };
       let destroyed = false;   // armed by the teardown so late SW replies can't write into a torn-down panel
@@ -1591,10 +1592,12 @@
       }).catch(() => {});
 
       function row(it, tags, action) {
-        if (it.url && !it.faviconUrl) it.faviconUrl = faviconUrl(it.url); // local _favicon, no network
-        const li = SR.toDom(SR.itemRow(it, tags, T, action), document, handlers);
+        // Resolve the favicon (local _favicon, no network) without mutating the SW response object.
+        const r = (it.faviconUrl || !it.url) ? it : Object.assign({}, it, { faviconUrl: faviconUrl(it.url) });
+        const li = SR.toDom(SR.itemRow(r, tags, T, action), document, handlers);
         const fav = li.querySelector('.fav');
-        if (fav) fav.addEventListener('error', () => { fav.remove(); li.classList.remove('has-fav'); }); // hide a broken icon, reflow
+        // A missing favicon shouldn't shout: drop it silently rather than show a placeholder.
+        if (fav) fav.addEventListener('error', () => { fav.remove(); li.classList.remove('has-fav'); });
 
         // Set-bearing recall items offer a one-tap "bring back the set" (the
         // granular checkbox restore stays in the popup); restore-set intersects
@@ -1688,7 +1691,6 @@
 
       const RECENT_GROUP_CAP = 6;   // keep each time-group a calm peek; overflow hides behind "Show N more"
       const SNOOZE_GROUP_CAP = 4;
-      const cssEsc = (s) => ((window.CSS && CSS.escape) ? CSS.escape(String(s)) : String(s));
 
       // Quiet group heading (h3 for heading semantics); the visible text stays just the
       // label — the count rides as the accessible name so screen readers announce it.
@@ -1705,8 +1707,7 @@
         b.type = 'button';
         b.className = 'shelf-more';
         b.textContent = `Show ${n} more`;
-        b.setAttribute('aria-expanded', 'false');
-        b.addEventListener('click', () => { onExpand(); b.remove(); });
+        b.addEventListener('click', () => { if (destroyed) return; onExpand(); b.remove(); });
         return b;
       }
 
@@ -1720,10 +1721,10 @@
         ul.className = 'recent';
         ul.setAttribute('role', 'list');
         const fill = (arr) => { for (const it of arr) ul.appendChild(build(it)); };
-        const overflow = cap && items.length > cap;
-        fill(overflow ? items.slice(0, cap) : items);
+        const { visible, rest } = timegroup.split(items, cap);   // pure cap/overflow partition (tested)
+        fill(visible);
         target.appendChild(ul);
-        if (overflow) target.appendChild(moreButton(items.length - cap, () => { fill(items.slice(cap)); syncProtectMarks(); }));
+        if (rest.length) target.appendChild(moreButton(rest.length, () => { fill(rest); syncProtectMarks(); }));
       }
 
       // Recent shelf: bucket into calm time groups (Today / Yesterday / …) instead of an
@@ -1776,6 +1777,7 @@
         const mine = ++seq;              // bump on EVERY call (incl. clear) so an in-flight
                                          // response can't repaint a since-cleared/changed query
         searchMode(!!q);                 // toggle immediately so the recent list hides as you type
+        clearKbdCursor();                // a changed query resets selection → Enter opens the top match, not a stale row
         clearTimeout(timer);
         if (!q) { results.textContent = ''; return; }   // empty → restore the full panel
         timer = setTimeout(() => {
@@ -1814,9 +1816,10 @@
         if (e.key === 'ArrowUp') { e.preventDefault(); moveKbd(-1); return; }
         if (e.key === 'Enter') {
           const target = cursorRow() || recallRows()[0];
-          if (target) { e.preventDefault(); clickIn(target, '.title.clickable'); }
+          if (target) { e.preventDefault(); clickIn(target, '.title.clickable'); reanchorCursor(); }
         }
       });
+      search.addEventListener('focus', clearKbdCursor);   // entering search resets any j/k selection
 
       send('snooze-list').then((resp) => {
         if (destroyed) return;
@@ -1829,7 +1832,8 @@
       });
 
       function snoozedRow(it) {
-        const li = SR.toDom(SR.itemRow(it, ['snoozed'], T, null), document, {});
+        const r = (it.faviconUrl || !it.url) ? it : Object.assign({}, it, { faviconUrl: faviconUrl(it.url) });
+        const li = SR.toDom(SR.itemRow(r, ['snoozed'], T, null), document, {});
         const ctrls = document.createElement('div');
         ctrls.className = 'snooze-controls';
         const wake = document.createElement('button');

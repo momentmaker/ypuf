@@ -57,3 +57,42 @@ test('a missing timestamp falls to Earlier (never crashes)', () => {
 test('non-array input yields no groups', () => {
   assert.deepEqual(timegroup.bucketByTime(null, NOW), []);
 });
+
+test('week boundary: a record exactly at weekAgo lands in "Earlier this week"', () => {
+  const startToday = new Date(2026, 5, 18, 0, 0, 0, 0).getTime();
+  const weekAgo = startToday - 7 * 86400000;
+  const k = byKey(timegroup.bucketByTime([item('edge', weekAgo)], NOW));
+  assert.deepEqual(k.week, ['edge']);
+});
+
+// --- split: cap / overflow partition for "Show N more" ----------------------
+
+const ids = (a) => a.map((x) => x.id);
+const five = [1, 2, 3, 4, 5].map((n) => ({ id: 'i' + n }));
+
+test('split: a group shorter than the cap shows everything, no overflow', () => {
+  const { visible, rest } = timegroup.split(five, 6);
+  assert.deepEqual(ids(visible), ['i1', 'i2', 'i3', 'i4', 'i5']);
+  assert.deepEqual(rest, []);
+});
+
+test('split: a group exactly at the cap shows everything, no overflow', () => {
+  const { visible, rest } = timegroup.split(five, 5);
+  assert.equal(visible.length, 5);
+  assert.deepEqual(rest, []);
+});
+
+test('split: cap+1 shows cap, overflows the remainder (the moreButton count)', () => {
+  const { visible, rest } = timegroup.split(five, 4);
+  assert.deepEqual(ids(visible), ['i1', 'i2', 'i3', 'i4']);
+  assert.deepEqual(ids(rest), ['i5']);
+});
+
+test('split: a falsy cap shows everything (no capping)', () => {
+  assert.deepEqual(timegroup.split(five, 0).visible.length, 5);
+  assert.deepEqual(timegroup.split(five, 0).rest, []);
+});
+
+test('split: non-array input is safe', () => {
+  assert.deepEqual(timegroup.split(null, 4), { visible: [], rest: [] });
+});

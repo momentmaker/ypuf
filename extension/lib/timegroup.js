@@ -36,7 +36,15 @@
     return groups.filter((g) => g.items.length);
   }
 
-  const api = { bucketByTime };
+  // Partition a group into the visible head (up to `cap`) and the overflow `rest`
+  // for the "Show N more" expander. A falsy cap (or a short group) shows everything.
+  function split(items, cap) {
+    const arr = Array.isArray(items) ? items : [];
+    if (!cap || arr.length <= cap) return { visible: arr, rest: [] };
+    return { visible: arr.slice(0, cap), rest: arr.slice(cap) };
+  }
+
+  const api = { bucketByTime, split };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ypuf = Object.assign(root.ypuf || {}, { timegroup: api });
