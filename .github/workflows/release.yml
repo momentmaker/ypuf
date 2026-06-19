@@ -20,6 +20,10 @@ on:
       tag:
         description: 'Existing tag to (re)release, e.g. v1.0.0'
         required: true
+      dry_run:
+        description: 'Dry run — test, build, and validate CWS credentials, but do NOT create a release or publish anything'
+        type: boolean
+        default: false
 
 permissions:
   contents: write   # create the GitHub Release + upload the zip asset
@@ -79,7 +83,53 @@ jobs:
           ' CHANGELOG.md > release-notes.md
           if [ ! -s release-notes.md ]; then echo "Release v$VERSION" > release-notes.md; fi
 
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ypuf-${{ steps.ver.outputs.version }}
+          path: dist/ypuf-${{ steps.ver.outputs.version }}.zip
+
+      # ---- Chrome Web Store credentials (dormant until CWS_* secrets exist) ----
+      - name: Check for Chrome Web Store credentials
+        id: cws
+        env:
+          HAS_CWS: ${{ secrets.CWS_EXTENSION_ID }}
+        run: |
+          if [ -n "$HAS_CWS" ]; then echo "ready=true" >> "$GITHUB_OUTPUT"; else echo "ready=false (set CWS_* secrets to enable)"; echo "ready=false" >> "$GITHUB_OUTPUT"; fi
+
+      # ---- DRY RUN: prove the four secrets work, without uploading or publishing ----
+      - name: Validate CWS credentials (dry run)
+        if: ${{ inputs.dry_run && steps.cws.outputs.ready == 'true' }}
+        env:
+          CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+        run: |
+          echo "Exchanging refresh token for an access token…"
+          resp="$(curl -sS -X POST https://oauth2.googleapis.com/token \
+            -d client_id="$CLIENT_ID" -d client_secret="$CLIENT_SECRET" \
+            -d refresh_token="$REFRESH_TOKEN" -d grant_type=refresh_token)"
+          token="$(printf '%s' "$resp" | jq -r '.access_token // empty')"
+          if [ -z "$token" ]; then
+            echo "::error::No access token — check CWS_CLIENT_ID / CWS_CLIENT_SECRET / CWS_REFRESH_TOKEN."
+            printf '%s' "$resp" | jq -r '.error_description // .error // "unknown error"'
+            exit 1
+          fi
+          echo "✓ refresh token + client are valid (access token obtained)."
+          echo "Querying the item to confirm CWS_EXTENSION_ID + scope…"
+          code="$(curl -sS -o item.json -w '%{http_code}' \
+            -H "Authorization: Bearer $token" -H "x-goog-api-version: 2" \
+            "https://www.googleapis.com/chromewebstore/v1.1/items/$EXTENSION_ID?projection=DRAFT")"
+          echo "Item query → HTTP $code"; cat item.json; echo
+          if [ "$code" != "200" ]; then
+            echo "::error::Item query failed (HTTP $code) — check CWS_EXTENSION_ID and that this Google account owns the item."
+            exit 1
+          fi
+          echo "✓ All four secrets valid and the item is reachable. A version-tag run would publish."
+
       - name: Publish GitHub Release
+        if: ${{ !inputs.dry_run }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
@@ -88,16 +138,9 @@ jobs:
           files: dist/ypuf-${{ steps.ver.outputs.version }}.zip
           prerelease: ${{ contains(steps.ver.outputs.version, '-') }}
 
-      # ---- Chrome Web Store auto-publish (DORMANT until CWS_* secrets exist) ----
-      - name: Check for Chrome Web Store credentials
-        id: cws
-        env:
-          HAS_CWS: ${{ secrets.CWS_EXTENSION_ID }}
-        run: |
-          if [ -n "$HAS_CWS" ]; then echo "ready=true" >> "$GITHUB_OUTPUT"; else echo "ready=false (set CWS_* secrets to enable)"; echo "ready=false" >> "$GITHUB_OUTPUT"; fi
-
+      # ---- Chrome Web Store auto-publish — real runs only, when creds exist ----
       - name: Publish to the Chrome Web Store
-        if: ${{ steps.cws.outputs.ready == 'true' }}
+        if: ${{ !inputs.dry_run && steps.cws.outputs.ready == 'true' }}
         # Pin/verify this action's version when you activate publishing.
         uses: mnao305/chrome-extension-upload@v5
         with:
