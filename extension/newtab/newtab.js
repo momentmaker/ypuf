@@ -282,7 +282,7 @@
     // pause the breath when it's hidden. The tab strip is correct the moment you return.
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) { if (favRAF) { cancelAnimationFrame(favRAF); favRAF = null; } }
-      else refreshFavState();
+      else { renderMasthead(); refreshFavState(); }   // refresh the mood (title + sub) and the queue on return
     });
   }
   const boardSub = document.getElementById('board-sub');
@@ -570,6 +570,7 @@
   function renderMasthead() {
     const m = moodNow();
     docBody.dataset.mood = m.key;
+    document.title = `ypuf · ${m.line}`;   // the tab's calm caption — mood line only, no count, no date (R8/R9)
     if (!boardSub) return;
     let date = '';
     try { date = new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }); } catch (e) { /* locale */ }
