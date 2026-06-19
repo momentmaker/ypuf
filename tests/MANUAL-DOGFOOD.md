@@ -529,6 +529,8 @@ boundary, and the host-permission grants — is verified by hand.
       cursored row reveals its protect/forget icons.
 - [ ] `o` or `Enter` opens the cursored page; `d` deletes (forgets) it (row strikes +
       **`u`** undoes within the grace window); `p` protects its site (shield lights).
+- [ ] On a row with a set, `r` **brings back the set** (reopens its companion tabs) —
+      same as clicking its "bring back the set?" link; a no-op on rows without a set.
 - [ ] `/` jumps focus to the recall search; `e` toggles edit mode; `Esc` clears the
       cursor (and blurs the search if it was focused).
 - [ ] **Typing is never hijacked:** with the search focused, `j`/`d`/`p`/`?` type

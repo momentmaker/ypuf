@@ -30,6 +30,7 @@ test('intent maps the vim normal-mode keys', () => {
   const m = (k) => bk.intent(k, {});
   assert.equal(m('j'), 'down'); assert.equal(m('k'), 'up');
   assert.equal(m('o'), 'open'); assert.equal(m('Enter'), 'open');
+  assert.equal(m('r'), 'restoreSet');
   assert.equal(m('d'), 'forget'); assert.equal(m('u'), 'undo');
   assert.equal(m('p'), 'protect'); assert.equal(m('/'), 'search');
   assert.equal(m('g'), 'g'); assert.equal(m('G'), 'bottom');

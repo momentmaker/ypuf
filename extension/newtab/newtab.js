@@ -281,6 +281,7 @@
     ['j / k', 'Move the recall cursor'],
     ['g g / G', 'Jump to top / bottom'],
     ['o / Enter', 'Open the cursored page'],
+    ['r', 'Bring back the set (its companion tabs)'],
     ['d / u', 'Delete (forget) / undo'],
     ['p', 'Never-touch this site'],
     ['/', 'Jump to recall search'],
@@ -1437,6 +1438,7 @@
         if (wasPendingG) jumpKbd(false); else pendingG = true;
         break;
       case 'open': e.preventDefault(); clickIn(cursorRow(), '.title.clickable'); break;
+      case 'restoreSet': e.preventDefault(); clickIn(cursorRow(), '.set-restore'); break;
       case 'forget': {
         const r = cursorRow();
         if (r && !r.classList.contains('struck')) { e.preventDefault(); clickIn(r, '.recall-forget'); }
