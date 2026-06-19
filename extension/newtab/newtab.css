@@ -476,6 +476,10 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
 .back-now-pinned:not(:empty) { margin: 2px 0 9px; padding-bottom: 7px; border-bottom: 1px solid var(--warm-gray); }
 .back-now-pinned .panel-group-label { color: var(--accent-sage); margin-top: 2px; }
 
+/* Snooze panel — the empty state (teaching line over the return-loop animation, U6). */
+.snooze-empty { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 26px 12px 22px; text-align: center; }
+.snooze-empty p { font-size: 12.5px; max-width: 30ch; line-height: 1.5; }
+
 /* Top sites panel — most-visited as a calm clickable list. */
 .topsites-list { display: flex; flex-direction: column; gap: 2px; }
 .topsite {

@@ -20,6 +20,7 @@
   const boardkeys = window.ypuf.boardkeys;        // pure cursor + key→intent (tested in lib/boardkeys.js)
   const hints = window.ypuf.hints;                // pure f-hint label assign/match (tested in lib/hints.js)
   const timegroup = window.ypuf.timegroup;        // pure recall time-bucketing (tested in lib/timegroup.js)
+  const returnwindow = window.ypuf.returnwindow;  // pure snooze return-window bucketing (tested in lib/returnwindow.js)
   const theme = window.ypuf.theme;                // pure light/dark/star mode core (tested in lib/theme.js)
   const moonphase = window.ypuf.moonphase;        // pure lunar phase (tested in lib/moonphase.js)
   const moonrender = window.ypuf.moonrender;      // moon/star toggle glyph (DOM helper)
@@ -2072,6 +2073,108 @@
           body.appendChild(list);
         }
       });
+      return () => { alive = false; };
+    },
+  });
+
+  // --- Snooze panel — a forward "coming back" timeline -----------------------
+  // The mirror of recall: what's away + when it returns. Host-rendered text-only
+  // (shelf-render), reusing the SW snooze messages + the recall row/group CSS.
+  registerPanelType('snooze', {
+    label: 'Snooze',
+    hint: 'tabs coming back',
+    addable: true,
+    network: false,
+    buildForm(form) {
+      const note = document.createElement('p');
+      note.className = 'muted add-hint';
+      note.textContent = "Tabs you snoozed — what's coming back, and when. Local-only.";
+      form.appendChild(note);
+      return () => ({});   // no per-instance config (truthy, so the picker can add it)
+    },
+    mount(ctx) {
+      const SR = window.ypuf.shelfRender;
+      const T = (window.ypuf && window.ypuf.titles) || {};
+      const body = ctx.body;
+      let alive = true;
+      const titleOf = (it) => (SR.titleOf ? SR.titleOf(it, T) : (it.title || it.url || 'this tab'));
+
+      // The per-row return-TIME meta tag (distinct from the group's return-WINDOW header).
+      function returnLabel(it) {
+        if (it.untilStartup) return "back next time you're here";
+        if (typeof it.returnAt !== 'number') return '';
+        if (it.returnAt <= Date.now()) return 'due earlier';   // transient overdue-but-snoozed
+        try { return 'back ' + new Date(it.returnAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }); }
+        catch { return 'snoozed'; }
+      }
+      function group(label, count) {
+        const h = document.createElement('h3');
+        h.className = 'panel-group-label';
+        h.textContent = label;
+        if (count != null) h.setAttribute('aria-label', label + ' — ' + count + ' tab' + (count === 1 ? '' : 's'));
+        return h;
+      }
+      function snzRow(it, opts) {
+        opts = opts || {};
+        const r = (it.faviconUrl || !it.url) ? it : Object.assign({}, it, { faviconUrl: faviconUrl(it.url) });
+        const handlers = { open: (id) => send('recall-open', { recordId: id }).then(() => { if (alive && ctx.remount) ctx.remount(); }) };
+        const li = SR.toDom(SR.itemRow(r, [returnLabel(it)], T, { action: 'open' }), document, handlers);
+        const fav = li.querySelector('.fav');
+        if (fav) fav.addEventListener('error', () => { fav.remove(); li.classList.remove('has-fav'); });
+        if (opts.wake) {   // snoozed rows can be woken now; back-now rows just open
+          const ctrls = document.createElement('div');
+          ctrls.className = 'snooze-controls';
+          const wake = document.createElement('button');
+          wake.type = 'button'; wake.className = 'link snooze-wake'; wake.textContent = 'Wake';
+          wake.setAttribute('aria-label', 'Wake — ' + titleOf(it));
+          let inflight = false;
+          wake.addEventListener('click', () => {
+            if (inflight) return;
+            inflight = true;
+            send('snooze-wake', { recordId: it.id }).then(() => { if (alive && ctx.remount) ctx.remount(); }).catch(() => { inflight = false; });
+          });
+          ctrls.appendChild(wake);
+          li.appendChild(ctrls);
+        }
+        return li;
+      }
+      function listOf(items, opts) {
+        const ul = document.createElement('ul');
+        ul.className = 'recent';
+        ul.setAttribute('role', 'list');
+        for (const it of items) ul.appendChild(snzRow(it, opts));
+        return ul;
+      }
+      function renderEmpty() {
+        const wrap = document.createElement('div');
+        wrap.className = 'snooze-empty';
+        const loop = document.createElement('span');
+        loop.className = 'return-loop';
+        loop.setAttribute('aria-hidden', 'true');   // decorative; U6 animates it
+        const p = document.createElement('p');
+        p.className = 'muted';
+        p.textContent = "Nothing's away. Send a tab off with ⌘⇧S — it comes back on its own.";
+        wrap.append(loop, p);
+        body.appendChild(wrap);
+      }
+
+      send('snooze-list').then((resp) => {
+        if (!alive) return;
+        body.textContent = '';
+        const back = (resp && resp.back) || [];
+        const snoozed = (resp && resp.snoozed) || [];
+        if (!back.length && !snoozed.length) { renderEmpty(); return; }
+        if (back.length) {   // pinned, actionable returns
+          const wrap = document.createElement('div');
+          wrap.className = 'back-now-pinned';
+          wrap.append(group('Back now', back.length), listOf(back, {}));
+          body.appendChild(wrap);
+        }
+        for (const g of returnwindow.windows(snoozed, Date.now())) {   // the coming-back timeline
+          body.append(group(g.label, g.items.length), listOf(g.items, { wake: true }));
+        }
+      }).catch(() => { if (alive) { body.textContent = ''; renderEmpty(); } });   // fail-open to the empty state
+
       return () => { alive = false; };
     },
   });

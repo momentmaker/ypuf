@@ -814,6 +814,7 @@ function projectSnooze(r) {
     id: r.id, title: r.title, url: r.url, host: r.host,
     contentLess: r.contentLess, snoozeState: r.snoozeState,
     returnAt: typeof r.returnAt === 'number' ? r.returnAt : null, untilStartup: !!r.untilStartup,
+    siblings: Array.isArray(r.siblings) ? r.siblings : [],   // so the Snooze panel can offer "bring back the set"
   };
 }
 async function snoozeList() {
