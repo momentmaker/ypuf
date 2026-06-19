@@ -232,10 +232,11 @@
   let favSeq = 0;            // supersede a slow snooze-list reply with a fresher one
   const FAV_PERIOD = 4800;   // breath cadence (ms), matching the snooze return-loop
 
-  // No tile — the puff floats on a transparent favicon. Its color reads from the LIVE
-  // board palette (--ink / --accent-amber via getComputedStyle), so it re-tints whenever
-  // the theme toggles (light → dark puff, dark/star → light puff). applyTheme() calls
-  // syncFavicon(), which re-reads this, so a toggle redraws the favicon.
+  // The favicon is a tiny swatch of the current mode: the tile takes the theme's own
+  // surface color (cream / dark / navy), the puff its ink, the dot its accent — all read
+  // LIVE from the palette so a theme toggle re-tints the whole chip (applyTheme calls
+  // syncFavicon → readFavLook). A --muted border keeps the tile's full square visible even
+  // when its fill matches a same-colored tab strip (the dark/navy tile no longer vanishes).
   function readFavLook() {
     const cs = getComputedStyle(docBody);
     const tok = (n, fb) => (cs.getPropertyValue(n).trim() || fb);
@@ -243,8 +244,10 @@
     const lit = (night && moonrender.geometry) ? moonrender.geometry(moonphase.phase(new Date())).f : 0;
     favLook = {
       ink: tok('--ink', '#1a1613'),
+      tile: tok('--card-bg', '#fffdf9'),
       amber: tok('--accent-amber', '#c8713a'),
-      glow: night ? 0.16 + 0.18 * lit : 0,   // a faint warm moon halo behind the puff at night
+      border: tok('--muted', '#9a918a'),
+      glow: night ? 0.10 + 0.18 * lit : 0,   // capped low so the puff stays dominant
     };
   }
 
@@ -253,12 +256,16 @@
     if (!favLook) readFavLook();
     const BOX = puffscene.BOX || 32, S = FAV_S, k = S / BOX, L = favLook, x = favCtx;
     x.clearRect(0, 0, S, S);
+    x.beginPath(); x.roundRect(2.5, 2.5, S - 5, S - 5, 12);
+    x.fillStyle = L.tile; x.fill();
+    x.lineWidth = 3.5; x.strokeStyle = L.border; x.stroke();
     if (L.glow > 0) {
-      const cx = 13 * k, cy = 19 * k;   // centered on the puff's mass
-      const g = x.createRadialGradient(cx, cy, 0, cx, cy, S * 0.5);
+      x.save(); x.beginPath(); x.roundRect(2.5, 2.5, S - 5, S - 5, 12); x.clip();
+      const g = x.createRadialGradient(S * 0.64, S * 0.36, 0, S * 0.64, S * 0.36, S * 0.42);
       g.addColorStop(0, `rgba(255,246,224,${L.glow})`);
       g.addColorStop(1, 'rgba(255,246,224,0)');
       x.fillStyle = g; x.fillRect(0, 0, S, S);
+      x.restore();
     }
     for (const p of puffscene.scene(favState, breath)) {
       x.globalAlpha = p.opacity;
