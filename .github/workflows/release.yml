@@ -138,7 +138,8 @@ jobs:
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: ypuf ${{ steps.ver.outputs.tag }}
-          body_path: release-notes.md
+          body_path: release-notes.md          # curated CHANGELOG section…
+          generate_release_notes: true         # …plus an auto "What's Changed" commit/PR list appended below
           files: dist/ypuf-${{ steps.ver.outputs.version }}.zip
           prerelease: ${{ contains(steps.ver.outputs.version, '-') }}
 
