@@ -257,10 +257,10 @@
     favLook = {
       ink,
       tile: tok('--card-bg', '#fffdf9'),
-      amber: tok('--accent-amber', '#c8713a'),
+      dot: '#d98a52',   // the back-now signal stays a recognizable amber in every mode (in star --accent-amber is lavender and would vanish into the puff)
       border: tok('--muted', '#9a918a'),
       glow: night ? 0.10 + 0.18 * lit : 0,   // capped low so the puff stays dominant
-      puffScale: favLum(ink) > 0.5 ? 0.92 : 1,   // a light puff on a dark tile blooms — shrink it to read the same size
+      puffScale: favLum(ink) > 0.5 ? 0.84 : 1,   // a light puff on a dark tile blooms — shrink it to read the same size
     };
   }
 
@@ -283,8 +283,13 @@
     const sc = L.puffScale, cb = BOX / 2;   // shrink a light (blooming) puff around the centre
     for (const p of puffscene.scene(favState, breath)) {
       x.globalAlpha = p.opacity;
-      x.fillStyle = (p.role === 'dot') ? L.amber : L.ink;
-      x.beginPath(); x.arc((cb + (p.x - cb) * sc) * k, (cb + (p.y - cb) * sc) * k, p.r * k * sc, 0, Math.PI * 2); x.fill();
+      if (p.role === 'dot') {   // the back-now signal: full-size amber, never bloom-shrunk
+        x.fillStyle = L.dot;
+        x.beginPath(); x.arc(p.x * k, p.y * k, p.r * k, 0, Math.PI * 2); x.fill();
+      } else {
+        x.fillStyle = L.ink;
+        x.beginPath(); x.arc((cb + (p.x - cb) * sc) * k, (cb + (p.y - cb) * sc) * k, p.r * k * sc, 0, Math.PI * 2); x.fill();
+      }
     }
     x.globalAlpha = 1;
     faviconLink.href = favCanvas.toDataURL('image/png');
