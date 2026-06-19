@@ -1,7 +1,7 @@
 ---
 title: MV3 patterns for a local, privacy-first content-indexing extension
 date: 2026-06-14
-last_updated: 2026-06-18
+last_updated: 2026-06-19
 category: docs/solutions/architecture-patterns
 module: extension (service worker, lib, overlay, popup)
 problem_type: architecture_pattern
@@ -27,7 +27,9 @@ applies_when:
   - Extracting pure decision/transformation logic out of untested Chrome/DOM host glue so it can be unit-tested
   - Deriving an activity or freshness signal from a field that is defaulted at record creation
   - Layering keyboard, cursor, or floating-overlay state over a host UI that re-renders from a shared root
-tags: [chrome-mv3, service-worker, indexeddb, content-script, privacy, message-passing, no-build, minisearch, alarms, offscreen, concurrency, background-mutation, scheduling, session-clustering, snapshot-at-event, context-restore, working-set, sandbox, iframe-isolation, broker, ssrf, csp, network-egress, single-flight, swr-cache, postmessage, text-only-render, lifecycle-guard, teardown, generation-token, host-glue-extraction, drag-and-drop, keyboard-navigation, derived-signal, re-render-state-reset]
+  - Seeding a new default panel/item onto an existing user-editable persisted config via a one-time migration
+  - Bucketing scheduled future returns into wall-clock windows (a forward timeline) for display
+tags: [chrome-mv3, service-worker, indexeddb, content-script, privacy, message-passing, no-build, minisearch, alarms, offscreen, concurrency, background-mutation, scheduling, session-clustering, snapshot-at-event, context-restore, working-set, sandbox, iframe-isolation, broker, ssrf, csp, network-egress, single-flight, swr-cache, postmessage, text-only-render, lifecycle-guard, teardown, generation-token, host-glue-extraction, drag-and-drop, keyboard-navigation, derived-signal, re-render-state-reset, config-migration, idempotency, seed-migration, time-windows, scheduling-ui]
 ---
 
 # MV3 patterns for a local, privacy-first content-indexing extension
@@ -511,6 +513,62 @@ callback against a fast close (`if (closed) return`) so a hotkey-open-then-close
 resolves doesn't mutate a detached host. Reusable for any injected content-script UI that must
 match the extension's palette without a flash.
 
+### 24. One-time config migrations: persist the seed flag *with* the change in a single write, and gate on present state so a user's removal sticks
+
+Seeding a new default panel onto every existing board is a one-time migration over a
+user-owned, user-editable `chrome.storage` config — and a naive `if (!seeded) { addPanel();
+seeded = true; save() }` walks into three traps. (1) **The flag must live on the persisted
+config and gate on present state, not on the flag alone:** `if (!config._snoozeSeeded) {
+config._snoozeSeeded = true; if (!config.panels.some(p => p.type === 'snooze'))
+config.panels.push(seed); }`. The `some(...)` guard is what lets a user who *removes* the
+seeded panel keep it removed — the flag says only "we seeded once," but a board that already
+holds the panel (re-added by the user, or seeded by another open tab) must not get a duplicate.
+(2) **Co-occurring one-time migrations must share a single write.** `loadAndRender` runs two —
+the pre-lanes column spread (`lanes.migrateCols`) and the snooze seed — and the first cut called
+`saveConfig()` after each. Because `saveConfig` is an async `board-save-config` message and the
+config is serialized at dispatch, a crash (tab close, SW kill) *between* the two writes persists
+the cols migration without `_snoozeSeeded`, so the seed re-runs every boot — harmless only
+because the `some(...)` guard blocks the duplicate, but a permanent redundant write on every
+open. Collapse them: `let needsSave = false; … if (migrated) needsSave = true; … if (seeded)
+needsSave = true; if (needsSave) saveConfig();` — one write, both flags, no torn intermediate
+state. (3) **The shared default object can't be mutated in place.** `boardGetConfig` returns
+`(await local.get(KEY)) || DEFAULT_BOARD` — on a fresh install that is the module-level
+`DEFAULT_BOARD` *reference*; a migration that `push`es into `config.panels` would corrupt the
+default for the worker's lifetime. Here it survives by an accident of architecture — the config
+crosses the SW↔page boundary via `sendMessage`, which `structuredClone`s it, so the page mutates
+a copy — but any *same-context* caller (a future SW-internal migration) must clone first. The
+rule: a one-time config migration persists its flag in the *same* write as its change, gates on
+the present state (not just the flag) so user edits win, and never mutates the shared default in
+place.
+
+### 25. A forward "return window" timeline: weekday-relative buckets that collapse, a distinct terminal bucket, and overdue routed forward so nothing is lost
+
+The Snooze panel renders snoozed tabs as a *forward* timeline — Later today / This evening /
+Tomorrow / Later this week / This weekend / Next week / Later / When you're back — the mirror of
+recall's *backward* time buckets (`lib/timegroup.js`). Like every decidable core, the bucketing
+is a pure lib (`lib/returnwindow.js`, `windows(records, now)` with injected `now`, pattern 18) so
+the calendar math is unit-tested rather than discovered in a dogfood at the wrong hour. Three
+design points are non-obvious. (1) **The mid-week buckets collapse as the week advances, and
+items must route to the *nearer* window, not vanish.** "Later this week" is `[dayAfter,
+comingSaturday)` and "This weekend" is `[comingSaturday, followingMonday)` — on a Thursday
+`comingSaturday === dayAfter`, so "Later this week" is an empty range; on a Saturday the weekend
+range is empty. A Friday-return on Thursday belongs in "Tomorrow," a Sunday-return on Saturday in
+"Tomorrow" — the windows are disjoint and ordered, first match wins, and empty groups are
+dropped, so a collapsed bucket silently re-routes rather than losing the tab. This is the
+boundary logic that is correct-by-construction but reads like a bug without a test pinning it at
+*each* weekday, so the suite fixes `now` to several weekdays (Wednesday, Thursday, Saturday), not
+one. (2) **The "when I'm back" return is a distinct terminal bucket keyed on a boolean
+(`untilStartup`), never a `returnAt` sentinel** — a `returnAt: 0` would sort as
+"infinitely overdue" into the first window, but the startup set has no clock time and must land
+last, so its bucket tests on `u === true` and every other on `!u`. (Same distinction as
+`lib/snooze.js`, which excludes `untilStartup` from the numeric due-sweep — pattern 11.) (3)
+**An overdue-but-still-snoozed `returnAt` (`r < now`, a tab whose auto-reopen hasn't fired yet)
+routes to the soonest window** ("Later today") rather than a negative/error state, so a transient
+lag never drops a tab from the timeline. The rule: a forward-scheduling timeline over wall-clock
+windows needs the windows disjoint and ordered with empty-collapse routing tested *per weekday*,
+the no-clock case as its own terminal bucket (not a sentinel time), and the already-past case
+caught into the nearest live window so the queue is never lossy.
+
 ## Why This Matters
 
 Each of these is a real failure mode that shipped past unit tests and was only
@@ -595,12 +653,29 @@ re-render already resets. Both were caught by the same adversarial-review attent
 throughline says to spend at the glue; neither was reachable by the (passing) pure-module
 suites.
 
+The Snooze panel slice (splitting the forward "coming back" queue out of recall into its own
+board panel) made the prevention reflex routine and showed the seam concentrating at *lifecycle*.
+The one genuinely new decidable surface — the forward return-window bucketing — was extracted
+into a pure, tested `lib/returnwindow.js` (pattern 25) before it could become a finding, and the
+review even *added* the weekday-collapse boundary tests the lesson calls for. With the pure core
+pre-secured, every review finding landed where the throughline now predicts: in the panel's async
+host glue. The inflight guards on Wake and re-snooze reset only on `.catch`, so a remount-less
+resolve could strand a button; the per-row open had no guard at all, so a double-click double-fired
+`recall-open`; and two co-occurring one-time migrations each called `saveConfig`, so a crash
+between writes could re-seed the panel on every boot (pattern 24). All three were invisible to the
+(passing) pure-module suite — they live in the mount lifecycle and the storage-write seam — and
+all three were the *same* host-glue class slices 1-5 keep surfacing. The seam is no longer
+widening; it is concentrating at the panel mount's async lifecycle, exactly where patterns 17 and
+24 now stand guard.
+
 ## When to Apply
 
 - Any Chrome MV3 extension that reads/persists page content or user data locally.
 - Whenever an injected content script renders user data or accepts input.
 - Whenever an in-memory cache mirrors a durable store across SW restarts.
 - When choosing vanilla-JS/no-build but still wanting automated tests.
+- When seeding a new default onto an existing user-editable persisted config via a one-time migration.
+- When bucketing scheduled future events into wall-clock windows for a forward-timeline display.
 
 ## Examples
 
@@ -677,6 +752,16 @@ suites.
 - **Content-script overlay theming (23):** `extension/overlay/overlay.js` — `:host([data-theme])`
   CSS-var palettes, an instant `prefers-color-scheme` guess, then an async `chrome.storage.local`
   refine (guarded by `try/catch` + an `if (closed) return` on the callback).
+- **One-time config seed migration (24):** `extension/newtab/newtab.js` `loadAndRender` —
+  `_snoozeSeeded` on the persisted config, gated on `config.panels.some(p => p.type === 'snooze')`,
+  sharing a single `saveConfig` with the `lanes.migrateCols` migration (one `needsSave` write);
+  `extension/background.js` `DEFAULT_BOARD` (the shared default, mutation-safe only via the
+  `sendMessage`/`structuredClone` copy across the SW↔page boundary).
+- **Forward return-window timeline (25):** `extension/lib/returnwindow.js` `windows(records, now)`
+  (disjoint weekday-relative buckets with empty-collapse routing, `untilStartup` terminal bucket,
+  overdue→soonest) with `tests/returnwindow.test.js` (12 cases incl. the Thursday/Saturday
+  collapses), rendered by the `snooze` panel in `extension/newtab/newtab.js` (host text-only via
+  `shelf-render`, reusing the recall row/group CSS), mirroring `extension/lib/timegroup.js`.
 
 ## Related
 
@@ -686,15 +771,18 @@ suites.
   `docs/plans/2026-06-16-001-feat-ypuf-slice4-session-clustering-plan.md`,
   `docs/plans/2026-06-16-002-feat-ypuf-slice5-newtab-panel-board-plan.md`,
   `docs/plans/2026-06-17-001-feat-board-calm-premium-redesign-plan.md`,
-  `docs/plans/2026-06-18-001-feat-board-keyboard-settings-soul-plan.md`
+  `docs/plans/2026-06-18-001-feat-board-keyboard-settings-soul-plan.md`,
+  `docs/plans/2026-06-19-001-feat-snooze-panel-plan.md`
 - Origins: `docs/brainstorms/2026-06-14-ypuf-v1-sequence-and-slice1-requirements.md`,
   `docs/brainstorms/2026-06-15-ypuf-slice2-auto-let-go-requirements.md`,
   `docs/brainstorms/2026-06-15-ypuf-slice3-snooze-requirements.md`,
   `docs/brainstorms/2026-06-15-ypuf-slice4-session-clustering-requirements.md`,
   `docs/brainstorms/2026-06-16-ypuf-slice5-newtab-panel-board-requirements.md`,
   `docs/brainstorms/2026-06-17-ypuf-board-calm-premium-redesign-requirements.md`,
-  `docs/brainstorms/2026-06-18-ypuf-board-keyboard-settings-soul-requirements.md`
+  `docs/brainstorms/2026-06-18-ypuf-board-keyboard-settings-soul-requirements.md`,
+  `docs/brainstorms/2026-06-19-ypuf-snooze-panel-requirements.md`
 - PRs: momentmaker/ypuf#1 (slice 1), momentmaker/ypuf#2 (slice 2),
   momentmaker/ypuf#4 (slice 3), momentmaker/ypuf#6 (slice 4),
   momentmaker/ypuf#8 (slice 5), momentmaker/ypuf#9 (slice 5 redesign),
-  momentmaker/ypuf#11 (board calm settings, soul & keyboard layer)
+  momentmaker/ypuf#11 (board calm settings, soul & keyboard layer),
+  momentmaker/ypuf#21 (snooze panel)

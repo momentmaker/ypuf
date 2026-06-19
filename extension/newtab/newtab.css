@@ -476,6 +476,33 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
 .back-now-pinned:not(:empty) { margin: 2px 0 9px; padding-bottom: 7px; border-bottom: 1px solid var(--warm-gray); }
 .back-now-pinned .panel-group-label { color: var(--accent-sage); margin-top: 2px; }
 
+/* Snooze panel — the empty state (teaching line over the return-loop animation, U6). */
+.snooze-empty { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 26px 12px 22px; text-align: center; }
+.snooze-empty p { font-size: 12.5px; max-width: 30ch; line-height: 1.5; }
+
+/* Snooze row controls (Wake / Later →) — quiet at rest, full on hover/focus (§9). */
+.panel .recent-item .snooze-controls { font-size: 11px; opacity: 0.6; transition: opacity .14s ease; }
+.panel .recent-item:hover .snooze-controls,
+.panel .recent-item:focus-within .snooze-controls { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .panel .recent-item .snooze-controls { transition: none; } }
+
+/* The return loop (U6): a little tab chip puffs up and away, then floats back and settles —
+   the snooze promise, made visible. Decorative; static under reduced motion. */
+.snooze-empty .return-loop {
+  width: 16px; height: 10px; border-radius: 3px;
+  background: var(--accent-amber); opacity: 0.5;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .snooze-empty .return-loop { animation: return-loop 4.8s ease-in-out infinite; }
+  @keyframes return-loop {
+    0%   { transform: translateY(0) scale(1); opacity: 0.5; filter: blur(0); }
+    28%  { transform: translateY(-16px) scale(0.8); opacity: 0; filter: blur(2px); }  /* drift up + puff away */
+    48%  { transform: translateY(-16px) scale(0.8); opacity: 0; filter: blur(2px); }  /* gone — the calm beat */
+    74%  { transform: translateY(2px) scale(1.04); opacity: 0.5; filter: blur(0); }   /* floats back, a soft overshoot */
+    88%, 100% { transform: translateY(0) scale(1); opacity: 0.5; filter: blur(0); }   /* settles, then rests */
+  }
+}
+
 /* Top sites panel — most-visited as a calm clickable list. */
 .topsites-list { display: flex; flex-direction: column; gap: 2px; }
 .topsite {
