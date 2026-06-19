@@ -1645,7 +1645,7 @@
   // load-bearing here, not cosmetic (see shelf-render.js / KTD).
 
   registerPanelType('ypuf', {
-    label: 'ypuf — recall',
+    label: 'Recall',
     addable: false,          // present by default (R3); not added via the picker
     network: false,
     mount(ctx) {
