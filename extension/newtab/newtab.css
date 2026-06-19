@@ -390,6 +390,9 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
 .recall-protect:focus-visible { opacity: 0.65; }
 .recall-protect:hover { color: var(--accent-sage); opacity: 1; }
 .recall-protect.protected { color: var(--accent-sage); opacity: 1; }   /* lit while the site is protected */
+/* Mid-forget (struck → "undo"), the forget box grows left into the shield's slot —
+   hide the shield so the wider "undo" text reads fully; it returns if the forget is undone. */
+.recent-item.struck .recall-protect { display: none; }
 /* f-hints badge styling lives in style.css (shared with the popup, U11). */
 /* The relief moment (U5): a calm once-a-day acknowledgement. */
 .board-relief {
