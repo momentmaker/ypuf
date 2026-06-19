@@ -1547,18 +1547,13 @@
       const digestWrap = document.createElement('div');
       const results = document.createElement('div');
       const recentWrap = document.createElement('div');
-      const snoozeWrap = document.createElement('div');
-      // "Back now" is pinned above the scroll: timed snoozes now auto-reopen, so this only
-      // appears for "when I'm back" returns + edge cases — rare, but actionable when it does,
-      // so it sits up top (it stays empty/hidden otherwise).
-      const backNowWrap = document.createElement('div');
-      backNowWrap.className = 'back-now-pinned';
-      // Search + relief/digest stay pinned; the lists live in a bounded scroll region so
-      // the panel is a calm peek that never grows the board (the "indefinite list" fix).
+      // Search + relief/digest stay pinned; the let-go archive lives in a bounded scroll
+      // region so the panel is a calm peek that never grows the board. (Snooze lives in its
+      // own panel now — this panel is pure search + recent let-go archive.)
       const recallScroll = document.createElement('div');
       recallScroll.className = 'recall-scroll';
-      recallScroll.append(results, recentWrap, snoozeWrap);
-      body.append(reliefWrap, digestWrap, search, backNowWrap, recallScroll);
+      recallScroll.append(results, recentWrap);
+      body.append(reliefWrap, digestWrap, search, recallScroll);
 
       // The relief moment (U5/R12): once a day, a calm acknowledgement that what you
       // let go is safe. The SW gates the claim, so it shows on whichever surface you
@@ -1698,7 +1693,6 @@
       }
 
       const RECENT_GROUP_CAP = 6;   // keep each time-group a calm peek; overflow hides behind "Show N more"
-      const SNOOZE_GROUP_CAP = 4;
 
       // Quiet group heading (h3 for heading semantics); the visible text stays just the
       // label — the count rides as the accessible name so screen readers announce it.
@@ -1775,7 +1769,7 @@
       // snoozed + relief/digest sections hide, so the results aren't buried under the
       // unfiltered recent list (which read as "search returns junk").
       const searchMode = (active) => {
-        for (const el of [reliefWrap, digestWrap, backNowWrap, recentWrap, snoozeWrap]) el.hidden = active;
+        for (const el of [reliefWrap, digestWrap, recentWrap]) el.hidden = active;
       };
 
       let seq = 0;
@@ -1828,29 +1822,6 @@
         }
       });
       search.addEventListener('focus', clearKbdCursor);   // entering search resets any j/k selection
-
-      send('snooze-list').then((resp) => {
-        if (destroyed) return;
-        backNowWrap.textContent = '';
-        snoozeWrap.textContent = '';
-        const back = (resp && resp.back) || [];
-        const snoozed = (resp && resp.snoozed) || [];
-        if (back.length) groupBlock(backNowWrap, 'Back now', back, { action: 'open' }, SNOOZE_GROUP_CAP); // pinned above the scroll
-        if (snoozed.length) groupBlock(snoozeWrap, 'Snoozed', snoozed, { action: 'open' }, SNOOZE_GROUP_CAP, snoozedRow);
-      });
-
-      function snoozedRow(it) {
-        const r = (it.faviconUrl || !it.url) ? it : Object.assign({}, it, { faviconUrl: faviconUrl(it.url) });
-        const li = SR.toDom(SR.itemRow(r, ['snoozed'], T, null), document, {});
-        const ctrls = document.createElement('div');
-        ctrls.className = 'snooze-controls';
-        const wake = document.createElement('button');
-        wake.type = 'button'; wake.className = 'link'; wake.textContent = 'Wake';
-        wake.addEventListener('click', () => send('snooze-wake', { recordId: it.id }).then(() => ctx.remount && ctx.remount()));
-        ctrls.appendChild(wake);
-        li.appendChild(ctrls);
-        return li;
-      }
 
       return () => { destroyed = true; clearTimeout(timer); for (const t of undoTimers) clearTimeout(t); undoTimers.clear(); }; // cancel the debounce, late renders + pending undo timers
     },
