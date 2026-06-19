@@ -1,7 +1,7 @@
 ---
 title: "feat: living-puff tab strip — slice 1 (the barometer)"
 type: feat
-status: active
+status: completed
 date: 2026-06-19
 origin: docs/brainstorms/2026-06-19-ypuf-living-puff-tab-strip-requirements.md
 ---
