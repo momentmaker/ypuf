@@ -237,17 +237,30 @@
   // LIVE from the palette so a theme toggle re-tints the whole chip (applyTheme calls
   // syncFavicon → readFavLook). A --muted border keeps the tile's full square visible even
   // when its fill matches a same-colored tab strip (the dark/navy tile no longer vanishes).
+  // Rough perceived luminance of a #hex or rgba() color (0 dark .. 1 light).
+  function favLum(color) {
+    const c = String(color || '');
+    if (c[0] === '#') {
+      const h = c.slice(1).padEnd(6, '0');
+      return (0.299 * parseInt(h.slice(0, 2), 16) + 0.587 * parseInt(h.slice(2, 4), 16) + 0.114 * parseInt(h.slice(4, 6), 16)) / 255;
+    }
+    const m = c.match(/[\d.]+/g);
+    return m ? (0.299 * +m[0] + 0.587 * +m[1] + 0.114 * +m[2]) / 255 : 0;
+  }
+
   function readFavLook() {
     const cs = getComputedStyle(docBody);
     const tok = (n, fb) => (cs.getPropertyValue(n).trim() || fb);
     const night = moodNow().key === 'night';
     const lit = (night && moonrender.geometry) ? moonrender.geometry(moonphase.phase(new Date())).f : 0;
+    const ink = tok('--ink', '#1a1613');
     favLook = {
-      ink: tok('--ink', '#1a1613'),
+      ink,
       tile: tok('--card-bg', '#fffdf9'),
       amber: tok('--accent-amber', '#c8713a'),
       border: tok('--muted', '#9a918a'),
       glow: night ? 0.10 + 0.18 * lit : 0,   // capped low so the puff stays dominant
+      puffScale: favLum(ink) > 0.5 ? 0.92 : 1,   // a light puff on a dark tile blooms — shrink it to read the same size
     };
   }
 
@@ -256,21 +269,22 @@
     if (!favLook) readFavLook();
     const BOX = puffscene.BOX || 32, S = FAV_S, k = S / BOX, L = favLook, x = favCtx;
     x.clearRect(0, 0, S, S);
-    x.beginPath(); x.roundRect(2.5, 2.5, S - 5, S - 5, 12);
-    x.fillStyle = L.tile; x.fill();
-    x.lineWidth = 3.5; x.strokeStyle = L.border; x.stroke();
+    // The tile fills the whole favicon (maximizing the slot); the border hugs the inner edge.
+    x.beginPath(); x.roundRect(0, 0, S, S, 12); x.fillStyle = L.tile; x.fill();
+    x.lineWidth = 3.5; x.beginPath(); x.roundRect(1.75, 1.75, S - 3.5, S - 3.5, 10.5); x.strokeStyle = L.border; x.stroke();
     if (L.glow > 0) {
-      x.save(); x.beginPath(); x.roundRect(2.5, 2.5, S - 5, S - 5, 12); x.clip();
+      x.save(); x.beginPath(); x.roundRect(0, 0, S, S, 12); x.clip();
       const g = x.createRadialGradient(S * 0.64, S * 0.36, 0, S * 0.64, S * 0.36, S * 0.42);
       g.addColorStop(0, `rgba(255,246,224,${L.glow})`);
       g.addColorStop(1, 'rgba(255,246,224,0)');
       x.fillStyle = g; x.fillRect(0, 0, S, S);
       x.restore();
     }
+    const sc = L.puffScale, cb = BOX / 2;   // shrink a light (blooming) puff around the centre
     for (const p of puffscene.scene(favState, breath)) {
       x.globalAlpha = p.opacity;
       x.fillStyle = (p.role === 'dot') ? L.amber : L.ink;
-      x.beginPath(); x.arc(p.x * k, p.y * k, p.r * k, 0, Math.PI * 2); x.fill();
+      x.beginPath(); x.arc((cb + (p.x - cb) * sc) * k, (cb + (p.y - cb) * sc) * k, p.r * k * sc, 0, Math.PI * 2); x.fill();
     }
     x.globalAlpha = 1;
     faviconLink.href = favCanvas.toDataURL('image/png');
