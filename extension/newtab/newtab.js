@@ -329,7 +329,7 @@
   // then settle back. Motion + visibility gated; supersedes a prior one-shot; never leaks.
   function playMoment(kind) {
     if (!faviconLink || !puffmoment || reduceMotion() || document.hidden) return;
-    const path = puffmoment[kind] || puffmoment.arrival;
+    const path = kind === 'let-go' ? puffmoment.letGo : puffmoment.arrival;   // event 'let-go' → letGo()
     const D = FAV_MOMENT_MS[kind] || 1000;
     if (favMomentRAF) cancelAnimationFrame(favMomentRAF);   // supersede a prior one-shot
     if (favRAF) { cancelAnimationFrame(favRAF); favRAF = null; }   // pause the resting breath
