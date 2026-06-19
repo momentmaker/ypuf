@@ -88,3 +88,27 @@ test('a record with neither returnAt nor untilStartup is skipped, not crashing',
 test('non-array input yields no groups', () => {
   assert.deepEqual(returnwindow.windows(null, NOW), []);
 });
+
+// The "Later this week" / "This weekend" windows narrow as the week advances — on
+// some weekdays they collapse to nothing and their items route to nearer windows.
+test('on Thursday "Later this week" collapses: Friday is tomorrow, Saturday is weekend', () => {
+  const THU = new Date(2026, 5, 18, 10, 0, 0, 0).getTime();
+  const k = byKey(returnwindow.windows([
+    rec('fri', { returnAt: at(2026, 5, 19, 9) }),   // Fri
+    rec('sat', { returnAt: at(2026, 5, 20, 9) }),   // Sat
+  ], THU));
+  assert.deepEqual(k.tomorrow, ['fri']);
+  assert.deepEqual(k.weekend, ['sat']);
+  assert.equal(k.thisweek, undefined);   // no "Later this week" group exists on a Thursday
+});
+
+test('on Saturday "This weekend" collapses: Sunday is tomorrow, Monday is nextweek', () => {
+  const SAT = new Date(2026, 5, 20, 10, 0, 0, 0).getTime();
+  const k = byKey(returnwindow.windows([
+    rec('sun', { returnAt: at(2026, 5, 21, 9) }),   // Sun
+    rec('mon', { returnAt: at(2026, 5, 22, 9) }),   // next Mon
+  ], SAT));
+  assert.deepEqual(k.tomorrow, ['sun']);
+  assert.deepEqual(k.nextweek, ['mon']);
+  assert.equal(k.weekend, undefined);   // no "This weekend" group exists on a Saturday
+});

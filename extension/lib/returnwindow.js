@@ -27,7 +27,7 @@
     const eveningStart = T + EVENING_HOUR * HOUR;
     const tomorrow = T + DAY;
     const dayAfter = T + 2 * DAY;
-    const dow = new Date(T).getDay();                 // 0 Sun .. 6 Sat
+    const dow = new Date(T).getDay();
     const comingSat = T + ((6 - dow + 7) % 7) * DAY;  // this week's Saturday (today if it is Sat)
     const weekendStart = Math.max(dayAfter, comingSat); // the weekend, minus what today/tomorrow already claim
     const weekendEnd = comingSat + 2 * DAY;           // the following Monday 00:00

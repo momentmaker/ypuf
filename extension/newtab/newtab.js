@@ -10,7 +10,8 @@
  *
  * Layers: U1 shell + host↔sandbox channel; U2 boardConfig + edit mode + add flow;
  * the ypuf panel (U3), broker (U4), RSS (U5) and crypto (U6) panel TYPES register
- * into PANEL_TYPES below.
+ * into PANEL_TYPES below. The snooze panel — a forward "coming back" timeline —
+ * registers there too (the mirror of recall).
  */
 'use strict';
 
@@ -1224,16 +1225,20 @@
   async function loadAndRender() {
     const loaded = await send('board-get-config');
     if (loaded && Array.isArray(loaded.panels)) config = loaded;
-    // One-time migration: panels from before lanes existed get spread across the
-    // columns (round-robin) so the board looks composed rather than all stacked left.
-    if (lanes.migrateCols(config.panels, COLS)) saveConfig();
-    // One-time seed: boards saved before the Snooze panel existed gain it once (column 1).
-    // The flag lives on the persisted config, so removing the panel later sticks.
+    // One-time migrations, persisted in a single write so a crash between two saves
+    // can't strand a half-applied flag (which would re-run the seed every boot).
+    let needsSave = false;
+    // Panels from before lanes existed get spread across the columns (round-robin)
+    // so the board looks composed rather than all stacked left.
+    if (lanes.migrateCols(config.panels, COLS)) needsSave = true;
+    // Boards saved before the Snooze panel existed gain it once (column 1). The flag
+    // lives on the persisted config, so removing the panel later sticks.
     if (!config._snoozeSeeded) {
       config._snoozeSeeded = true;
       if (!config.panels.some((p) => p.type === 'snooze')) config.panels.push({ id: 'snooze-1', type: 'snooze', col: 1 });
-      saveConfig();
+      needsSave = true;
     }
+    if (needsSave) saveConfig();
     // U6: capture the prior open's stamp (for the puff), then advance it. Read before
     // write so this open's "new since last time" comparison uses the previous value.
     // A 0 here (first open ever, or a read error) keeps the puff quiet — see the > 0
@@ -1714,10 +1719,9 @@
       }
 
       // A labelled, capped group: header + a role=list of up to `cap` rows + a
-      // "Show N more" expander for the overflow. `build` lets the snoozed group use
-      // its own row builder (with the Wake control); the rest use the shared row().
-      function groupBlock(target, label, items, action, cap, build) {
-        build = build || ((it) => row(it, [T.timeAgo ? T.timeAgo(it.returnAt || it.timestamp) : ''], action));
+      // "Show N more" expander for the overflow.
+      function groupBlock(target, label, items, action, cap) {
+        const build = (it) => row(it, [T.timeAgo ? T.timeAgo(it.timestamp) : ''], action);
         target.appendChild(group(label, items.length));
         const ul = document.createElement('ul');
         ul.className = 'recent';
@@ -2095,10 +2099,15 @@
       function snzRow(it, opts) {
         opts = opts || {};
         const r = (it.faviconUrl || !it.url) ? it : Object.assign({}, it, { faviconUrl: faviconUrl(it.url) });
-        const handlers = { open: (id) => send('recall-open', { recordId: id }).then(() => { if (alive && ctx.remount) ctx.remount(); }) };
-        const li = SR.toDom(SR.itemRow(r, [returnLabel(it)], T, { action: 'open' }), document, handlers);
+        let openInflight = false;
+        const handlers = { open: (id) => {
+          if (openInflight) return;
+          openInflight = true;
+          send('recall-open', { recordId: id }).then(() => { openInflight = false; if (alive && ctx.remount) ctx.remount(); }).catch(() => { openInflight = false; });
+        } };
+        const li = SR.toDom(SR.itemRow(r, opts.wake ? [returnLabel(it)] : [], T, { action: 'open' }), document, handlers);
         const fav = li.querySelector('.fav');
-        if (fav) fav.addEventListener('error', () => { fav.remove(); li.classList.remove('has-fav'); });
+        if (fav) fav.addEventListener('error', () => { if (!alive) return; fav.remove(); li.classList.remove('has-fav'); });
         if (opts.wake) {   // snoozed rows can be woken now; back-now rows just open
           const ctrls = document.createElement('div');
           ctrls.className = 'snooze-controls';
@@ -2109,7 +2118,7 @@
           wake.addEventListener('click', () => {
             if (inflight) return;
             inflight = true;
-            send('snooze-wake', { recordId: it.id }).then(() => { if (alive && ctx.remount) ctx.remount(); }).catch(() => { inflight = false; });
+            send('snooze-wake', { recordId: it.id }).then(() => { inflight = false; if (alive && ctx.remount) ctx.remount(); }).catch(() => { inflight = false; });
           });
           ctrls.appendChild(wake);
 
@@ -2122,7 +2131,7 @@
           const resnooze = (preset) => {
             if (resnoozeInflight) return;
             resnoozeInflight = true;
-            send('snooze-resnooze', { recordId: it.id, preset }).then(() => { if (alive && ctx.remount) ctx.remount(); }).catch(() => { resnoozeInflight = false; });
+            send('snooze-resnooze', { recordId: it.id, preset }).then(() => { resnoozeInflight = false; if (alive && ctx.remount) ctx.remount(); }).catch(() => { resnoozeInflight = false; });
           };
           const presetBtn = (label, preset) => {
             const b = document.createElement('button');
@@ -2135,7 +2144,7 @@
             ctrls.textContent = '';
             const cancel = document.createElement('button');
             cancel.type = 'button'; cancel.className = 'link muted'; cancel.textContent = 'Cancel';
-            cancel.addEventListener('click', () => { if (alive && ctx.remount) ctx.remount(); }); // restore the row
+            cancel.addEventListener('click', () => { if (alive && ctx.remount) ctx.remount(); });
             const ev = presetBtn('This evening', 'this-evening');
             ctrls.append(ev, presetBtn('Next week', 'next-week'), cancel);
             ev.focus();
@@ -2189,13 +2198,13 @@
         const back = (resp && resp.back) || [];
         const snoozed = (resp && resp.snoozed) || [];
         if (!back.length && !snoozed.length) { renderEmpty(); return; }
-        if (back.length) {   // pinned, actionable returns
+        if (back.length) {
           const wrap = document.createElement('div');
           wrap.className = 'back-now-pinned';
           wrap.append(group('Back now', back.length), listOf(back, {}));
           body.appendChild(wrap);
         }
-        for (const g of returnwindow.windows(snoozed, Date.now())) {   // the coming-back timeline
+        for (const g of returnwindow.windows(snoozed, Date.now())) {
           body.append(group(g.label, g.items.length), listOf(g.items, { wake: true }));
         }
       }).catch(() => { if (alive) { body.textContent = ''; renderEmpty(); } });   // fail-open to the empty state
