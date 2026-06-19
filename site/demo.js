@@ -72,11 +72,14 @@
       { title: 'Async Rust, demystified', host: 'fasterthanli.me', freq: true, content: 'the runtime polls the future until it returns Ready — tokio is the de-facto async runtime' },
       { title: 'tokio — the async runtime', host: 'tokio.rs', content: 'an asynchronous runtime for the rust programming language' },
       { title: 'Home-office deduction rules for 2026', host: 'irs.gov', content: 'the simplified method lets you deduct five dollars per square foot, up to 300 sq ft of tax' },
-      { title: 'flights to lisbon in october', host: 'google.com', content: 'cheapest fares to lisbon portugal in october for travel' },
       { title: 'that CSS grid trick', host: 'css-tricks.com', content: 'subgrid and minmax for responsive layouts without media queries' },
       { title: 'tonkotsu ramen broth recipe', host: 'seriouseats.com', content: 'simmer pork bones twelve hours for a rich tonkotsu ramen broth' },
       { title: 'q3 planning doc', host: 'notion.so', freq: true, content: 'roadmap, okrs, and the q3 planning priorities for the team' },
-      { title: 'walktalkmeditate / pilgrim-ios', host: 'github.com', content: 'a privacy-first iOS app for intentional walking, on-device transcription' },
+      // Real, openable pages — press ↵ to actually visit them.
+      { title: 'Four-thousand weeks — your life in hexagons', host: 'fz.ax', content: 'a quiet, local-first memento mori — each hexagon is one week of your life; mark the weeks that mattered' },
+      { title: 'Pilgrim — a walking practice', host: 'pilgrimapp.org', freq: true, content: 'a privacy-first iOS app for intentional walking as creative practice — no leaderboards, no calorie goals, just you and the path' },
+      { title: 'pancakemaker — stack your expenses', host: 'pancakemaker.com', content: 'an offline-first personal and business expense tracker with an in-browser sqlite database — your spending, budgets, and subscriptions stay on your device, no account required' },
+      { title: 'chainlinkme.me — the Chainlink meme archive', host: 'chainlinkme.me', content: 'a community-curated archive of chainlink memes you can browse, search, favorite, and react to' },
     ];
 
     function mark(text, terms) {
@@ -146,7 +149,7 @@
       else if (e.key === 'Enter') { e.preventDefault(); openSel(); }
     });
 
-    var DEMO = ['the founder who quit', 'rust async runtime', 'home office deduction'];
+    var DEMO = ['the founder who quit', 'rust async runtime', 'offline expense tracker', 'walking practice'];
     var qi = 0;
     function startAuto() {
       if (manual) return;
