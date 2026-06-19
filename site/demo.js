@@ -107,12 +107,24 @@
         return { e: e, terms: terms, score: score };
       }).filter(function (x) { return x.score > 0; }).sort(function (a, b) { return b.score - a.score; }).slice(0, 4);
     }
+    var rows = [], curHits = [], sel = 0;
+    function applyActive() {
+      for (var i = 0; i < rows.length; i++) {
+        if (i === sel) { rows[i].classList.add('on'); if (rows[i].scrollIntoView) rows[i].scrollIntoView({ block: 'nearest' }); }
+        else rows[i].classList.remove('on');
+      }
+    }
+    function move(d) { if (!rows.length) return; sel = (sel + d + rows.length) % rows.length; applyActive(); }
+    function openSel() {
+      var h = curHits[sel]; if (!h) return;
+      window.open('https://' + h.e.host.split('/')[0], '_blank', 'noopener');
+    }
     function render(q) {
-      var hits = search(q);
+      curHits = search(q); rows = []; sel = 0;
       results.textContent = '';
       if (!q.trim()) return;
-      if (!hits.length) { var none = document.createElement('div'); none.className = 'row'; var t = document.createElement('div'); t.className = 'm'; t.textContent = 'No match — try founder, rust, or tax.'; none.appendChild(t); results.appendChild(none); return; }
-      hits.forEach(function (h, idx) {
+      if (!curHits.length) { var none = document.createElement('div'); none.className = 'row'; var t = document.createElement('div'); t.className = 'm'; t.textContent = 'No match — try founder, rust, or tax.'; none.appendChild(t); results.appendChild(none); return; }
+      curHits.forEach(function (h, idx) {
         var r = h.e; var li = document.createElement('div'); li.className = 'row' + (idx === 0 ? ' on' : '');
         var t = document.createElement('div'); t.className = 't'; t.appendChild(frag(mark(r.title, h.terms)));
         var m = document.createElement('div'); m.className = 'm'; m.appendChild(document.createTextNode(r.host));
@@ -120,7 +132,7 @@
         li.appendChild(t); li.appendChild(m);
         var sn = snippet(r.content, h.terms);
         if (sn) { var s = document.createElement('div'); s.className = 's'; s.appendChild(frag(sn)); li.appendChild(s); }
-        results.appendChild(li);
+        results.appendChild(li); rows.push(li);
       });
     }
 
@@ -128,6 +140,11 @@
     input.addEventListener('focus', function () { manual = true; input.value = ''; render(''); });
     input.addEventListener('input', function () { manual = true; render(input.value); });
     input.addEventListener('blur', function () { if (!input.value.trim()) { manual = false; if (!reduce) startAuto(); } });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
+      else if (e.key === 'Enter') { e.preventDefault(); openSel(); }
+    });
 
     var DEMO = ['the founder who quit', 'rust async runtime', 'home office deduction'];
     var qi = 0;
