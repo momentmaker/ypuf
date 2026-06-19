@@ -1053,7 +1053,7 @@ chrome.commands.onCommand.addListener((command) => {
 // chain, so two open board tabs can't interleave or clobber each other (pattern 7).
 
 const BOARD_CONFIG_KEY = 'boardConfig';
-const DEFAULT_BOARD = { panels: [{ id: 'ypuf-1', type: 'ypuf' }], minimalMode: false };
+const DEFAULT_BOARD = { panels: [{ id: 'ypuf-1', type: 'ypuf' }, { id: 'snooze-1', type: 'snooze', col: 1 }], minimalMode: false };
 
 const boardGetConfig = async () => (await local.get(BOARD_CONFIG_KEY)) || DEFAULT_BOARD;
 

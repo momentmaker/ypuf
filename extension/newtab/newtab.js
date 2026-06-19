@@ -1227,6 +1227,13 @@
     // One-time migration: panels from before lanes existed get spread across the
     // columns (round-robin) so the board looks composed rather than all stacked left.
     if (lanes.migrateCols(config.panels, COLS)) saveConfig();
+    // One-time seed: boards saved before the Snooze panel existed gain it once (column 1).
+    // The flag lives on the persisted config, so removing the panel later sticks.
+    if (!config._snoozeSeeded) {
+      config._snoozeSeeded = true;
+      if (!config.panels.some((p) => p.type === 'snooze')) config.panels.push({ id: 'snooze-1', type: 'snooze', col: 1 });
+      saveConfig();
+    }
     // U6: capture the prior open's stamp (for the puff), then advance it. Read before
     // write so this open's "new since last time" comparison uses the previous value.
     // A 0 here (first open ever, or a read error) keeps the puff quiet — see the > 0
