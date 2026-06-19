@@ -354,6 +354,7 @@
     gear: [['circle', { cx: 8, cy: 8, r: 2.2 }],
            ['path', { d: 'M8 1.6v1.6M8 12.8v1.6M14.4 8h-1.6M3.2 8H1.6M12.5 3.5l-1.1 1.1M4.6 11.4l-1.1 1.1M12.5 12.5l-1.1-1.1M4.6 4.6L3.5 3.5' }]],
     close: [['path', { d: 'M4 4l8 8M12 4l-8 8' }]],
+    clock: [['circle', { cx: 8, cy: 8, r: 5.6 }], ['path', { d: 'M8 4.8V8l2.2 1.6' }]],
   };
   function icon(name) {
     const svg = document.createElementNS(SVGNS, 'svg');
@@ -1731,6 +1732,18 @@
         const fav = li.querySelector('.fav');
         // A missing favicon shouldn't shout: drop it silently rather than show a placeholder.
         if (fav) fav.addEventListener('error', () => { fav.remove(); li.classList.remove('has-fav'); });
+
+        // Search spans the whole index, so a currently-snoozed page can appear here. Flag it
+        // with a small clock so it reads as "away, coming back" rather than a plain let-go.
+        if (it.snoozeState) {
+          const meta = li.querySelector('.meta');
+          const tag = document.createElement('span');
+          tag.className = 'recall-snoozed';
+          const label = it.snoozeState === 'back-now' ? 'In Snooze — back now' : 'In Snooze — coming back';
+          tag.title = label; tag.setAttribute('aria-label', label);
+          tag.append(icon('clock'));
+          if (meta) meta.prepend(tag); else li.appendChild(tag);
+        }
 
         // Set-bearing recall items offer a one-tap "bring back the set" (the
         // granular checkbox restore stays in the popup); restore-set intersects
