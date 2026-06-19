@@ -15,7 +15,7 @@
   'use strict';
 
   const BOX = 32;
-  const clamp01 = (p) => Math.max(0, Math.min(1, p));
+  const clamp01 = (p) => (Number.isFinite(p) ? Math.max(0, Math.min(1, p)) : 0);   // NaN/undefined → 0, never a NaN coord
   const lerp = (a, b, t) => a + (b - a) * t;
   const easeOut = (t) => 1 - (1 - t) * (1 - t);   // decelerates as it settles
   const easeIn = (t) => t * t;                     // accelerates as it leaves

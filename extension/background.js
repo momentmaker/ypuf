@@ -317,7 +317,7 @@ async function autoReopenDue(now) {
             await persistSnapshot();
           }
         });
-        notifyBoard('arrival');   // an open living-puff favicon plays a one-shot arrival
+        notifyBoard('arrival');
       } catch (e) {
         logErr(e);
         await flipBackNow([rec.id]); // open failed → surface as "back now", don't lose it or retry-churn
