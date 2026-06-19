@@ -232,16 +232,22 @@
   let favSeq = 0;            // supersede a slow snooze-list reply with a fresher one
   const FAV_PERIOD = 4800;   // breath cadence (ms), matching the snooze return-loop
 
+  // The favicon is a CONSISTENT light chip in every board theme. A dark/star tile goes
+  // dark and blends into a dark browser tab strip — the visible square shrinks while a
+  // light tile pops at full size. So the tile stays light (subtly mood-warmed, with the
+  // night glow), independent of the board theme, so the square reads the same everywhere.
+  const FAV_PAPER = { dawn: '#f9f7f2', day: '#f8f5f0', dusk: '#f6efe5', night: '#f1eadf' };
+  const FAV_INK = '#1a1613', FAV_AMBER = '#c8713a', FAV_BORDER = '#e7ddd0';
+
   function readFavLook() {
-    const cs = getComputedStyle(docBody);
-    const tok = (n, fb) => (cs.getPropertyValue(n).trim() || fb);
-    const night = moodNow().key === 'night';
+    const key = moodNow().key;
+    const night = key === 'night';
     const lit = (night && moonrender.geometry) ? moonrender.geometry(moonphase.phase(new Date())).f : 0;
     favLook = {
-      ink: tok('--ink', '#1a1613'),
-      paper: tok('--paper', '#f8f5f0'),
-      amber: tok('--accent-amber', '#c8713a'),
-      border: tok('--warm-gray', '#e7ddd0'),
+      ink: FAV_INK,
+      paper: FAV_PAPER[key] || FAV_PAPER.day,
+      amber: FAV_AMBER,
+      border: FAV_BORDER,
       glow: night ? 0.10 + 0.18 * lit : 0,   // capped low so the amber dot stays dominant
     };
   }
