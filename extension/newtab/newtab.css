@@ -472,6 +472,11 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
 
 @media (prefers-reduced-motion: reduce) { .set-restore { transition: none; } }
 
+/* "Back now": pinned above the scroll, a quiet sage accent so a real return reads as
+   ready-to-act. Empty → no chrome at all (rare now that timed snoozes auto-reopen). */
+.back-now-pinned:not(:empty) { margin: 2px 0 9px; padding-bottom: 7px; border-bottom: 1px solid var(--warm-gray); }
+.back-now-pinned .panel-group-label { color: var(--accent-sage); margin-top: 2px; }
+
 /* Top sites panel — most-visited as a calm clickable list. */
 .topsites-list { display: flex; flex-direction: column; gap: 2px; }
 .topsite {

@@ -1539,12 +1539,17 @@
       const results = document.createElement('div');
       const recentWrap = document.createElement('div');
       const snoozeWrap = document.createElement('div');
+      // "Back now" is pinned above the scroll: timed snoozes now auto-reopen, so this only
+      // appears for "when I'm back" returns + edge cases — rare, but actionable when it does,
+      // so it sits up top (it stays empty/hidden otherwise).
+      const backNowWrap = document.createElement('div');
+      backNowWrap.className = 'back-now-pinned';
       // Search + relief/digest stay pinned; the lists live in a bounded scroll region so
       // the panel is a calm peek that never grows the board (the "indefinite list" fix).
       const recallScroll = document.createElement('div');
       recallScroll.className = 'recall-scroll';
       recallScroll.append(results, recentWrap, snoozeWrap);
-      body.append(reliefWrap, digestWrap, search, recallScroll);
+      body.append(reliefWrap, digestWrap, search, backNowWrap, recallScroll);
 
       // The relief moment (U5/R12): once a day, a calm acknowledgement that what you
       // let go is safe. The SW gates the claim, so it shows on whichever surface you
@@ -1761,7 +1766,7 @@
       // snoozed + relief/digest sections hide, so the results aren't buried under the
       // unfiltered recent list (which read as "search returns junk").
       const searchMode = (active) => {
-        for (const el of [reliefWrap, digestWrap, recentWrap, snoozeWrap]) el.hidden = active;
+        for (const el of [reliefWrap, digestWrap, backNowWrap, recentWrap, snoozeWrap]) el.hidden = active;
       };
 
       let seq = 0;
@@ -1792,21 +1797,34 @@
       // Esc owns the search field: clear the query, restore the panel, then blur — so the
       // board's generic 'escape' (which only blurs) can't leave it stuck mid-search.
       search.addEventListener('keydown', (e) => {
-        if (e.key !== 'Escape') return;
-        e.preventDefault();
-        e.stopPropagation();   // stops the board 'escape' — so also clear the kbd cursor it would have
-        search.value = '';
-        applyQuery();
-        clearKbdCursor();
-        search.blur();
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();   // stops the board 'escape' — so also clear the kbd cursor it would have
+          search.value = '';
+          applyQuery();
+          clearKbdCursor();
+          search.blur();
+          return;
+        }
+        // Reach the results without leaving the field: ↓/↑ move the recall cursor through
+        // the matches; Enter opens the cursored match, or the top match if none is cursored
+        // (so type-then-Enter opens the first result). The board's own j/k yields to the
+        // focused field, so the search owns these keys here.
+        if (e.key === 'ArrowDown') { e.preventDefault(); moveKbd(1); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); moveKbd(-1); return; }
+        if (e.key === 'Enter') {
+          const target = cursorRow() || recallRows()[0];
+          if (target) { e.preventDefault(); clickIn(target, '.title.clickable'); }
+        }
       });
 
       send('snooze-list').then((resp) => {
         if (destroyed) return;
+        backNowWrap.textContent = '';
         snoozeWrap.textContent = '';
         const back = (resp && resp.back) || [];
         const snoozed = (resp && resp.snoozed) || [];
-        if (back.length) groupBlock(snoozeWrap, 'Back now', back, { action: 'open' }, SNOOZE_GROUP_CAP);
+        if (back.length) groupBlock(backNowWrap, 'Back now', back, { action: 'open' }, SNOOZE_GROUP_CAP); // pinned above the scroll
         if (snoozed.length) groupBlock(snoozeWrap, 'Snoozed', snoozed, { action: 'open' }, SNOOZE_GROUP_CAP, snoozedRow);
       });
 
