@@ -28,6 +28,7 @@
   const starfield = window.ypuf.starfield;        // pure star-field generation (tested in lib/starfield.js)
   const barometer = window.ypuf.barometer;        // pure snooze-queue → favicon state (tested in lib/barometer.js)
   const puffscene = window.ypuf.puffscene;        // pure living-puff scene geometry (tested in lib/puffscene.js)
+  const puffmoment = window.ypuf.puffmoment;      // pure one-shot moment particle paths (tested in lib/puffmoment.js)
 
   const docBody = document.body;
   const grid = document.getElementById('board-grid');
@@ -230,7 +231,14 @@
   let favRAF = null;
   let favLastDraw = 0;
   let favSeq = 0;            // supersede a slow snooze-list reply with a fresher one
+  let favMomentRAF = null;   // a one-shot delight (arrival / let-go) animating over the resting puff (slice 2)
+  let favMomentLastDraw = 0;
+  let favWhisperTimer = null;
   const FAV_PERIOD = 4800;   // breath cadence (ms), matching the snooze return-loop
+  // One bridge for the board events: the SW emits 'arrival' / 'let-go' (hyphen), the lib exports
+  // arrival / letGo (camelCase) — this table is the single source mapping each event → fn + duration.
+  const FAV_MOMENT = { arrival: { fn: 'arrival', ms: 1200 }, 'let-go': { fn: 'letGo', ms: 900 } };
+  const favBreath = (now) => (Math.sin((now / FAV_PERIOD) * Math.PI * 2) + 1) / 2;
 
   // The favicon is a tiny swatch of the current mode: the tile takes the theme's own
   // surface color (cream / dark / navy), the puff its ink, the dot its accent — all read
@@ -264,7 +272,7 @@
     };
   }
 
-  function favDraw(breath) {
+  function favDraw(breath, overlay) {
     if (!faviconLink || !puffscene || !favCtx) return;
     if (!favLook) readFavLook();
     const BOX = puffscene.BOX || 32, S = FAV_S, k = S / BOX, L = favLook, x = favCtx;
@@ -281,16 +289,13 @@
       x.restore();
     }
     const sc = L.puffScale, cb = BOX / 2;   // shrink a light (blooming) puff around the centre
+    const drawDot = (p) => { x.fillStyle = L.dot; x.beginPath(); x.arc(p.x * k, p.y * k, p.r * k, 0, Math.PI * 2); x.fill(); };
+    const drawInk = (p) => { x.fillStyle = L.ink; x.beginPath(); x.arc((cb + (p.x - cb) * sc) * k, (cb + (p.y - cb) * sc) * k, p.r * k * sc, 0, Math.PI * 2); x.fill(); };
     for (const p of puffscene.scene(favState, breath)) {
       x.globalAlpha = p.opacity;
-      if (p.role === 'dot') {   // the back-now signal: full-size amber, never bloom-shrunk
-        x.fillStyle = L.dot;
-        x.beginPath(); x.arc(p.x * k, p.y * k, p.r * k, 0, Math.PI * 2); x.fill();
-      } else {
-        x.fillStyle = L.ink;
-        x.beginPath(); x.arc((cb + (p.x - cb) * sc) * k, (cb + (p.y - cb) * sc) * k, p.r * k * sc, 0, Math.PI * 2); x.fill();
-      }
+      if (p.role === 'dot') drawDot(p); else drawInk(p);   // dot = full-size amber signal; the rest = bloom-shrunk ink
     }
+    if (overlay) { x.globalAlpha = overlay.opacity; drawInk(overlay); }   // drawn last so the one-shot particle composites over the resting cluster
     x.globalAlpha = 1;
     faviconLink.href = favCanvas.toDataURL('image/png');
   }
@@ -298,7 +303,7 @@
   function favFrame(now) {
     // The breath spans ~5s, so a coarse redraw cadence is imperceptible and keeps the encode cheap.
     if (now - favLastDraw >= 90) {
-      favDraw((Math.sin((now / FAV_PERIOD) * Math.PI * 2) + 1) / 2);
+      favDraw(favBreath(now));
       favLastDraw = now;
     }
     favRAF = requestAnimationFrame(favFrame);
@@ -307,6 +312,7 @@
   function syncFavicon() {
     if (!faviconLink) return;
     readFavLook();   // theme/mood/visibility may have changed the palette or glow
+    if (favMomentRAF) return;   // a one-shot owns the canvas; it resumes the breath when it ends
     if (!reduceMotion() && !document.hidden) { if (!favRAF) favRAF = requestAnimationFrame(favFrame); }
     else { if (favRAF) { cancelAnimationFrame(favRAF); favRAF = null; } favDraw(0.5); }
   }
@@ -322,12 +328,56 @@
     }).catch(() => {});
   }
 
+  // A one-shot delight (slice 2): supersede the resting breath for ~1 s, drawing the puff
+  // plus a transient particle from lib/puffmoment (arrival descends in / let-go drifts off),
+  // then settle back. Motion + visibility gated; supersedes a prior one-shot; never leaks.
+  function playMoment(kind) {
+    const m = FAV_MOMENT[kind];
+    if (!faviconLink || !puffmoment || !m || reduceMotion() || document.hidden) return;
+    const path = puffmoment[m.fn], D = m.ms;
+    if (favMomentRAF) cancelAnimationFrame(favMomentRAF);   // supersede a prior one-shot — only one driver per canvas
+    if (favRAF) { cancelAnimationFrame(favRAF); favRAF = null; }   // pause the resting breath
+    favMomentLastDraw = 0;
+    let start = null;
+    const step = (now) => {
+      if (start === null) start = now;
+      const p = (now - start) / D;
+      if (p >= 1) { favMomentRAF = null; syncFavicon(); return; }   // settle back into the breath
+      if (now - favMomentLastDraw >= 30) { favDraw(favBreath(now), path(p)); favMomentLastDraw = now; }   // ~30fps re-encode cap
+      favMomentRAF = requestAnimationFrame(step);
+    };
+    favMomentRAF = requestAnimationFrame(step);
+  }
+
+  // The arrival's title whisper: a brief welcome-back caption, restored to the mood line.
+  function whisperTitle() {
+    document.title = 'ypuf · welcome back';
+    if (favWhisperTimer) clearTimeout(favWhisperTimer);
+    favWhisperTimer = setTimeout(() => { favWhisperTimer = null; renderMasthead(); }, FAV_MOMENT.arrival.ms);
+  }
+
   function initFavicon() {
     if (!faviconLink) return;
     refreshFavState();
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) { if (favRAF) { cancelAnimationFrame(favRAF); favRAF = null; } }
-      else { renderMasthead(); refreshFavState(); }   // mood refreshes before the favicon re-tints (favDraw reads moodNow)
+      if (document.hidden) {
+        if (favRAF) { cancelAnimationFrame(favRAF); favRAF = null; }
+        if (favMomentRAF) { cancelAnimationFrame(favMomentRAF); favMomentRAF = null; }
+        if (favWhisperTimer) { clearTimeout(favWhisperTimer); favWhisperTimer = null; }
+        favDraw(0.5);   // leave a clean resting frame, not a frozen mid-animation, in the backgrounded tab strip
+      } else { renderMasthead(); refreshFavState(); }   // mood refreshes before the favicon re-tints (favDraw reads moodNow)
+    });
+    // The SW broadcasts a transient board event when a snoozed tab auto-returns (arrival) or the
+    // auto-sweep lets a tab go (let-go). Trust only our own extension's messages (as every onMessage here does).
+    chrome.runtime.onMessage.addListener((msg, sender) => {
+      if (!msg || msg.target !== 'board' || !sender || sender.id !== chrome.runtime.id) return;
+      if (msg.event === 'arrival') {
+        refreshFavState();   // a tab left the snooze queue
+        playMoment('arrival');
+        if (!reduceMotion() && !document.hidden) whisperTitle();
+      } else if (msg.event === 'let-go') {
+        playMoment('let-go');
+      }
     });
   }
   const boardSub = document.getElementById('board-sub');
