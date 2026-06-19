@@ -82,6 +82,28 @@ test('contentLess items carry the content-less class; the id rides as a data att
   assert.ok(!row.children[0].click); // no action → title not clickable
 });
 
+test('itemRow emits a decorative favicon img only when faviconUrl is set', () => {
+  const withFav = sr.itemRow({ id: 'a', title: 'T', host: 'e.test', faviconUrl: 'chrome-extension://x/_favicon/?pageUrl=https%3A%2F%2Fe.test&size=32' }, [], null, { action: 'open' });
+  const img = withFav.children[0];
+  assert.equal(img.tag, 'img');
+  assert.equal(img.cls, 'fav');
+  assert.equal(img.attrs.alt, '');               // decorative — not announced
+  assert.match(img.attrs.src, /_favicon/);
+  assert.match(withFav.cls, /\bhas-fav\b/);
+  assert.equal(withFav.children[1].cls.split(' ')[0], 'title'); // title follows the favicon
+
+  const noFav = sr.itemRow({ id: 'b', title: 'T', host: 'e.test' }, [], null, { action: 'open' });
+  assert.equal(noFav.children[0].cls.split(' ')[0], 'title');   // no favicon node
+  assert.ok(!/has-fav/.test(noFav.cls));
+});
+
+test('itemRow carries the full title as a hover/accessible attribute (clamp stays accessible)', () => {
+  const long = 'A very long page title the shelf clamps to two lines visually';
+  const title = sr.itemRow({ id: 'a', title: long, host: 'e.test' }, [], null, { action: 'open' }).children[0];
+  assert.equal(title.text, long);          // full accessible name (textContent unclamped)
+  assert.equal(title.attrs.title, long);   // full hover tooltip
+});
+
 test('titleOf and hostOf fall back gracefully and use injected helpers when present', () => {
   assert.equal(sr.titleOf({ url: 'https://e.test/p' }, null), 'https://e.test/p');
   assert.equal(sr.titleOf({ title: '', url: '' }, null), '(untitled)');
