@@ -317,6 +317,7 @@ async function autoReopenDue(now) {
             await persistSnapshot();
           }
         });
+        notifyBoard('arrival');   // an open living-puff favicon plays a one-shot arrival
       } catch (e) {
         logErr(e);
         await flipBackNow([rec.id]); // open failed → surface as "back now", don't lose it or retry-churn
@@ -669,7 +670,7 @@ async function runAutoSweep() {
   let closed = 0;
   for (const t of candidates) {
     try {
-      if (await autoCloseOne(t.id, deps, sibsById.get(t.id), staleWindowMs)) { closed += 1; puff(); } // puff per close, decoupled (U6)
+      if (await autoCloseOne(t.id, deps, sibsById.get(t.id), staleWindowMs)) { closed += 1; puff(); notifyBoard('let-go'); } // puff + board moment per close (U6)
     } catch (e) { logErr(e); }
   }
 
@@ -713,6 +714,14 @@ function puff() {
   ensureOffscreen()
     .then(() => chrome.runtime.sendMessage({ target: 'offscreen', play: 'puff' }))
     .catch(() => {});
+}
+
+// A best-effort broadcast to any open board page — the living-puff favicon (slice 2)
+// listens for these to play its one-shot delight moments. Mirrors puff()'s offscreen
+// broadcast: a transient event, never stored data. No open board → harmless no-op.
+function notifyBoard(event) {
+  try { chrome.runtime.sendMessage({ target: 'board', event }, () => void chrome.runtime.lastError); }
+  catch (e) { /* receiver gone / invalid context — best-effort */ }
 }
 
 // --- privacy controls (U8) ----------------------------------------------
