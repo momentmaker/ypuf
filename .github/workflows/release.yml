@@ -1,0 +1,109 @@
+name: Release
+
+# Tag-driven release. Cut a release like this:
+#   1. bump "version" in extension/manifest.json
+#   2. move [Unreleased] items into a dated [x.y.z] section in CHANGELOG.md
+#   3. commit, then:  git tag vX.Y.Z && git push origin vX.Y.Z
+# This workflow then runs the tests, verifies the tag matches the manifest,
+# builds the package, and publishes a GitHub Release with the zip + changelog notes.
+#
+# Chrome Web Store auto-publish is DORMANT: the final step is skipped until the
+# CWS_* secrets are set (repo Settings → Secrets and variables → Actions). Add them
+# after registering the developer account and it lights up — no edit to this file.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to (re)release, e.g. v1.0.0'
+        required: true
+
+permissions:
+  contents: write   # create the GitHub Release + upload the zip asset
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Test (gate — no release on red)
+        run: node --test tests/*.test.js
+
+      - name: Resolve version and tag
+        id: ver
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version="$(grep -m1 '"version"' extension/manifest.json | sed -E 's/.*"version" *: *"([^"]+)".*/\1/')"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="$INPUT_TAG"
+          else
+            tag="$REF_NAME"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Guard — tag must match manifest version
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          expected="v$VERSION"
+          if [ "$TAG" != "$expected" ]; then
+            echo "::error::Tag '$TAG' does not match manifest version '$expected' (extension/manifest.json). Bump the manifest or retag."
+            exit 1
+          fi
+
+      - name: Build package
+        run: ./scripts/pack.sh
+
+      - name: Extract changelog section for this version
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { grab=1; next }
+            grab && /^## \[/ { exit }
+            grab && /^\[[^]]+\]: / { next }
+            grab { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then echo "Release v$VERSION" > release-notes.md; fi
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ypuf ${{ steps.ver.outputs.tag }}
+          body_path: release-notes.md
+          files: dist/ypuf-${{ steps.ver.outputs.version }}.zip
+          prerelease: ${{ contains(steps.ver.outputs.version, '-') }}
+
+      # ---- Chrome Web Store auto-publish (DORMANT until CWS_* secrets exist) ----
+      - name: Check for Chrome Web Store credentials
+        id: cws
+        env:
+          HAS_CWS: ${{ secrets.CWS_EXTENSION_ID }}
+        run: |
+          if [ -n "$HAS_CWS" ]; then echo "ready=true" >> "$GITHUB_OUTPUT"; else echo "ready=false (set CWS_* secrets to enable)"; echo "ready=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Publish to the Chrome Web Store
+        if: ${{ steps.cws.outputs.ready == 'true' }}
+        # Pin/verify this action's version when you activate publishing.
+        uses: mnao305/chrome-extension-upload@v5
+        with:
+          file-path: dist/ypuf-${{ steps.ver.outputs.version }}.zip
+          extension-id: ${{ secrets.CWS_EXTENSION_ID }}
+          client-id: ${{ secrets.CWS_CLIENT_ID }}
+          client-secret: ${{ secrets.CWS_CLIENT_SECRET }}
+          refresh-token: ${{ secrets.CWS_REFRESH_TOKEN }}
+          publish: true
