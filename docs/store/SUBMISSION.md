@@ -16,19 +16,16 @@ Chrome Web Store developer docs (2026). Companion files: `listing.md` (copy),
 
 ## 1. Manifest review (pre-package)
 
-- [ ] **Version** — `manifest.json` is `0.1.0`. Bump to **`1.0.0`** for the
-      public launch (and increment on every resubmission). Fill the dashboard
-      **release notes** field too.
+- [x] **Version** — `manifest.json` bumped to **`1.0.0`** for the public launch
+      (increment on every resubmission). Dashboard **release notes** come from the
+      `[1.0.0]` section of `../../CHANGELOG.md`.
 - [ ] **Name** — manifest `name` is `ypuf` (limit is 75 chars). The store
       listing *title* can be the longer `ypuf — close tabs, find them by content`
       without touching the manifest. Decide if you want the long form in the
       toolbar too (then expand the manifest `name`).
-- [ ] **Store icon** — the 128×128 `icons/icon128.png` is the store-facing icon.
-      Convention: artwork inside a **96×96** area with **16px transparent
-      padding** all around, legible on light *and* dark. Verify the puff mark
-      isn't bleeding to the edge; regenerate with padding if needed
-      (`extension/icons/README.md` has the `rsvg-convert` command — render the
-      mark into a 96px box centered on a 128px transparent canvas).
+- [x] **Store icon** — `icons/icon128.png` regenerated with the puff mark
+      centered in a **96×96** area on a 128px transparent canvas (**16px pad**),
+      so it no longer hugs the corner. ✓
 - [ ] **No remote code** — confirmed: ypuf is 100% vanilla JS bundled in the
       package, executes no external scripts (MV3 requirement). ✓
 - [ ] **MV3** — confirmed `manifest_version: 3`. ✓
@@ -47,15 +44,18 @@ Chrome Web Store developer docs (2026). Companion files: `listing.md` (copy),
 
 | Asset | Spec | Status |
 |---|---|---|
-| Store icon | 128×128 PNG (artwork in 96×96 + 16px pad) | in package |
-| Screenshots | **1–5**, **1280×800** (preferred) or 640×400, PNG/JPG, full-bleed | **TODO** |
-| Small promo tile | **440×280 PNG — REQUIRED** | **TODO** |
+| Store icon | 128×128 PNG (artwork in 96×96 + 16px pad) | ✓ in package |
+| Screenshots | **1–5**, **1280×800** (preferred) or 640×400, PNG/JPG, full-bleed | ✓ `assets/screenshot-1..5-*.png` |
+| Small promo tile | **440×280 PNG — REQUIRED** | ✓ `assets/promo-small-440x280.png` |
 | Marquee promo | 1400×560 PNG — optional (homepage feature) | optional |
 
-- [ ] Capture screenshots from a **populated profile** (let go of ~10 varied
-      pages first) per the shot list in `listing.md`. Screenshots **must show
-      the real extension UI** (a common rejection reason otherwise).
-- [ ] Build the **required** 440×280 small promo tile from the design system.
+- [x] **Five 1280×800 screenshots** in `assets/` — (1) recall command bar (star
+      theme), (2) the calm board, (3) the let-go popup shelf, (4) the snooze
+      chooser, (5) "What's indexed" + forget. Rendered from the shipping CSS via a
+      headless harness; reshoot the recall/popup shots from a live populated
+      profile if you want true captures (see `listing.md` shot list).
+- [x] **Required** 440×280 small promo tile — `assets/promo-small-440x280.png`
+      (puff mark on parchment, "close everything; lose nothing").
 
 ## 4. Dashboard — the five tabs
 
