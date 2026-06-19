@@ -1,0 +1,24 @@
+name: CI
+
+# Runs the test suite on every push to main and every pull request.
+# Same gate the Release workflow enforces — catches regressions early.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: node --test tests/*.test.js
