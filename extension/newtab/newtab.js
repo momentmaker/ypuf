@@ -221,39 +221,61 @@
   // draws + swaps + runs the breath loop. Page-level singleton like the starfield
   // (started/stopped, never per-mount torn down), so no alive-flag dance is needed.
   const faviconLink = document.getElementById('favicon');
-  let favState = { state: 'clear', particles: 0, dot: false, drift: 'none' };
+  const FAV_S = 64;          // one reused offscreen canvas — no per-frame allocation
+  const favCanvas = document.createElement('canvas');
+  favCanvas.width = favCanvas.height = FAV_S;
+  const favCtx = favCanvas.getContext('2d');
+  let favState = { state: 'clear', particles: 0, dot: false };
+  let favLook = null;        // palette + night glow, recomputed only at sync points (not per frame)
   let favRAF = null;
   let favLastDraw = 0;
+  let favSeq = 0;            // supersede a slow snooze-list reply with a fresher one
   const FAV_PERIOD = 4800;   // breath cadence (ms), matching the snooze return-loop
 
-  function favDraw(breath) {
-    if (!faviconLink || !puffscene || !barometer) return;
-    const BOX = puffscene.BOX || 32, S = 64, k = S / BOX;
-    const c = document.createElement('canvas'); c.width = c.height = S;
-    const x = c.getContext('2d'); if (!x) return;
+  function readFavLook() {
     const cs = getComputedStyle(docBody);
     const tok = (n, fb) => (cs.getPropertyValue(n).trim() || fb);
-    const ink = tok('--ink', '#1a1613'), paper = tok('--paper', '#f8f5f0'), amber = tok('--accent-amber', '#c8713a');
-    // A warm tile carries its own contrast, so the puff stays legible on any tab-strip color.
-    x.beginPath(); x.roundRect(1, 1, S - 2, S - 2, 13); x.fillStyle = paper; x.fill();
-    if (moodNow().key === 'night') {
-      const lit = moonrender.geometry ? moonrender.geometry(moonphase.phase(new Date())).f : 0.5;
+    const night = moodNow().key === 'night';
+    const lit = (night && moonrender.geometry) ? moonrender.geometry(moonphase.phase(new Date())).f : 0;
+    favLook = {
+      ink: tok('--ink', '#1a1613'),
+      paper: tok('--paper', '#f8f5f0'),
+      amber: tok('--accent-amber', '#c8713a'),
+      border: tok('--warm-gray', '#e7ddd0'),
+      glow: night ? 0.10 + 0.18 * lit : 0,   // capped low so the amber dot stays dominant
+    };
+  }
+
+  function favDraw(breath) {
+    if (!faviconLink || !puffscene || !favCtx) return;
+    if (!favLook) readFavLook();
+    const BOX = puffscene.BOX || 32, S = FAV_S, k = S / BOX, L = favLook, x = favCtx;
+    x.clearRect(0, 0, S, S);
+    // A warm, bordered tile carries its own contrast — the puff reads on a light OR dark
+    // tab strip, and the border keeps the tile's bounds visible when its fill matches the strip.
+    x.beginPath(); x.roundRect(1.5, 1.5, S - 3, S - 3, 12);
+    x.fillStyle = L.paper; x.fill();
+    x.lineWidth = 2; x.strokeStyle = L.border; x.stroke();
+    if (L.glow > 0) {
+      x.save(); x.beginPath(); x.roundRect(1.5, 1.5, S - 3, S - 3, 12); x.clip();
       const g = x.createRadialGradient(S * 0.64, S * 0.36, 0, S * 0.64, S * 0.36, S * 0.42);
-      g.addColorStop(0, `rgba(255,246,224,${0.10 + 0.18 * lit})`);   // low-opacity so the amber dot stays dominant
+      g.addColorStop(0, `rgba(255,246,224,${L.glow})`);
       g.addColorStop(1, 'rgba(255,246,224,0)');
       x.fillStyle = g; x.fillRect(0, 0, S, S);
+      x.restore();
     }
-    for (const p of puffscene.scene(favState, breath)) {   // core → particles → dot (dot never occluded)
+    for (const p of puffscene.scene(favState, breath)) {
       x.globalAlpha = p.opacity;
-      x.fillStyle = (p.role === 'dot') ? amber : ink;
+      x.fillStyle = (p.role === 'dot') ? L.amber : L.ink;
       x.beginPath(); x.arc(p.x * k, p.y * k, p.r * k, 0, Math.PI * 2); x.fill();
     }
     x.globalAlpha = 1;
-    faviconLink.href = c.toDataURL('image/png');
+    faviconLink.href = favCanvas.toDataURL('image/png');
   }
 
   function favFrame(now) {
-    if (now - favLastDraw >= 90) {   // cap the re-encode at ~11fps; the breath is slow
+    // The breath spans ~5s, so a coarse redraw cadence is imperceptible and keeps the encode cheap.
+    if (now - favLastDraw >= 90) {
       favDraw((Math.sin((now / FAV_PERIOD) * Math.PI * 2) + 1) / 2);
       favLastDraw = now;
     }
@@ -262,27 +284,28 @@
 
   function syncFavicon() {
     if (!faviconLink) return;
+    readFavLook();   // theme/mood/visibility may have changed the palette or glow
     if (!reduceMotion() && !document.hidden) { if (!favRAF) favRAF = requestAnimationFrame(favFrame); }
-    else { if (favRAF) { cancelAnimationFrame(favRAF); favRAF = null; } favDraw(0.5); }   // a still mark at rest
+    else { if (favRAF) { cancelAnimationFrame(favRAF); favRAF = null; } favDraw(0.5); }
   }
 
   function refreshFavState() {
+    const seq = ++favSeq;
     send('snooze-list').then((resp) => {
+      if (seq !== favSeq) return;   // a fresher refresh already won
       const back = (resp && Array.isArray(resp.back)) ? resp.back.length : 0;
       const snoozed = (resp && Array.isArray(resp.snoozed)) ? resp.snoozed.length : 0;
       favState = barometer.compute({ back, snoozed });
-      syncFavicon();   // running breath picks up favState next frame; a still mark redraws now
+      syncFavicon();
     }).catch(() => {});
   }
 
   function initFavicon() {
     if (!faviconLink) return;
     refreshFavState();
-    // Re-read the queue (and re-tint for any mood shift) the instant the tab is focused;
-    // pause the breath when it's hidden. The tab strip is correct the moment you return.
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) { if (favRAF) { cancelAnimationFrame(favRAF); favRAF = null; } }
-      else { renderMasthead(); refreshFavState(); }   // refresh the mood (title + sub) and the queue on return
+      else { renderMasthead(); refreshFavState(); }   // mood refreshes before the favicon re-tints (favDraw reads moodNow)
     });
   }
   const boardSub = document.getElementById('board-sub');
@@ -570,7 +593,8 @@
   function renderMasthead() {
     const m = moodNow();
     docBody.dataset.mood = m.key;
-    document.title = `ypuf · ${m.line}`;   // the tab's calm caption — mood line only, no count, no date (R8/R9)
+    const title = `ypuf · ${m.line}`;   // the tab's calm caption — mood line only, no count, no date (R8/R9)
+    if (document.title !== title) document.title = title;
     if (!boardSub) return;
     let date = '';
     try { date = new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }); } catch (e) { /* locale */ }

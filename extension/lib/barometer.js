@@ -23,9 +23,9 @@
   function compute(input) {
     const back = count(input && input.back);
     const snoozed = count(input && input.snoozed);
-    if (back > 0) return { state: 'back-now', particles: Math.min(back, CAP), dot: true, drift: 'down' };
-    if (snoozed > 0) return { state: 'scheduled', particles: Math.min(snoozed, CAP), dot: false, drift: 'up' };
-    return { state: 'clear', particles: 0, dot: false, drift: 'none' };
+    if (back > 0) return { state: 'back-now', particles: Math.min(back, CAP), dot: true };
+    if (snoozed > 0) return { state: 'scheduled', particles: Math.min(snoozed, CAP), dot: false };
+    return { state: 'clear', particles: 0, dot: false };
   }
 
   const api = { compute, CAP };

@@ -16,12 +16,14 @@
 
   const BOX = 32;
 
-  // The puff mark — the four drifting circles, scaled ×2 from the 16-unit viewBox.
+  // The puff mark — the four drifting circles, sized to fill the favicon tile
+  // (spanning corner to corner with ~2-unit margins) rather than the logo's airy
+  // proportions, so it reads at full size at 16px.
   const CORE = [
-    { x: 10.6, y: 21.4, r: 7.0, op: 1.0 },
-    { x: 19.4, y: 14.6, r: 3.5, op: 0.72 },
-    { x: 24.6, y: 9.8, r: 2.1, op: 0.5 },
-    { x: 28.0, y: 6.4, r: 1.24, op: 0.32 },
+    { x: 12.0, y: 20.0, r: 9.5, op: 1.0 },
+    { x: 20.5, y: 12.5, r: 4.6, op: 0.72 },
+    { x: 26.0, y: 7.5, r: 2.7, op: 0.5 },
+    { x: 29.5, y: 4.0, r: 1.5, op: 0.32 },
   ];
 
   const BREATH_SCALE = 0.08; // ±4% core scale across the breath
@@ -39,9 +41,9 @@
     const out = [];
     for (let i = 0; i < n; i++) {
       out.push({
-        x: clamp(21 + i * 2.6, 0, BOX),
-        y: clamp(8 - i * 1.6 - breath * 2, 0, BOX),
-        r: 1.3,
+        x: clamp(22 + i * 2.5, 0, BOX),
+        y: clamp(7 - i * 1.4 - breath * 1.8, 0, BOX),
+        r: 1.4,
         opacity: clamp(0.5 - i * 0.06, 0.15, 1),
         role: 'particle',
       });
@@ -55,9 +57,9 @@
     const out = [];
     for (let i = 0; i < n; i++) {
       out.push({
-        x: clamp(8 + i * 3.2, 0, BOX),
-        y: clamp(24 + (i % 2) * 1.5 + breath * 1.2, 0, BOX),
-        r: 1.5,
+        x: clamp(9 + i * 3, 0, BOX),
+        y: clamp(27 + (i % 2) * 1.4 + breath * 1.2, 0, BOX),
+        r: 1.6,
         opacity: 0.55,
         role: 'particle',
       });
@@ -73,7 +75,7 @@
     if (state === 'scheduled') prims.push(...driftUp(n, b));
     else if (state === 'back-now') prims.push(...driftDown(n, b));
     // The amber dot draws LAST so a particle can never occlude the load-bearing signal.
-    if (barometer && barometer.dot) prims.push({ x: 26, y: 26, r: 4, opacity: 1, role: 'dot' });
+    if (barometer && barometer.dot) prims.push({ x: 26.5, y: 26.5, r: 4.4, opacity: 1, role: 'dot' });
     return prims;
   }
 

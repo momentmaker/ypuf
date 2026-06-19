@@ -6,21 +6,21 @@ const assert = require('node:assert/strict');
 const barometer = require('../extension/lib/barometer.js');
 const { compute, CAP } = barometer;
 
-test('empty queue → clear: no particles, no dot, no drift', () => {
+test('empty queue → clear: no particles, no dot', () => {
   assert.deepEqual(compute({ back: 0, snoozed: 0 }), {
-    state: 'clear', particles: 0, dot: false, drift: 'none',
+    state: 'clear', particles: 0, dot: false,
   });
 });
 
-test('snoozed only → scheduled: particles = snoozed count, drift up, no dot', () => {
+test('snoozed only → scheduled: particles = snoozed count, no dot', () => {
   assert.deepEqual(compute({ back: 0, snoozed: 2 }), {
-    state: 'scheduled', particles: 2, dot: false, drift: 'up',
+    state: 'scheduled', particles: 2, dot: false,
   });
 });
 
-test('any back → back-now: dot true, drift down, particles = back count', () => {
+test('any back → back-now: dot true, particles = back count', () => {
   assert.deepEqual(compute({ back: 1, snoozed: 0 }), {
-    state: 'back-now', particles: 1, dot: true, drift: 'down',
+    state: 'back-now', particles: 1, dot: true,
   });
 });
 
@@ -28,7 +28,6 @@ test('back-now dominates when both back and snoozed are present', () => {
   const r = compute({ back: 2, snoozed: 5 });
   assert.equal(r.state, 'back-now');
   assert.equal(r.dot, true);
-  assert.equal(r.drift, 'down');
   assert.equal(r.particles, 2); // reflects the back count, not the snoozed
 });
 
@@ -47,7 +46,7 @@ test('CAP is a small positive integer (calm — not a busy 16px favicon)', () =>
 
 test('arrays passed by mistake coerce to clear, never crash (counts-not-arrays guard)', () => {
   assert.deepEqual(compute({ back: [], snoozed: [{}, {}] }), {
-    state: 'clear', particles: 0, dot: false, drift: 'none',
+    state: 'clear', particles: 0, dot: false,
   });
 });
 

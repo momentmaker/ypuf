@@ -21,6 +21,7 @@ test('every primitive is well-formed: numeric x/y/r/opacity and a known role', (
       }
       assert.ok(ROLES.has(p.role), `role ${p.role} known`);
       assert.ok(p.x >= 0 && p.x <= BOX && p.y >= 0 && p.y <= BOX, 'inside the box');
+      assert.ok(p.opacity >= 0 && p.opacity <= 1, 'opacity in [0,1] (canvas globalAlpha clamps silently)');
     }
   }
 });
@@ -78,4 +79,22 @@ test('reduced-motion still frame (fixed breath) keeps scheduled distinct from cl
   assert.equal(only(scene(CLEAR, still), 'particle').length, 0);
   assert.equal(only(scene(SCHEDULED, still), 'particle').length, SCHEDULED.particles);
   assert.ok(SCHEDULED.particles > 0);
+});
+
+test('back-now particles also bob with breath (not just scheduled)', () => {
+  const pa = only(scene(BACKNOW, 0), 'particle')[0];
+  const pb = only(scene(BACKNOW, 1), 'particle')[0];
+  assert.notEqual(pa.y, pb.y);
+});
+
+test('breath is clamped to [0,1]; out-of-range matches the endpoint', () => {
+  assert.deepEqual(scene(SCHEDULED, -1), scene(SCHEDULED, 0));
+  assert.deepEqual(scene(SCHEDULED, 2), scene(SCHEDULED, 1));
+});
+
+test('a null / missing barometer → core-only, no particles, no dot, no throw', () => {
+  const prims = scene(null, 0.5);
+  assert.equal(only(prims, 'particle').length, 0);
+  assert.equal(only(prims, 'dot').length, 0);
+  assert.ok(only(prims, 'core').length >= 3);
 });
