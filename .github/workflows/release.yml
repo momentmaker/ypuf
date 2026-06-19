@@ -141,8 +141,7 @@ jobs:
       # ---- Chrome Web Store auto-publish — real runs only, when creds exist ----
       - name: Publish to the Chrome Web Store
         if: ${{ !inputs.dry_run && steps.cws.outputs.ready == 'true' }}
-        # Pin/verify this action's version when you activate publishing.
-        uses: mnao305/chrome-extension-upload@v5
+        uses: mnao305/chrome-extension-upload@v6.0.0
         with:
           file-path: dist/ypuf-${{ steps.ver.outputs.version }}.zip
           extension-id: ${{ secrets.CWS_EXTENSION_ID }}
