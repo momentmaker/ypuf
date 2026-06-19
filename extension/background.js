@@ -182,6 +182,26 @@ async function computeSiblings(anchor, openTabs) {
   return clusterSet(anchor, openTabs, await loadTabstate(), await getUserBlocklist());
 }
 
+// One-time cleanup (2026-06-18): sets captured before pinned tabs were excluded may
+// list a currently-pinned tab as a sibling. A pinned tab is never a set member, so
+// drop any sibling that is pinned right now. Idempotent — a no-op once clean, since
+// new captures no longer store pinned siblings (lib/cluster.js computeSet).
+async function scrubPinnedSiblings() {
+  try {
+    const pinned = await chrome.tabs.query({ pinned: true });
+    const keys = new Set(pinned.map((t) => (t.url ? cluster.originPathKey(t.url) : null)).filter(Boolean));
+    if (!keys.size) return;
+    for (const r of await store.getAll()) {
+      if (!Array.isArray(r.siblings) || !r.siblings.length) continue;
+      const kept = r.siblings.filter((s) => !(s && s.url && keys.has(cluster.originPathKey(s.url))));
+      if (kept.length === r.siblings.length) continue;
+      const updated = Object.assign({}, r);
+      if (kept.length) updated.siblings = kept; else delete updated.siblings;
+      await store.put(updated);
+    }
+  } catch (e) { logErr(e); }
+}
+
 async function handleLetGo() {
   await initIndex();
   const tab = await getActiveTab();
@@ -1016,7 +1036,7 @@ async function rearmAutoAlarm() {
   if (await isAutoEnabled()) ensureAutoAlarm();
 }
 
-chrome.runtime.onInstalled.addListener(() => { initIndex(); rearmAutoAlarm().catch(() => {}); });
+chrome.runtime.onInstalled.addListener(() => { initIndex(); rearmAutoAlarm().catch(() => {}); scrubPinnedSiblings().catch(logErr); });
 chrome.runtime.onStartup.addListener(() => {
   // Stamp startup so tabs created in the next grace window are flagged as a
   // restored-session burst (U1/R3) and excluded from auto-close.
@@ -1024,6 +1044,7 @@ chrome.runtime.onStartup.addListener(() => {
   initIndex();
   rearmAutoAlarm().catch(() => {});
   snoozeStartup().catch(logErr); // re-arm clock alarms + resolve "when I'm back" (U3/R9)
+  scrubPinnedSiblings().catch(logErr); // clean legacy sets that captured pinned tabs
 });
 
 chrome.commands.onCommand.addListener((command) => {
