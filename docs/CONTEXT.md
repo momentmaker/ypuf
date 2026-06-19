@@ -350,8 +350,11 @@ one chapter or two slices, and the honest on-device semantic-recall feasibility.
   `docs/solutions/architecture-patterns/`.
 - Repo initialized; MIT license (momentmaker) + tab-out attribution in place;
   `reference/tab-out/` cloned locally (gitignored) — lift deliberately.
-- **In progress:** Slice 3 (snooze) is mid-brainstorm — decided so far: a
-  snoozed tab **returns to the shelf with a gentle nudge**, no auto-reopen.
+- **Snooze (slice 3, shipped):** a **timed** snooze (later today / this evening /
+  weekend / custom) **auto-reopens its tab in the background** at the return time
+  (deduped, capped so a cold-start can't flood); **"when I'm back"** and any cap
+  overflow surface as a pinned **"Back now"** group instead. *(Refined 2026-06-18
+  after dogfood — originally surface-only with no auto-reopen, which read as broken.)*
 - **Sequence (revised 2026-06-15):** S1 recall ✓ → S2 auto-let-go ✓ → S3 snooze
   → S4 session clustering + context restore → S5 **new-tab panel widget board**
   (was the flashcard/jivx widget — see §5f, §8). S5 stays decoupled/last.

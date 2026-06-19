@@ -55,6 +55,17 @@ test('tabs sharing the anchor’s opener are siblings', () => {
   assert.ok(urls(set).includes('https://opener.com/')); // anchor.openerTabId === tab.id
 });
 
+test('a pinned tab is never a sibling — pinned tabs are persistent, not session members', () => {
+  const anchor = tab(1, 'https://a.com/', { windowId: 10 });
+  const open = [
+    anchor,
+    tab(2, 'https://b.com/x', { openerTabId: 1 }),                  // normal sibling
+    tab(3, 'https://mail.com/', { openerTabId: 1, pinned: true }),  // would qualify, but pinned
+  ];
+  const set = cluster.computeSet(anchor, open, opts());
+  assert.deepEqual(urls(set), ['https://b.com/x']);                 // the pinned tab is excluded
+});
+
 // --- orphan fallback (co-activation + temporal burst from the tabstate map) --
 
 test('orphan anchor clusters a co-active same-window tab via the tabstate map', () => {

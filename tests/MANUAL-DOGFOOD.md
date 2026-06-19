@@ -227,11 +227,16 @@ verified by hand.
 
 ## The return (U3 / F2 / R9)
 
-- [ ] At its time, a clock snooze moves to a pinned **"Back now"** group at the
-      top of the shelf and the icon shows a **badge**; clicking it **reopens the
-      page and clears the snooze** (it leaves both groups).
-- [ ] A snooze whose time passed **while Chrome was closed** is **"back now"** on
-      next startup (shown as overdue, e.g. "back · due 2h ago") — never lost.
+- [ ] At its time, a clock snooze **auto-reopens its tab in the background**
+      (focus is not yanked) and the snooze clears (it leaves both groups). If the
+      page is already open, it is not duplicated.
+- [ ] A snooze whose time passed **while Chrome was closed** **auto-reopens on
+      next startup** (within the per-sweep cap of 8) — never lost. Snoozes beyond
+      the cap surface in the pinned **"Back now"** group with a **badge** instead.
+- [ ] A back-now item (cap overflow / non-web) still **clicks to reopen + clears**.
+- [ ] Opening any board row — **recent, back-now, or a search result** — removes it
+      from the shelf immediately; a currently-open page no longer shows under recent
+      (it returns to the shelf only after it's let go again). Search still finds it.
 - [ ] **"When I'm back"** does *not* return on a mid-session SW wake; it surfaces
       on the **next browser startup** (snoozed row reads "next time you're back").
 - [ ] Returning several snoozes at once shows them all under "Back now"; the
@@ -522,11 +527,13 @@ boundary, and the host-permission grants — is verified by hand.
 - [ ] On the board (not focused in a field), `j` / `k` move a calm **amber left-bar**
       cursor over the recall rows; `g g` jumps to the top, `G` to the bottom. The
       cursored row reveals its protect/forget icons.
-- [ ] `o` or `Enter` opens the cursored page; `x` forgets it (row strikes + **`u`**
-      undoes within the grace window); `p` protects its site (shield lights).
+- [ ] `o` or `Enter` opens the cursored page; `d` deletes (forgets) it (row strikes +
+      **`u`** undoes within the grace window); `p` protects its site (shield lights).
+- [ ] On a row with a set, `r` **brings back the set** (reopens its companion tabs) —
+      same as clicking its "bring back the set?" link; a no-op on rows without a set.
 - [ ] `/` jumps focus to the recall search; `e` toggles edit mode; `Esc` clears the
       cursor (and blurs the search if it was focused).
-- [ ] **Typing is never hijacked:** with the search focused, `j`/`x`/`p`/`?` type
+- [ ] **Typing is never hijacked:** with the search focused, `j`/`d`/`p`/`?` type
       literally; only `Esc` leaves the field. Arrow keys still reorder panels in edit
       mode (the board layer is `j`/`k`, so it never collides).
 - [ ] **Invisible at rest:** before any key is pressed, the board shows no cursor and
@@ -563,7 +570,7 @@ boundary, and the host-permission grants — is verified by hand.
       `?` cheatsheet, press `Esc` → the cheatsheet closes and the recall cursor is *still*
       where it was (the Esc doesn't leak through to clear it).
 - [ ] **Held keys are safe:** holding `j`/`k` scrolls the cursor smoothly, but holding
-      `x` forgets the row only **once** (no double-forget); a stray `g` long ago never
+      `d` forgets the row only **once** (no double-forget); a stray `g` long ago never
       triggers a later jump-to-top.
 
 # Light / dark / star theming — slice 1 (token system, toggle, panels)

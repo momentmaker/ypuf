@@ -22,8 +22,8 @@
   // (newtab.js makeDraggable), so the recall cursor stays on j/k to avoid a collision.
   const MAP = {
     j: 'down', k: 'up',
-    o: 'open', Enter: 'open',
-    x: 'forget', u: 'undo', p: 'protect',
+    o: 'open', Enter: 'open', r: 'restoreSet',
+    d: 'forget', u: 'undo', p: 'protect',
     '/': 'search', g: 'g', G: 'bottom',
     e: 'edit', f: 'hints', '?': 'help', Escape: 'escape',
   };

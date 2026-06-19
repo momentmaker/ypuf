@@ -73,7 +73,7 @@ function initIndex() {
     await sweepPendingForget(Date.now());
     // The overdue sweep must not be load-bearing for the index load — degrade it,
     // don't abort initIndex (which would clear the memo and retry forever).
-    try { await expireSnoozes(Date.now()); } catch (e) { logErr(e); }
+    try { await autoReopenDue(Date.now()); } catch (e) { logErr(e); }
   })();
   // Don't memoize a rejection — clear so the next caller retries instead of
   // permanently failing every flow for this SW lifetime.
@@ -252,9 +252,11 @@ async function openSnoozePicker() {
 
 // --- snooze return lifecycle (U3 / flow F2, R9) --------------------------
 // The guarantee that a snooze returns is the overdue sweep on every SW wake /
-// startup; per-item alarms are best-effort timeliness only. One serialized
-// chain owns the flip + badge, so a coincident alarm and sweep targeting the
-// same record flip it once (idempotent — an already-back-now record is skipped).
+// startup; per-item alarms are best-effort timeliness only. A due timed snooze
+// auto-reopens its tab (autoReopenDue); an untilStartup record, or a back-now
+// click, still flips via flipBackNow. One serialized chain owns every state
+// write, so a coincident alarm and sweep targeting the same record act once
+// (idempotent — a record already cleared or back-now is skipped).
 
 const SNOOZE_ALARM_PREFIX = 'snooze:';
 const createSnoozeAlarm = (id, when) => Promise.resolve(chrome.alarms.create(SNOOZE_ALARM_PREFIX + id, { when })).catch(logErr);
@@ -280,8 +282,52 @@ function flipBackNow(ids) {
   });
 }
 
-// Overdue clock snoozes only; untilStartup records resolve only on startup.
-const expireSnoozes = async (now) => flipBackNow(snooze.dueSnoozes(await store.getAll(), now).map((r) => r.id));
+// Timed snoozes auto-reopen at their return time (U3, refined 2026-06-18 after
+// dogfood — a user-scheduled "this evening" should bring the tab back, not just
+// surface it). Due web records reopen in the BACKGROUND (deduped, so no focus
+// yank and no duplicate); the cap overflow + any non-web records fall back to a
+// surfaced "back now" so a week-away gap can't dump every tab and nothing is lost.
+// untilStartup ("when I'm back") still resolves to back-now via snoozeStartup.
+const SNOOZE_AUTO_REOPEN_CAP = 8; // bounds a cold-start burst; the overflow waits in "back now"
+const _reopening = new Set();     // record ids mid-reopen this SW life — dedups a coincident sweep
+
+async function autoReopenDue(now) {
+  const { reopen, backNow } = snooze.splitDue(await store.getAll(), now, SNOOZE_AUTO_REOPEN_CAP, exclusion.isWebUrl);
+  // Claim with an in-memory flag rather than by clearing the record: the snooze
+  // stays 'snoozed' until the open actually SUCCEEDS, so a failed open or an SW
+  // kill mid-loop never silently drops the return — the next sweep retries (and
+  // reopenUrl dedups against open tabs, so a retry focuses the already-open tab
+  // instead of duplicating it). The flag stops a coincident alarm + init sweep
+  // from opening the same tab twice within this SW life; it resets on SW restart.
+  const claim = reopen.filter((r) => !_reopening.has(r.id));
+  claim.forEach((r) => _reopening.add(r.id));
+  if (claim.length) {
+    const openTabs = await chrome.tabs.query({}).catch(() => []);
+    for (const rec of claim) {
+      try {
+        await reopenUrl(rec.url, openTabs, { background: true });
+        // Confirmed open → the snooze is consumed (it's a normal tab now). One get,
+        // one put: clear the snooze and stamp lastAccessed (inline touch).
+        await mutateSnooze(async () => {
+          const fresh = await store.get(rec.id);
+          if (fresh && fresh.snoozeState === 'snoozed') {
+            const updated = snooze.mark(fresh, null);
+            updated.lastAccessed = now;
+            await store.put(updated);
+            await persistSnapshot();
+          }
+        });
+      } catch (e) {
+        logErr(e);
+        await flipBackNow([rec.id]); // open failed → surface as "back now", don't lose it or retry-churn
+      } finally {
+        await clearSnoozeAlarm(rec.id);
+        _reopening.delete(rec.id);
+      }
+    }
+  }
+  if (backNow.length) await flipBackNow(backNow.map((r) => r.id));
+}
 
 async function snoozeStartup() {
   try { await initIndex(); } catch (e) { logErr(e); } // re-arm + resolve must not hinge on a clean index load
@@ -822,9 +868,17 @@ async function getRecallResults(q) {
     results = recs.filter(Boolean).map((r) => project(r, search.excerptAround((r.content || '').slice(0, 8000), q, 90)));
   } else {
     // Instant recent: opening the bar surfaces your latest let-go pages, ready to recall
-    // (recovery faster than re-googling — F2). Snooze/back-now live in their own surfaces.
-    const recs = await store.listRecent(8);
-    results = recs.filter((r) => !r.snoozeState).map((r) => project(r, ''));
+    // (recovery faster than re-googling — F2). A page you currently have OPEN is no
+    // longer "let go", so omit it — reopening one drops it from the shelf until it's
+    // let go again. Snooze/back-now live in their own surfaces. This server-side filter
+    // is the durable half of row-dismissal; newtab.js handlers.open removes the row
+    // immediately on click so it disappears before this re-query runs. Over-fetch 24
+    // for a target of 8 so heavy multi-tab use still fills the shelf after filtering.
+    const openTabs = await chrome.tabs.query({}).catch(() => []);
+    const openKeys = new Set(openTabs.map((t) => (t.url ? cluster.originPathKey(t.url) : null)).filter(Boolean));
+    const recs = await store.listRecent(24);
+    results = recs.filter((r) => !r.snoozeState && r.url && !openKeys.has(cluster.originPathKey(r.url)))
+      .slice(0, 8).map((r) => project(r, ''));
   }
   return { results, total };
 }
@@ -833,16 +887,20 @@ async function getRecallResults(q) {
 // matches by origin+path (stored URLs are query-stripped, so an exact compare
 // would miss and spawn a duplicate), else create it. Web-scheme only. No record
 // side effects — callers needing touch/snooze-clear/protect do those separately.
-async function reopenUrl(url, openTabs) {
+async function reopenUrl(url, openTabs, opts = {}) {
   if (!exclusion.isWebUrl(url)) return { skipped: true };
   const target = cluster.originPathKey(url);
   const open = openTabs.find((t) => t.url && cluster.originPathKey(t.url) === target);
   if (open) {
-    await chrome.tabs.update(open.id, { active: true });
-    if (open.windowId != null) await chrome.windows.update(open.windowId, { focused: true });
-    return { focused: true };
+    // A background reopen (auto-snooze-return) must not yank focus to an
+    // already-open match — the snooze is simply satisfied.
+    if (!opts.background) {
+      await chrome.tabs.update(open.id, { active: true });
+      if (open.windowId != null) await chrome.windows.update(open.windowId, { focused: true });
+    }
+    return { focused: !opts.background };
   }
-  await chrome.tabs.create({ url });
+  await chrome.tabs.create({ url, active: !opts.background });
   return { created: true };
 }
 
@@ -1056,10 +1114,10 @@ chrome.permissions.onRemoved.addListener((perms) => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) runAutoSweep().catch(logErr);
-  // A snooze alarm is just a precise wake — sweep due records rather than flip by
-  // id, so an alarm already enqueued before a re-snooze-to-later can't flip the
+  // A snooze alarm is just a precise wake — sweep due records rather than act by
+  // id, so an alarm already enqueued before a re-snooze-to-later can't reopen the
   // freshly-rescheduled record early (it's no longer due).
-  else if (alarm.name.startsWith(SNOOZE_ALARM_PREFIX)) expireSnoozes(Date.now()).catch(logErr);
+  else if (alarm.name.startsWith(SNOOZE_ALARM_PREFIX)) autoReopenDue(Date.now()).catch(logErr);
 });
 
 chrome.notifications.onButtonClicked.addListener((notifId, btnIndex) => {

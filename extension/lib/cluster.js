@@ -46,7 +46,10 @@
 
     const scored = [];
     for (const t of openTabs) {
-      if (t.id === anchor.id || t.windowId !== anchor.windowId) continue;
+      // Pinned tabs are persistent infrastructure (mail, calendar) — always open,
+      // never let-go, and not part of a transient research session. Excluding them
+      // keeps the set to the tabs you actually worked with, not the ones always there.
+      if (t.id === anchor.id || t.windowId !== anchor.windowId || t.pinned) continue;
 
       const tState = ts[t.id] || {};
       const spawn = spawnRelated(anchor, t);

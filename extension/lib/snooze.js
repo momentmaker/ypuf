@@ -78,6 +78,21 @@
     return records.filter((r) => isSnoozed(r) && r.untilStartup === true);
   }
 
+  // Partition overdue clock snoozes into the set to auto-reopen (web-scheme,
+  // soonest-return first, capped to avoid a cold-start tab flood) and the rest to
+  // merely surface as "back now" (the cap overflow + any non-web records). A
+  // user-scheduled return is honored by reopening; the cap keeps a week-away gap
+  // from dumping every tab at once.
+  function splitDue(records, now, cap, isWebUrl) {
+    const due = dueSnoozes(records, now).slice().sort((a, b) => (a.returnAt || 0) - (b.returnAt || 0));
+    const reopen = [], backNow = [];
+    for (const r of due) {
+      if (isWebUrl(r.url) && reopen.length < cap) reopen.push(r);
+      else backNow.push(r);
+    }
+    return { reopen, backNow };
+  }
+
   // `null` clears the snooze entirely (reopen → a normal tab).
   function mark(record, state) {
     const r = Object.assign({}, record, { snoozeState: state });
@@ -85,7 +100,7 @@
     return r;
   }
 
-  const api = { resolve, dueSnoozes, pendingClock, pendingStartup, mark };
+  const api = { resolve, dueSnoozes, pendingClock, pendingStartup, splitDue, mark };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ypuf = Object.assign(root.ypuf || {}, { snooze: api });
