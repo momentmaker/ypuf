@@ -480,6 +480,12 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
 .snooze-empty { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 26px 12px 22px; text-align: center; }
 .snooze-empty p { font-size: 12.5px; max-width: 30ch; line-height: 1.5; }
 
+/* Snooze row controls (Wake / Later →) — quiet at rest, full on hover/focus (§9). */
+.panel .recent-item .snooze-controls { font-size: 11px; opacity: 0.6; transition: opacity .14s ease; }
+.panel .recent-item:hover .snooze-controls,
+.panel .recent-item:focus-within .snooze-controls { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .panel .recent-item .snooze-controls { transition: none; } }
+
 /* Top sites panel — most-visited as a calm clickable list. */
 .topsites-list { display: flex; flex-direction: column; gap: 2px; }
 .topsite {

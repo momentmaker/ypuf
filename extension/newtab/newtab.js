@@ -2112,7 +2112,54 @@
             send('snooze-wake', { recordId: it.id }).then(() => { if (alive && ctx.remount) ctx.remount(); }).catch(() => { inflight = false; });
           });
           ctrls.appendChild(wake);
+
+          // Inline re-snooze: a "Later →" that expands in place to two forward presets
+          // (§9 — not the full preset picker, which stays in the overlay/popup).
+          const later = document.createElement('button');
+          later.type = 'button'; later.className = 'link snooze-later'; later.textContent = 'Later →';
+          later.setAttribute('aria-label', 'Snooze later — ' + titleOf(it));
+          let resnoozeInflight = false;
+          const resnooze = (preset) => {
+            if (resnoozeInflight) return;
+            resnoozeInflight = true;
+            send('snooze-resnooze', { recordId: it.id, preset }).then(() => { if (alive && ctx.remount) ctx.remount(); }).catch(() => { resnoozeInflight = false; });
+          };
+          const presetBtn = (label, preset) => {
+            const b = document.createElement('button');
+            b.type = 'button'; b.className = 'link'; b.textContent = label;
+            b.setAttribute('aria-label', 'Re-snooze ' + titleOf(it) + ' to ' + label.toLowerCase());
+            b.addEventListener('click', () => resnooze(preset));
+            return b;
+          };
+          later.addEventListener('click', () => {
+            ctrls.textContent = '';
+            const cancel = document.createElement('button');
+            cancel.type = 'button'; cancel.className = 'link muted'; cancel.textContent = 'Cancel';
+            cancel.addEventListener('click', () => { if (alive && ctx.remount) ctx.remount(); }); // restore the row
+            const ev = presetBtn('This evening', 'this-evening');
+            ctrls.append(ev, presetBtn('Next week', 'next-week'), cancel);
+            ev.focus();
+          });
+          ctrls.appendChild(later);
           li.appendChild(ctrls);
+        }
+
+        // Bring back the set (⊕N) — the same chip as recall, when this was part of a session.
+        if (it.siblings && it.siblings.length) {
+          const urls = it.siblings.map((s) => s.url);
+          const n = it.siblings.length;
+          const chip = document.createElement('button');
+          chip.type = 'button'; chip.className = 'set-restore';
+          chip.textContent = '⊕ ' + n;
+          chip.title = 'Bring back the ' + n + ' tab' + (n === 1 ? '' : 's') + ' this was open with';
+          chip.setAttribute('aria-label', 'Bring back the ' + n + ' tab' + (n === 1 ? '' : 's') + ' ' + titleOf(it) + ' was open with');
+          let setInflight = false;
+          chip.addEventListener('click', () => {
+            if (setInflight) return;
+            setInflight = true;
+            send('restore-set', { recordId: it.id, urls }).then(() => { if (alive) setInflight = false; }).catch(() => { setInflight = false; });
+          });
+          li.appendChild(chip);
         }
         return li;
       }
