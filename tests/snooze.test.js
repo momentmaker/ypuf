@@ -127,6 +127,17 @@ test('splitDue caps the reopen set; the overflow surfaces as back-now', () => {
   assert.deepEqual(backNow.map((r) => r.id), ['nonweb', 'w2']);
 });
 
+test('splitDue overflow keeps soonest-first ordering when all due records are web', () => {
+  const all = [
+    { id: 'a', snoozeState: 'snoozed', returnAt: NOW - 3000, url: 'https://a.com' },
+    { id: 'b', snoozeState: 'snoozed', returnAt: NOW - 2000, url: 'https://b.com' },
+    { id: 'c', snoozeState: 'snoozed', returnAt: NOW - 1000, url: 'https://c.com' },
+  ];
+  const { reopen, backNow } = snooze.splitDue(all, NOW, 2, isWeb);
+  assert.deepEqual(reopen.map((r) => r.id), ['a', 'b']); // two oldest reopen
+  assert.deepEqual(backNow.map((r) => r.id), ['c']);     // newest overflows to back-now
+});
+
 test('splitDue ignores future, untilStartup, and non-due records', () => {
   const { reopen, backNow } = snooze.splitDue(dueRecs(), NOW, 10, isWeb);
   const touched = reopen.concat(backNow).map((r) => r.id);

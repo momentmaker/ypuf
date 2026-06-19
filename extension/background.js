@@ -288,30 +288,41 @@ function flipBackNow(ids) {
 // yank and no duplicate); the cap overflow + any non-web records fall back to a
 // surfaced "back now" so a week-away gap can't dump every tab and nothing is lost.
 // untilStartup ("when I'm back") still resolves to back-now via snoozeStartup.
-const SNOOZE_AUTO_REOPEN_CAP = 8;
+const SNOOZE_AUTO_REOPEN_CAP = 8; // bounds a cold-start burst; the overflow waits in "back now"
+const _reopening = new Set();     // record ids mid-reopen this SW life — dedups a coincident sweep
+
 async function autoReopenDue(now) {
   const { reopen, backNow } = snooze.splitDue(await store.getAll(), now, SNOOZE_AUTO_REOPEN_CAP, exclusion.isWebUrl);
-  if (reopen.length) {
-    // Claim each record inside the one serialized chain (snoozed → cleared) before
-    // opening, so a coincident alarm + init sweep targeting the same record can't
-    // open its tab twice — only records this call actually claims are reopened.
-    const claimed = [];
-    await mutateSnooze(async () => {
-      for (const r of reopen) {
-        const rec = await store.get(r.id);
-        if (rec && rec.snoozeState === 'snoozed') {
-          await store.touch(r.id);
-          await store.put(snooze.mark(await store.get(r.id), null));
-          claimed.push(rec);
-        }
-      }
-      if (claimed.length) await persistSnapshot();
-    });
-    if (claimed.length) {
-      const openTabs = await chrome.tabs.query({});
-      for (const rec of claimed) {
+  // Claim with an in-memory flag rather than by clearing the record: the snooze
+  // stays 'snoozed' until the open actually SUCCEEDS, so a failed open or an SW
+  // kill mid-loop never silently drops the return — the next sweep retries (and
+  // reopenUrl dedups against open tabs, so a retry focuses the already-open tab
+  // instead of duplicating it). The flag stops a coincident alarm + init sweep
+  // from opening the same tab twice within this SW life; it resets on SW restart.
+  const claim = reopen.filter((r) => !_reopening.has(r.id));
+  claim.forEach((r) => _reopening.add(r.id));
+  if (claim.length) {
+    const openTabs = await chrome.tabs.query({}).catch(() => []);
+    for (const rec of claim) {
+      try {
+        await reopenUrl(rec.url, openTabs, { background: true });
+        // Confirmed open → the snooze is consumed (it's a normal tab now). One get,
+        // one put: clear the snooze and stamp lastAccessed (inline touch).
+        await mutateSnooze(async () => {
+          const fresh = await store.get(rec.id);
+          if (fresh && fresh.snoozeState === 'snoozed') {
+            const updated = snooze.mark(fresh, null);
+            updated.lastAccessed = now;
+            await store.put(updated);
+            await persistSnapshot();
+          }
+        });
+      } catch (e) {
+        logErr(e);
+        await flipBackNow([rec.id]); // open failed → surface as "back now", don't lose it or retry-churn
+      } finally {
         await clearSnoozeAlarm(rec.id);
-        await reopenUrl(rec.url, openTabs, { background: true }).catch(logErr);
+        _reopening.delete(rec.id);
       }
     }
   }
@@ -859,7 +870,10 @@ async function getRecallResults(q) {
     // Instant recent: opening the bar surfaces your latest let-go pages, ready to recall
     // (recovery faster than re-googling — F2). A page you currently have OPEN is no
     // longer "let go", so omit it — reopening one drops it from the shelf until it's
-    // let go again. Snooze/back-now live in their own surfaces.
+    // let go again. Snooze/back-now live in their own surfaces. This server-side filter
+    // is the durable half of row-dismissal; newtab.js handlers.open removes the row
+    // immediately on click so it disappears before this re-query runs. Over-fetch 24
+    // for a target of 8 so heavy multi-tab use still fills the shelf after filtering.
     const openTabs = await chrome.tabs.query({}).catch(() => []);
     const openKeys = new Set(openTabs.map((t) => (t.url ? cluster.originPathKey(t.url) : null)).filter(Boolean));
     const recs = await store.listRecent(24);

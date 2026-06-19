@@ -1298,6 +1298,15 @@
     const rows = recallRows();
     return (kbdCursor >= 0 && kbdCursor < rows.length) ? rows[kbdCursor] : null;
   }
+  // Opening a cursored row removes it from the shelf; re-clamp the index onto the row
+  // that took its place and repaint, so the cursor doesn't vanish or re-target a stale slot.
+  function reanchorCursor() {
+    if (kbdCursor < 0) return;
+    const rows = recallRows();
+    if (!rows.length) { kbdCursor = -1; return; }
+    if (kbdCursor >= rows.length) kbdCursor = rows.length - 1;
+    paintCursor(rows);
+  }
   const clickIn = (row, sel) => { const b = row && row.querySelector(sel); if (b) b.click(); };
 
   // f-hints (U9): label every host-rendered clickable, type a label to open it. Targets
@@ -1437,7 +1446,7 @@
         e.preventDefault();
         if (wasPendingG) jumpKbd(false); else pendingG = true;
         break;
-      case 'open': e.preventDefault(); clickIn(cursorRow(), '.title.clickable'); break;
+      case 'open': e.preventDefault(); clickIn(cursorRow(), '.title.clickable'); reanchorCursor(); break;
       case 'restoreSet': e.preventDefault(); clickIn(cursorRow(), '.set-restore'); break;
       case 'forget': {
         const r = cursorRow();
@@ -1506,9 +1515,10 @@
           // not a let-go page. It stays in the searchable archive (and the recent
           // shelf omits currently-open pages), so it won't reappear until it's let
           // go again. Covers recent, back-now, and search-result rows alike.
+          // Remove every matching row — a record can sit in both the recent and the
+          // back-now lists, and leaving the duplicate behind would re-fire on click.
           const sel = (window.CSS && CSS.escape) ? CSS.escape(String(id)) : String(id);
-          const el = body.querySelector('[data-id="' + sel + '"]');
-          if (el) el.remove();
+          body.querySelectorAll('[data-id="' + sel + '"]').forEach((el) => el.remove());
         },
       };
       let destroyed = false;   // armed by the teardown so late SW replies can't write into a torn-down panel
@@ -1576,7 +1586,12 @@
           restore.type = 'button';
           restore.className = 'link set-restore';
           restore.textContent = `bring back the set? (${it.siblings.length})`;
-          restore.addEventListener('click', () => send('restore-set', { recordId: it.id, urls }));
+          let restoreInflight = false;   // ignore a double-press / double-click until the round-trip settles
+          restore.addEventListener('click', () => {
+            if (restoreInflight) return;
+            restoreInflight = true;
+            send('restore-set', { recordId: it.id, urls }).then(() => { if (!destroyed) restoreInflight = false; }).catch(() => { restoreInflight = false; });
+          });
           li.appendChild(restore);
         }
         if (it.id) { addProtect(li, it); addForget(li, it); }   // hover-revealed pair: protect · forget
