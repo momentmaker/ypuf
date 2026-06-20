@@ -569,6 +569,46 @@ windows needs the windows disjoint and ordered with empty-collapse routing teste
 the no-clock case as its own terminal bucket (not a sentinel time), and the already-past case
 caught into the nearest live window so the queue is never lossy.
 
+### 26. A shared panel empty-state: a slot helper, a `.panel-empty` base, and a declarative reduced-motion-gated animation
+
+When two panels need a crafted empty state (Snooze's "nothing's away," Recall's "nothing let go
+yet"), the layout, the second teaching line, and the time-of-day mood glow are shared and only the
+*visual* differs — so `panelEmpty(art, line, sub)` (`newtab.js`) takes each panel's own art element
+and wraps it in the one `.panel-empty` structure (a centered art slot over a primary line + a
+quieter `.empty-sub`); the mood glow lives once as `.empty-art::before` tinted by `body[data-mood]`
+→ `--empty-glow`. Each panel's animation is *its own promise made visible* — Snooze's chip drifts up
+and floats back, Recall's puff scatters up-and-right and reforms — kept in sync by a shared 4.8s
+cadence and the same keyframe-percentage skeleton (0 / 28 / 48 / 74 / 88%), distinct only in
+transform. Two things make this safe and cheap. First, the animation is **CSS-only inside `@media
+(prefers-reduced-motion: no-preference)`, never a JS rAF**, so there is no cancel/leak discipline to
+get wrong (contrast pattern 17): the browser tears the animation down with the DOM node on
+re-render, and a reduce-motion user gets the still mark, which carries the meaning by configuration,
+not motion (the same reasoning as `lib/puffscene.js`'s fixed-breath still frame). Second, the empty
+state is appended to the *list* container the search-mode toggle hides (`recentWrap`), while a
+no-query-match message renders in the separate `results` div — so the empty state and the "no
+matches" state are mutually exclusive by container, not by a flag anyone has to keep in sync. The
+rule: a reusable empty state is a layout helper + a swappable art slot + a declarative
+reduced-motion-gated keyframe — adding the next panel's empty state is one call, not a copy, and it
+inherits the calm gating for free.
+
+### 27. The brand mark's geometry is duplicated by necessity — the injected copy can't share, so name the seam
+
+The four-circle puff-mark geometry lives in five places: the two masthead SVGs (`newtab.html`,
+`popup.html`), `overlay.js`'s `puffMark()` builder, `lib/puffscene.js`'s `CORE` array, and
+`newtab.js`'s `recallPuffSvg()`. The reflexive review note is "extract a shared builder," but it is
+a trap. `overlay.js` is injected *standalone* into arbitrary pages by the SW (no
+`web_accessible_resources`, no lib loaded beside it), so it **cannot** import a shared module — and
+pattern 22 already requires its `NS` const and builder to be self-contained against the IIFE TDZ.
+`lib/puffscene.js` holds the coordinates in a different space entirely (BOX-32 canvas units for the
+favicon, not the `0 0 16 16` SVG viewBox), so it is not even the same literal. A `lib/puff-mark.js`
+would therefore only fold `recallPuffSvg`'s single new-tab use into a shared file while the injected
+and canvas copies stay — a new module for one caller, not a dedup. The proportionate move is the
+cheaper one: keep the per-context copies (the geometry is four numbers, stable since launch), and if
+drift is the worry, an attribute-equality test asserting the two JS builders agree costs less than
+the abstraction. The rule: geometry shared across an injected-standalone surface, a canvas surface,
+and inline HTML is duplication *by necessity* — name the seam (a comment, or this note) so the next
+reader doesn't consolidate it into a module the overlay can't load.
+
 ## Why This Matters
 
 Each of these is a real failure mode that shipped past unit tests and was only
