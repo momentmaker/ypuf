@@ -114,5 +114,10 @@ Chrome Web Store developer docs (2026). Companion files: `listing.md` (copy),
 
 ## 7. After publishing
 
-- [ ] Update the README + landing page with the live store link.
-- [ ] Tag the release (`v1.0.0`) in git.
+- [x] **Live** on the Chrome Web Store:
+      <https://chromewebstore.google.com/detail/ypuf/fpapcjbmlhcclofloedaklhkeneiajid>
+- [x] README + landing page updated with the live store link.
+- [ ] **No `v1.0.0` git tag** — 1.0.0 shipped via the dashboard; pushing a `v1.0.0`
+      tag would make `release.yml` try to re-publish a version the store already has
+      (the CWS API rejects a duplicate version). Automated release tags start at
+      `v1.0.1` (`./scripts/release.sh 1.0.1 --push`).
