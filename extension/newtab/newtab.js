@@ -234,7 +234,7 @@
   let favMomentRAF = null;   // a one-shot delight (arrival / let-go) animating over the resting puff (slice 2)
   let favMomentLastDraw = 0;
   let favWhisperTimer = null;
-  const FAV_PERIOD = 4800;   // breath cadence (ms), matching the snooze return-loop
+  const FAV_PERIOD = 4800;   // breath cadence (ms) — shared with the .return-loop + .recall-puff empty-state animations (newtab.css)
   // One bridge for the board events: the SW emits 'arrival' / 'let-go' (hyphen), the lib exports
   // arrival / letGo (camelCase) — this table is the single source mapping each event → fn + duration.
   const FAV_MOMENT = { arrival: { fn: 'arrival', ms: 1200 }, 'let-go': { fn: 'letGo', ms: 900 } };
