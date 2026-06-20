@@ -583,18 +583,18 @@
   // Chrome may keep the omnibox focused on a freshly-opened tab (see lib/focusmode.js).
   function buildFocusOnOpenControl(g) {
     const fm = window.ypuf.focusmode;
-    const OPTS = [{ key: 'off', label: 'Off' }, { key: 'search', label: 'Search' }, { key: 'keyboard', label: 'Keys' }];
+    const LABELS = { off: 'Off', search: 'Search', keyboard: 'Keys' };   // display strings; fm.MODES is the source list
     const label = document.createElement('div'); label.className = 'toggle-label'; label.textContent = 'Focus on open';
     const seg = document.createElement('div'); seg.className = 'segmented';
     seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', 'Focus on open');
     const draw = () => {
       const cur = fm.normalize(config.focusOnOpen);
       seg.textContent = '';
-      for (const o of OPTS) {
+      for (const key of fm.MODES) {
         const b = document.createElement('button');
-        b.type = 'button'; b.className = 'seg' + (o.key === cur ? ' selected' : '');
-        b.textContent = o.label; b.setAttribute('aria-pressed', String(o.key === cur));
-        b.addEventListener('click', () => { config.focusOnOpen = o.key; saveConfig(); draw(); });
+        b.type = 'button'; b.className = 'seg' + (key === cur ? ' selected' : '');
+        b.textContent = LABELS[key]; b.setAttribute('aria-pressed', String(key === cur));
+        b.addEventListener('click', () => { config.focusOnOpen = key; saveConfig(); draw(); });
         seg.appendChild(b);
       }
     };
@@ -1455,9 +1455,11 @@
     requestAnimationFrame(applyFocusOnOpen);   // after the omnibox's initial grab; best-effort
   }
 
-  // Best-effort focus when the board opens (opt-in via Settings → Board → Focus on open).
-  // focusmode.target picks the goal; the host does the DOM .focus(). The board element
-  // gets tabindex=-1 so the document-level key layer (j/k) sees a non-field activeElement.
+  // Best-effort focus once per open (opt-in via Settings → Board → Focus on open): focusmode
+  // .target picks the goal and the host does the DOM .focus(). Deliberately NOT re-applied on a
+  // later renderBoard() — focus-on-open is an open-time convenience, not a persistent invariant,
+  // so a cross-tab converge that rebuilds the recall input simply drops it back to the body.
+  // (.board-main carries tabindex=-1 from init so the document key layer sees a non-field target.)
   function applyFocusOnOpen() {
     const want = window.ypuf.focusmode.target(config.focusOnOpen, {
       hidden: document.hidden,
@@ -1469,11 +1471,14 @@
       if (s) s.focus({ preventScroll: true });
     } else if (want === 'keyboard') {
       const main = document.querySelector('.board-main');
-      if (main) { main.setAttribute('tabindex', '-1'); main.focus({ preventScroll: true }); }
+      if (main) main.focus({ preventScroll: true });
     }
   }
 
   renderMasthead();   // greet the hour (U4)
+  // .board-main is script-focusable (kept out of the tab order) so 'Focus on open: Keys' can
+  // hand the document key layer a non-field activeElement. Structural; set once, mode-independent.
+  { const bm = document.querySelector('.board-main'); if (bm) bm.setAttribute('tabindex', '-1'); }
   editBtn.textContent = ''; editBtn.append(icon('pencil'));   // U1: iconify the edit affordance
   editBtn.setAttribute('aria-label', 'Edit board'); editBtn.title = 'Edit board';
   editBtn.addEventListener('click', () => { editing = !editing; renderBoard(); });
