@@ -7,6 +7,8 @@ All notable changes to ypuf are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.0.1] — 2026-06-20
+
 ### Added
 - A calm **empty state for the Recall panel** — when you have no let-go pages yet,
   the puff mark scatters and reforms (let go → recalled) over a teaching line, with a
@@ -44,5 +46,6 @@ First public release — submitted to the Chrome Web Store.
   when you turn on content indexing or add a panel source — never by default.
 - No remote code; the extension is unminified vanilla JS bundled in the package.
 
-[Unreleased]: https://github.com/momentmaker/ypuf/commits/main
+[Unreleased]: https://github.com/momentmaker/ypuf/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/momentmaker/ypuf/releases/tag/v1.0.1
 [1.0.0]: https://chromewebstore.google.com/detail/ypuf/fpapcjbmlhcclofloedaklhkeneiajid
