@@ -7,6 +7,12 @@ All notable changes to ypuf are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- A calm **empty state for the Recall panel** — when you have no let-go pages yet,
+  the puff mark scatters and reforms (let go → recalled) over a teaching line, with a
+  soft time-of-day glow. The Snooze empty state gained a matching second line. Both
+  collapse to a still mark under reduced motion.
+
 ## [1.0.0] — 2026-06-19
 
 First public release — submitted to the Chrome Web Store.
