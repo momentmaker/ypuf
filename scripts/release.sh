@@ -42,7 +42,7 @@ perl -0777 -i -pe 's/("version"\s*:\s*")[^"]*"/${1}'"$ver"'"/' package.json
 info "CHANGELOG: [Unreleased] → [$ver] $em $today"
 perl -0777 -i -pe 's/^## \[Unreleased\]\n/## [Unreleased]\n\n## ['"$ver"'] '"$em"' '"$today"'\n/m' CHANGELOG.md
 if [ -n "$prev" ]; then
-  perl -0777 -i -pe 's{^\[Unreleased\]:.*$}{[Unreleased]: https://github.com/momentmaker/ypuf/compare/'"$tag"'...HEAD\n['"$ver"']: https://github.com/momentmaker/ypuf/compare/v'"$prev"'...'"$tag"'}m' CHANGELOG.md
+  perl -0777 -i -pe 's{^\[Unreleased\]:.*$}{[Unreleased]: https://github.com/momentmaker/ypuf/compare/'"$tag"'...HEAD\n['"$ver"']: https://github.com/momentmaker/ypuf/releases/tag/'"$tag"'}m' CHANGELOG.md
 fi
 
 info "running the test gate"

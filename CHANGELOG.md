@@ -38,5 +38,5 @@ First public release — submitted to the Chrome Web Store.
   when you turn on content indexing or add a panel source — never by default.
 - No remote code; the extension is unminified vanilla JS bundled in the package.
 
-[Unreleased]: https://github.com/momentmaker/ypuf/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/momentmaker/ypuf/releases/tag/v1.0.0
+[Unreleased]: https://github.com/momentmaker/ypuf/commits/main
+[1.0.0]: https://chromewebstore.google.com/detail/ypuf/fpapcjbmlhcclofloedaklhkeneiajid

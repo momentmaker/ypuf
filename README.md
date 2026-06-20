@@ -8,7 +8,8 @@
 
 *Close the tabs you've stopped using — and find any page again by what it said.*
 
-[![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-in_review-c8713a?logo=googlechrome&logoColor=white)](https://ypuf.com)
+[![Chrome Web Store](https://img.shields.io/chrome-web-store/v/fpapcjbmlhcclofloedaklhkeneiajid?label=Chrome%20Web%20Store&color=c8713a&logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/ypuf/fpapcjbmlhcclofloedaklhkeneiajid)
+[![Users](https://img.shields.io/chrome-web-store/users/fpapcjbmlhcclofloedaklhkeneiajid?label=users&color=5a7a62)](https://chromewebstore.google.com/detail/ypuf/fpapcjbmlhcclofloedaklhkeneiajid)
 [![CI](https://github.com/momentmaker/ypuf/actions/workflows/ci.yml/badge.svg)](https://github.com/momentmaker/ypuf/actions/workflows/ci.yml)
 ![Manifest V3](https://img.shields.io/badge/Manifest-V3-5a6b7a)
 ![Data: 100% on your device](https://img.shields.io/badge/data-100%25_on_your_device-5a7a62)
@@ -93,7 +94,7 @@ vim-style layer — press `?` there for the cheatsheet.
 
 ## Install
 
-**Chrome Web Store** — *in review; a link lands here on approval.*
+**[➜ Install from the Chrome Web Store](https://chromewebstore.google.com/detail/ypuf/fpapcjbmlhcclofloedaklhkeneiajid)** — free, one click.
 
 **From source (developer mode):**
 
