@@ -234,7 +234,7 @@
   let favMomentRAF = null;   // a one-shot delight (arrival / let-go) animating over the resting puff (slice 2)
   let favMomentLastDraw = 0;
   let favWhisperTimer = null;
-  const FAV_PERIOD = 4800;   // breath cadence (ms), matching the snooze return-loop
+  const FAV_PERIOD = 4800;   // breath cadence (ms) — shared with the .return-loop + .recall-puff empty-state animations (newtab.css)
   // One bridge for the board events: the SW emits 'arrival' / 'let-go' (hyphen), the lib exports
   // arrival / letGo (camelCase) — this table is the single source mapping each event → fn + duration.
   const FAV_MOMENT = { arrival: { fn: 'arrival', ms: 1200 }, 'let-go': { fn: 'letGo', ms: 900 } };
@@ -466,6 +466,36 @@
     ['?', 'This cheatsheet'],
     ['Esc', 'Clear cursor · close'],
   ];
+
+  // Shared panel empty-state (U6): a centered visual over a teaching line + a quieter second
+  // line. The mood glow and the per-panel animation live in CSS (.panel-empty); Recall and
+  // Snooze pass their own art element so the two empty states stay symmetric.
+  function panelEmpty(art, line, sub) {
+    const wrap = document.createElement('div'); wrap.className = 'panel-empty';
+    const artWrap = document.createElement('div'); artWrap.className = 'empty-art'; artWrap.setAttribute('aria-hidden', 'true');
+    artWrap.appendChild(art);
+    const p = document.createElement('p'); p.className = 'muted'; p.textContent = line;
+    const s = document.createElement('p'); s.className = 'muted empty-sub'; s.textContent = sub;
+    wrap.append(artWrap, p, s);
+    return wrap;
+  }
+
+  // The puff mark as inline SVG (currentColor → --accent-amber), for the Recall empty state's
+  // scatter-and-reform animation. Built via createElementNS (the never-innerHTML convention).
+  function recallPuffSvg() {
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 16 16'); svg.setAttribute('class', 'recall-puff'); svg.setAttribute('aria-hidden', 'true');
+    const g = document.createElementNS(NS, 'g'); g.setAttribute('fill', 'currentColor');
+    for (const [cx, cy, r, o] of [[5.3, 10.7, 3.5, 1], [9.7, 7.3, 1.75, 0.72], [12.3, 4.9, 1.05, 0.5], [14, 3.2, 0.62, 0.32]]) {
+      const c = document.createElementNS(NS, 'circle');
+      c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', r);
+      if (o < 1) c.setAttribute('opacity', o);
+      g.appendChild(c);
+    }
+    svg.appendChild(g);
+    return svg;
+  }
 
   function settingsGroup(title) {
     const g = document.createElement('section'); g.className = 'settings-group';
@@ -1954,6 +1984,10 @@
           older.textContent = 'Search all let-go pages…';
           older.addEventListener('click', () => search.focus());
           recentWrap.appendChild(older);
+        } else {   // first run / everything forgotten — the calm empty state (U6), mirrors Snooze
+          recentWrap.appendChild(panelEmpty(recallPuffSvg(),
+            'Nothing let go yet. Let a tab go with ⌘⇧L — its content stays findable.',
+            'Then find it again by what the page said — not just its title.'));
         }
       });
 
@@ -2368,16 +2402,10 @@
         return ul;
       }
       function renderEmpty() {
-        const wrap = document.createElement('div');
-        wrap.className = 'snooze-empty';
-        const loop = document.createElement('span');
-        loop.className = 'return-loop';
-        loop.setAttribute('aria-hidden', 'true');   // decorative; U6 animates it
-        const p = document.createElement('p');
-        p.className = 'muted';
-        p.textContent = "Nothing's away. Send a tab off with ⌘⇧S — it comes back on its own.";
-        wrap.append(loop, p);
-        body.appendChild(wrap);
+        const loop = document.createElement('span'); loop.className = 'return-loop';
+        body.appendChild(panelEmpty(loop,
+          "Nothing's away. Send a tab off with ⌘⇧S — it comes back on its own.",
+          "Until later today, the weekend, or when you're back at your desk."));
       }
 
       send('snooze-list').then((resp) => {
