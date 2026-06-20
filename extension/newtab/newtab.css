@@ -483,9 +483,21 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
 .back-now-pinned:not(:empty) { margin: 2px 0 9px; padding-bottom: 7px; border-bottom: 1px solid var(--warm-gray); }
 .back-now-pinned .panel-group-label { color: var(--accent-sage); margin-top: 2px; }
 
-/* Snooze panel — the empty state (teaching line over the return-loop animation, U6). */
-.snooze-empty { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 26px 12px 22px; text-align: center; }
-.snooze-empty p { font-size: 12.5px; max-width: 30ch; line-height: 1.5; }
+/* Panel empty states (Recall + Snooze, U6): a centered visual over a teaching line + a
+   quieter second line, with a time-of-day mood glow — each panel's promise, made visible.
+   Snooze's chip drifts away and floats back; Recall's puff scatters and reforms. */
+.panel-empty { display: flex; flex-direction: column; align-items: center; gap: 13px; padding: 26px 12px 22px; text-align: center; }
+.panel-empty p { font-size: 12.5px; max-width: 30ch; line-height: 1.5; margin: 0; }
+.panel-empty .empty-sub { font-size: 11.5px; opacity: 0.72; }
+.panel-empty .empty-art { position: relative; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; }
+.panel-empty .empty-art > * { position: relative; z-index: 1; }
+.panel-empty .empty-art::before {   /* time-of-day mood glow, behind the visual */
+  content: ''; position: absolute; width: 58px; height: 58px; border-radius: 50%; z-index: 0;
+  background: radial-gradient(circle, var(--empty-glow, rgba(200, 113, 58, 0.16)) 0%, transparent 70%);
+}
+body[data-mood="dawn"]  .panel-empty { --empty-glow: rgba(216, 168, 82, 0.22); }
+body[data-mood="dusk"]  .panel-empty { --empty-glow: rgba(200, 113, 58, 0.24); }
+body[data-mood="night"] .panel-empty { --empty-glow: rgba(150, 135, 190, 0.20); }
 
 /* Snooze row controls (Wake / Later →) — quiet at rest, full on hover/focus (§9). */
 .panel .recent-item .snooze-controls { font-size: 11px; opacity: 0.6; transition: opacity .14s ease; }
@@ -493,14 +505,26 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
 .panel .recent-item:focus-within .snooze-controls { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .panel .recent-item .snooze-controls { transition: none; } }
 
-/* The return loop (U6): a little tab chip puffs up and away, then floats back and settles —
-   the snooze promise, made visible. Decorative; static under reduced motion. */
-.snooze-empty .return-loop {
+/* Recall puff: the mark scatters up-and-right and fades (a tab let go), then reforms (recalled). */
+.panel-empty .recall-puff { width: 30px; height: 30px; color: var(--accent-amber); display: block; }
+@media (prefers-reduced-motion: no-preference) {
+  .panel-empty .recall-puff { animation: puff-recall 4.8s ease-in-out infinite; transform-origin: 50% 58%; }
+  @keyframes puff-recall {
+    0%   { transform: translate(0, 0) scale(1); opacity: 1; filter: blur(0); }
+    28%  { transform: translate(5px, -6px) scale(1.25); opacity: 0; filter: blur(3px); }  /* puff away, up-right */
+    48%  { transform: translate(5px, -6px) scale(1.25); opacity: 0; filter: blur(3px); }  /* gone — the calm beat */
+    74%  { transform: translate(-1px, 1px) scale(1.04); opacity: 1; filter: blur(0); }    /* reforms, a soft overshoot */
+    88%, 100% { transform: translate(0, 0) scale(1); opacity: 1; filter: blur(0); }       /* settles, then rests */
+  }
+}
+
+/* The return loop (Snooze): a little tab chip drifts up and away, then floats back and settles. */
+.panel-empty .return-loop {
   width: 16px; height: 10px; border-radius: 3px;
   background: var(--accent-amber); opacity: 0.5;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .snooze-empty .return-loop { animation: return-loop 4.8s ease-in-out infinite; }
+  .panel-empty .return-loop { animation: return-loop 4.8s ease-in-out infinite; }
   @keyframes return-loop {
     0%   { transform: translateY(0) scale(1); opacity: 0.5; filter: blur(0); }
     28%  { transform: translateY(-16px) scale(0.8); opacity: 0; filter: blur(2px); }  /* drift up + puff away */
