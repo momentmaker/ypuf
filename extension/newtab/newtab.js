@@ -572,7 +572,36 @@
     const row = document.createElement('div'); row.className = 'toggle-row'; row.append(sw, label);
     const sub = document.createElement('div'); sub.className = 'auto-sub';
     sub.textContent = 'A quiet aphorism at the board footer, from um.fz.ax.';
-    g.append(row, sub); container.appendChild(g);
+    g.append(row, sub);
+    buildFocusOnOpenControl(g);
+    container.appendChild(g);
+  }
+
+  // Focus-on-open (opt-in): on a new tab, optionally move focus off the address bar
+  // into the board — the recall search (type to find) or the j/k keyboard layer. A
+  // segmented Off/Search/Keys, mirroring the Appearance theme control. Best-effort:
+  // Chrome may keep the omnibox focused on a freshly-opened tab (see lib/focusmode.js).
+  function buildFocusOnOpenControl(g) {
+    const fm = window.ypuf.focusmode;
+    const OPTS = [{ key: 'off', label: 'Off' }, { key: 'search', label: 'Search' }, { key: 'keyboard', label: 'Keys' }];
+    const label = document.createElement('div'); label.className = 'toggle-label'; label.textContent = 'Focus on open';
+    const seg = document.createElement('div'); seg.className = 'segmented';
+    seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', 'Focus on open');
+    const draw = () => {
+      const cur = fm.normalize(config.focusOnOpen);
+      seg.textContent = '';
+      for (const o of OPTS) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'seg' + (o.key === cur ? ' selected' : '');
+        b.textContent = o.label; b.setAttribute('aria-pressed', String(o.key === cur));
+        b.addEventListener('click', () => { config.focusOnOpen = o.key; saveConfig(); draw(); });
+        seg.appendChild(b);
+      }
+    };
+    draw();
+    const sub = document.createElement('div'); sub.className = 'auto-sub';
+    sub.textContent = 'On a new tab, move focus into the board — the recall search, or the j/k keys. (Chrome may keep the address bar on a fresh tab.)';
+    g.append(label, seg, sub);
   }
 
   // Appearance group (U5): an explicit segmented Light/Dark/Star control — the
@@ -1423,6 +1452,25 @@
     local.set(BOARD_LAST_OPEN_KEY, Date.now());
     renderBoard();
     renderOneLine();
+    requestAnimationFrame(applyFocusOnOpen);   // after the omnibox's initial grab; best-effort
+  }
+
+  // Best-effort focus when the board opens (opt-in via Settings → Board → Focus on open).
+  // focusmode.target picks the goal; the host does the DOM .focus(). The board element
+  // gets tabindex=-1 so the document-level key layer (j/k) sees a non-field activeElement.
+  function applyFocusOnOpen() {
+    const want = window.ypuf.focusmode.target(config.focusOnOpen, {
+      hidden: document.hidden,
+      overlayOpen: settingsOpen() || cheatsheetOpen(),
+      editing,
+    });
+    if (want === 'search') {
+      const s = document.querySelector('.recall-search');
+      if (s) s.focus({ preventScroll: true });
+    } else if (want === 'keyboard') {
+      const main = document.querySelector('.board-main');
+      if (main) { main.setAttribute('tabindex', '-1'); main.focus({ preventScroll: true }); }
+    }
   }
 
   renderMasthead();   // greet the hour (U4)
