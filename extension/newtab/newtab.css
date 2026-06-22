@@ -423,6 +423,10 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
+  /* Hold the fade open over empty padding at the extremes so the first group header and
+     the "search older" footer read fully at rest, while content still fades mid-scroll. */
+  padding-top: 8px;
+  padding-bottom: 16px;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 8px, #000 calc(100% - 14px), transparent 100%);
   mask-image: linear-gradient(to bottom, transparent 0, #000 8px, #000 calc(100% - 14px), transparent 100%);
 }
