@@ -7,6 +7,13 @@ All notable changes to ypuf are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Keyboard delete now acts on the row you're on.** After letting a recall row go with
+  `d`, the cursor advances past it instead of leaving the just-removed row in the count —
+  so the next `d` no longer deletes the wrong page. `u` still undoes your most recent let-go.
+- **The Recall panel's top heading and footer are no longer dimmed** by the panel's scroll
+  fade — "Today" and the "Search all let-go pages…" footer now read fully.
+
 ## [1.0.1] — 2026-06-20
 
 ### Added
