@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ypuf",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Your Pages, Unburdened & Findable. Let tabs go; find them again by content. Local-only.",
   "permissions": ["tabs", "activeTab", "scripting", "storage", "notifications", "alarms", "offscreen", "topSites", "favicon"],
   "optional_host_permissions": ["<all_urls>"],

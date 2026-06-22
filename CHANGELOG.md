@@ -7,6 +7,8 @@ All notable changes to ypuf are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.0.2] — 2026-06-22
+
 ### Fixed
 - **Keyboard delete now acts on the row you're on.** After letting a recall row go with
   `d`, the cursor advances past it instead of leaving the just-removed row in the count —
@@ -53,6 +55,7 @@ First public release — submitted to the Chrome Web Store.
   when you turn on content indexing or add a panel source — never by default.
 - No remote code; the extension is unminified vanilla JS bundled in the package.
 
-[Unreleased]: https://github.com/momentmaker/ypuf/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/momentmaker/ypuf/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/momentmaker/ypuf/releases/tag/v1.0.2
 [1.0.1]: https://github.com/momentmaker/ypuf/releases/tag/v1.0.1
 [1.0.0]: https://chromewebstore.google.com/detail/ypuf/fpapcjbmlhcclofloedaklhkeneiajid

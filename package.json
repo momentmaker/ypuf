@@ -1,6 +1,6 @@
 {
   "name": "ypuf",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Your Pages, Unburdened & Findable — a local-only Chrome MV3 tab-recall extension.",
   "private": true,
   "license": "MIT",
