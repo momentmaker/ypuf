@@ -32,15 +32,51 @@
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
-    "name": "ypuf",
-    "description": "A privacy-first Chrome extension that clears the tabs you've stopped using and lets you recall any page by its content. Everything stays on your device.",
-    "applicationCategory": "BrowserApplication",
-    "operatingSystem": "Chrome",
-    "url": "https://ypuf.com/",
-    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-    "author": { "@type": "Organization", "name": "momentmaker", "url": "https://github.com/momentmaker/ypuf" },
-    "license": "https://opensource.org/licenses/MIT"
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://ypuf.com/#org",
+        "name": "momentmaker",
+        "url": "https://github.com/momentmaker/ypuf",
+        "logo": "https://ypuf.com/img/ypuf-mark.svg",
+        "sameAs": [
+          "https://github.com/momentmaker/ypuf",
+          "https://chromewebstore.google.com/detail/ypuf/fpapcjbmlhcclofloedaklhkeneiajid"
+        ]
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://ypuf.com/#website",
+        "name": "ypuf",
+        "url": "https://ypuf.com/",
+        "description": "A privacy-first Chrome extension that clears the tabs you've stopped using and lets you recall any page by its content. Everything stays on your device.",
+        "inLanguage": "en",
+        "publisher": { "@id": "https://ypuf.com/#org" }
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://ypuf.com/#app",
+        "name": "ypuf",
+        "description": "A privacy-first Chrome extension that clears the tabs you've stopped using and lets you recall any page by its content. Everything stays on your device.",
+        "applicationCategory": "BrowserApplication",
+        "operatingSystem": "Chrome",
+        "url": "https://ypuf.com/",
+        "downloadUrl": "https://chromewebstore.google.com/detail/ypuf/fpapcjbmlhcclofloedaklhkeneiajid",
+        "screenshot": "https://ypuf.com/img/og.png",
+        "image": "https://ypuf.com/img/og.png",
+        "featureList": [
+          "Auto let-go of tabs you've stopped using, with guaranteed recall",
+          "Recall any page by its content, entirely on-device",
+          "Snooze tabs until later today, the weekend, or when you're back",
+          "100% local — no servers, accounts, or analytics"
+        ],
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "isAccessibleForFree": true,
+        "author": { "@id": "https://ypuf.com/#org" },
+        "publisher": { "@id": "https://ypuf.com/#org" },
+        "license": "https://opensource.org/licenses/MIT"
+      }
+    ]
   }
   </script>
 </head>
