@@ -69,6 +69,7 @@
     var INDEX = [
       { title: 'The founder who quit Google to farm goats', host: 'nytimes.com', freq: true, content: 'a long interview about the founder who left a staff-engineer role to raise goats in vermont' },
       { title: 'YC — how to talk to a founder', host: 'ycombinator.com', content: 'the best founder conversations start with the problem, not the product' },
+      { title: 'Why I left the startup I founded', host: 'review.firstround.com', content: 'a founder on quitting the company they spent six years building — and what they learned about letting go' },
       { title: 'Async Rust, demystified', host: 'fasterthanli.me', freq: true, content: 'the runtime polls the future until it returns Ready — tokio is the de-facto async runtime' },
       { title: 'tokio — the async runtime', host: 'tokio.rs', content: 'an asynchronous runtime for the rust programming language' },
       { title: 'Home-office deduction rules for 2026', host: 'irs.gov', content: 'the simplified method lets you deduct five dollars per square foot, up to 300 sq ft of tax' },
@@ -80,6 +81,14 @@
       { title: 'Pilgrim — a walking practice', host: 'pilgrimapp.org', freq: true, content: 'a privacy-first iOS app for intentional walking as creative practice — no leaderboards, no calorie goals, just you and the path' },
       { title: 'pancakemaker — stack your expenses', host: 'pancakemaker.com', content: 'an offline-first personal and business expense tracker with an in-browser sqlite database — your spending, budgets, and subscriptions stay on your device, no account required' },
       { title: 'chainlinkme.me — the Chainlink meme archive', host: 'chainlinkme.me', content: 'a community-curated archive of chainlink memes you can browse, search, favorite, and react to' },
+      // More real, openable pages — these keep each demo query's result list full.
+      { title: 'Asynchronous Programming in Rust — the async book', host: 'rust-lang.github.io', content: 'the official guide to async rust: futures, the await syntax, pinning, and how an executor drives the runtime to completion' },
+      { title: 'Actual Budget — local-first money', host: 'actualbudget.org', content: 'a privacy-focused, offline-first expense tracker and budgeting app you self-host — your money never leaves your device' },
+      { title: 'Ledger — plain-text accounting', host: 'ledger-cli.org', content: 'a double-entry tool that tracks your expenses from a plain offline text file, with no account and no cloud' },
+      { title: 'Pilgrimages — guides for the interior journey', host: 'pilgrimag.es', content: 'route guides for sacred walking routes worldwide — the Camino, Shikoku 88, Kumano Kodo — mapping the terrain and what happens to you while you walk it' },
+      { title: 'Walk · Talk · Meditate — an open-source pilgrimage framework', host: 'walktalkmeditate.org', content: 'walking as practice, not transit — real conversation and meditation as equal parts of one slow journey' },
+      { title: 'Pilgrim Talk — voice reflections & journaling', host: 'talk.pilgrimapp.org', content: 'speak your reflections aloud and keep a voice journal, right in your terminal — a quiet command-line companion to Pilgrim' },
+      { title: 'Pilgrim CLI — meditate in your terminal', host: 'cli.pilgrimapp.org', content: 'breathe in, breathe out — a tiny ASCII breathing meditation you run right in your terminal, a companion to Pilgrim' },
     ];
 
     function mark(text, terms) {
@@ -108,7 +117,7 @@
         var hay = (e.title + ' ' + e.content).toLowerCase();
         var score = terms.reduce(function (s, t) { return s + (e.title.toLowerCase().indexOf(t) >= 0 ? 3 : 0) + (hay.indexOf(t) >= 0 ? 1 : 0); }, 0);
         return { e: e, terms: terms, score: score };
-      }).filter(function (x) { return x.score > 0; }).sort(function (a, b) { return b.score - a.score; }).slice(0, 4);
+      }).filter(function (x) { return x.score > 0; }).sort(function (a, b) { return b.score - a.score; }).slice(0, 3);
     }
     var rows = [], curHits = [], sel = 0;
     function applyActive() {
@@ -149,7 +158,7 @@
       else if (e.key === 'Enter') { e.preventDefault(); openSel(); }
     });
 
-    var DEMO = ['the founder who quit', 'rust async runtime', 'offline expense tracker', 'walking practice'];
+    var DEMO = ['founder who quit', 'rust async runtime', 'offline expense tracker', 'walking practice', 'terminal meditation'];
     var qi = 0;
     function startAuto() {
       if (manual) return;

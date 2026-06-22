@@ -82,11 +82,14 @@ a { color: inherit; }
 .bar .barhead b { color: var(--ink); }
 .bar .q { font-size: 17px; padding: 9px 16px 13px; color: var(--ink); border-bottom: 1px solid var(--hairline); }
 .bar .q .cur { color: var(--muted); }
+/* Reserve a stable window (3 result rows) so the card never resizes as the
+   demo types, erases, and cycles queries — the page below stays put. */
+.bar .results { height: 246px; overflow: hidden; }
 .bar .row { padding: 9px 14px; border-left: 2px solid transparent; }
 .bar .row.on { background: color-mix(in srgb, var(--ink) 6%, transparent); border-left-color: var(--accent); }
 .bar .row .t { font-size: 14px; } .bar .row .t .hl { color: var(--accent); font-weight: 700; }
 .bar .row .m { font-size: 11px; color: var(--muted); margin-top: 2px; } .bar .row .m .f { color: var(--accent); }
-.bar .row .s { font-size: 12px; color: var(--muted); margin-top: 3px; } .bar .row .s .hl { color: var(--accent); font-weight: 700; }
+.bar .row .s { font-size: 12px; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .bar .row .s .hl { color: var(--accent); font-weight: 700; }
 .bar .barfoot { display: flex; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--hairline); font-size: 11px; color: var(--muted); }
 .bar .barfoot b { color: var(--ink); }
 
