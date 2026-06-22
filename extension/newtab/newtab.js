@@ -1492,8 +1492,12 @@
 
   const isField = (t) => !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'
     || t.tagName === 'SELECT' || t.isContentEditable);
+  // A struck row is pending-forget (in its 6s undo window) — it's on its way out, so it
+  // leaves the cursor's reach: navigation skips it and its slot stops shifting the count
+  // for the rows below (the bug where deleting one row threw off the next delete).
   const recallRows = () =>
-    [...document.querySelectorAll('.recent-item[data-id]')].filter((el) => el.offsetParent !== null);
+    [...document.querySelectorAll('.recent-item[data-id]')]
+      .filter((el) => el.offsetParent !== null && !el.classList.contains('struck'));
 
   function paintCursor(rows) {
     rows.forEach((el, i) => {
@@ -1523,14 +1527,16 @@
     const rows = recallRows();
     return (kbdCursor >= 0 && kbdCursor < rows.length) ? rows[kbdCursor] : null;
   }
-  // Opening a cursored row removes it from the shelf; re-clamp the index onto the row
-  // that took its place and repaint, so the cursor doesn't vanish or re-target a stale slot.
+  // A cursored row leaving the shelf (opened or forgotten) shifts every index below it.
+  // Re-anchor: if the cursor's own row is still live, just resync its index so a row that
+  // left elsewhere doesn't drag the highlight; otherwise clamp onto the row that took its
+  // place and repaint, so the cursor neither vanishes nor re-targets a stale slot.
   function reanchorCursor() {
     if (kbdCursor < 0) return;
     const rows = recallRows();
-    if (!rows.length) { kbdCursor = -1; return; }
-    if (kbdCursor >= rows.length) kbdCursor = rows.length - 1;
-    paintCursor(rows);
+    const here = rows.findIndex((el) => el.classList.contains('kbd-cursor'));
+    kbdCursor = boardkeys.reanchor(kbdCursor, here, rows.length);
+    if (here < 0 && kbdCursor >= 0) paintCursor(rows);   // the cursor's row left → highlight the row that took its place
   }
   const clickIn = (row, sel) => { const b = row && row.querySelector(sel); if (b) b.click(); };
 
@@ -1679,8 +1685,11 @@
         break;
       }
       case 'undo': {
-        const r = cursorRow();
-        if (r && r.classList.contains('struck')) { e.preventDefault(); clickIn(r, '.recall-forget'); }
+        // Struck rows are out of the cursor's reach now, so undo acts on the most recent
+        // pending forget directly — the last struck row in the shelf — wherever the cursor sits.
+        const struck = document.querySelectorAll('.recent-item.struck');
+        const r = struck[struck.length - 1];
+        if (r) { e.preventDefault(); clickIn(r, '.recall-forget'); }
         break;
       }
       case 'protect': e.preventDefault(); clickIn(cursorRow(), '.recall-protect'); break;
@@ -1892,17 +1901,19 @@
             clearTimeout(undoTimer); undoTimers.delete(undoTimer); undoTimer = null;
             send('forget-page-undo', { recordId: it.id }).then((resp) => {
               if (destroyed) return;                          // panel torn down before the SW replied
-              if (!resp || !resp.ok) { li.remove(); return; } // undo too late — the page is truly gone
-              li.classList.remove('struck'); showForget();
+              if (!resp || !resp.ok) { li.remove(); reanchorCursor(); return; } // undo too late — the page is truly gone
+              li.classList.remove('struck'); showForget(); reanchorCursor();    // the row rejoins the cursor's reach
             });
             return;
           }
           send('forget-page', { recordId: it.id }).then((resp) => {
             if (!resp || !resp.ok) return;                   // forget failed → don't fake success
             li.classList.add('struck');
+            li.classList.remove('kbd-cursor'); li.removeAttribute('aria-current');   // a struck row leaves the cursor's reach
             forget.textContent = 'undo'; forget.setAttribute('aria-label', 'Undo forget'); forget.title = 'undo';
             undoTimer = setTimeout(() => { undoTimers.delete(undoTimer); if (!destroyed) li.remove(); }, 6000); // don't touch a torn-down row
             undoTimers.add(undoTimer);
+            reanchorCursor();   // advance the keyboard cursor onto the row that takes the struck one's place
           });
         });
         li.appendChild(forget);

@@ -26,6 +26,29 @@ test('moveCursor on an empty list returns -1 (no row to land on)', () => {
   assert.equal(bk.moveCursor(0, 1, 0), -1);
 });
 
+test('reanchor advances onto the next row when the cursored row is the one that left', () => {
+  // The forget bug: cursor on a row, that row leaves the navigable set (struck), list
+  // shrinks by one — the cursor must fall onto the row that took its slot, NOT stay put
+  // counting the gone row, so the next delete targets where the user expects.
+  assert.equal(bk.reanchor(0, -1, 6), 0);   // deleted the first row → cursor now on the new first
+  assert.equal(bk.reanchor(2, -1, 6), 2);   // deleted a middle row → cursor on the row that followed
+});
+
+test('reanchor clamps onto the new last row when the cursored last row left', () => {
+  assert.equal(bk.reanchor(6, -1, 6), 5);   // was last of 7, now last of 6
+});
+
+test('reanchor keeps the highlight on a surviving cursor row, just re-indexed', () => {
+  // A row elsewhere left (e.g. mouse-forget above the cursor); the cursor's own row
+  // survives at a new index — keep it there, don't drag the highlight.
+  assert.equal(bk.reanchor(3, 1, 5), 1);
+});
+
+test('reanchor returns -1 when there is no cursor or no rows left', () => {
+  assert.equal(bk.reanchor(-1, -1, 5), -1);  // no active cursor
+  assert.equal(bk.reanchor(2, -1, 0), -1);   // last row forgotten → nothing to land on
+});
+
 test('intent maps the vim normal-mode keys', () => {
   const m = (k) => bk.intent(k, {});
   assert.equal(m('j'), 'down'); assert.equal(m('k'), 'up');
