@@ -363,13 +363,17 @@ async function snoozeStartup() {
 const SEMANTIC_KEY = 'semanticEnabled';
 const VECTOR_CURSOR_KEY = 'vectorBackfillCursor';
 const VECTOR_BACKFILL_BATCH = 25;
+const SEMANTIC_TOPK = 30;        // cosine candidates per query (bounded ~20-50, U5)
+const RECALL_RESULT_CAP = 30;    // final list cap AFTER the semantic union+blend
 
 // Set by U4 once the verified model is loaded: { embed(text)->Float32Array,
-// modelVersion }. modelVersion is the VERIFIED ASSET HASH of the loaded bytes
-// (passed in by U4 — never an invented source constant), so a vector can never
-// be tagged a version it wasn't embedded with. Stays null while semantic is off
-// or the model hasn't loaded; the holder is in-memory and re-populated by U4 on
-// each SW wake (the enable flag is persistent, the loaded model is not).
+// cosine(a,b)->number, modelVersion }. modelVersion is the VERIFIED ASSET HASH of
+// the loaded bytes (passed in by U4 — never an invented source constant), so a
+// vector can never be tagged a version it wasn't embedded with. `cosine` is the
+// pure embed.js vector-distance fn (used by the U5 query-time top-K scan; pairs
+// with `embed`). Stays null while semantic is off or the model hasn't loaded; the
+// holder is in-memory and re-populated by U4 on each SW wake (the enable flag is
+// persistent, the loaded model is not).
 let _semantic = null;
 function setSemanticModel(model) { _semantic = model || null; }
 
@@ -461,6 +465,40 @@ function runVectorBackfill() {
     } while (res && !res.done && guard < 100000);
   }).catch(logErr);
   return _backfillChain;
+}
+
+// The meaning-match rows for a query (U5). Returns [] — the silent keyword-only
+// fallback — whenever semantic is off, the model isn't loaded this SW life, or
+// ANY step throws (a bad query embed, a store read error): recall must never
+// error or degrade because semantic is on (R3). When ready: embed the raw query
+// IN THE SW (local; the string crossed the page↔SW IPC boundary, never a network
+// channel), cosine top-K over the per-page vectors, resolve each candidate's
+// canonical key back to its store record via the O(1) canonical-key index, and
+// build a finished meaning-match row. A candidate whose record was evicted
+// (getByCanonicalKey -> null) is dropped without error.
+async function semanticCandidates(queryText) {
+  try {
+    if (!queryText || !(await isSemanticReady())) return [];
+    if (typeof _semantic.embed !== 'function' || typeof _semantic.cosine !== 'function') return [];
+    const queryVec = _semantic.embed(queryText);
+    if (!queryVec) return [];
+    const deps = {
+      withVectorStore: store.withVectorStore,
+      reqToPromise: store.reqToPromise,
+      cosine: _semantic.cosine,
+    };
+    const hits = await vectorstore.topK(deps, queryVec, SEMANTIC_TOPK, _semantic.modelVersion);
+    const rows = [];
+    for (const h of hits) {
+      const rec = await store.getByCanonicalKey(h.key);
+      if (!rec) continue; // evicted between embed and resolve — drop silently
+      rows.push(recallrank.semanticRow(rec, h.score));
+    }
+    return rows;
+  } catch (e) {
+    logErr(e);
+    return [];
+  }
 }
 
 // Opt-out (U6 confirms the destructive intent first): clear the persisted enable
@@ -1074,8 +1112,19 @@ async function getRecallResults(q, opts = {}) {
     const hits = search.search(parsed.text).slice(0, 20);
     const records = await Promise.all(hits.map((h) => store.get(h.id)));
     const openTabs = opts.oneBox ? await chrome.tabs.query({}).catch(() => []) : [];
-    const rows = recallrank.assemble({ hits, records, openTabs, durable, q: parsed.text, now, oneBox: !!opts.oneBox });
-    results = recallrank.filterPivots(rows, parsed);
+    // Semantic union (U5): when semantic is on AND the model is loaded this SW
+    // life, embed the query locally, cosine top-K over the per-page vectors,
+    // resolve each to its record, and hand those as meaning-match rows. assemble
+    // unions + dedups them against the keyword rows and runs the two-axis rerank.
+    // Any failure (embed throws, no model) degrades silently to keyword-only.
+    const semanticRows = await semanticCandidates(parsed.text);
+    const rows = recallrank.assemble({ hits, records, openTabs, semanticRows, durable, q: parsed.text, now, oneBox: !!opts.oneBox });
+    const filtered = recallrank.filterPivots(rows, parsed);
+    // Cap AFTER the union+blend (not the pre-union keyword slice(20)) so a strong
+    // semantic-only match isn't dropped before it can be ranked. Applied ONLY when
+    // semantic actually contributed candidates — the keyword-only path stays
+    // byte-for-byte unchanged (it was never capped here; hits is already <=20).
+    results = semanticRows.length ? filtered.slice(0, RECALL_RESULT_CAP) : filtered;
   } else if (parsed.withTerm || parsed.timeRange) {
     // Pure-pivot query (no free text): narrow the recent archive by the pivot alone,
     // newest-first. Both let-go and snoozed records are eligible; live tabs aren't a

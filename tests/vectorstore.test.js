@@ -360,3 +360,48 @@ test('embedAndPut and backfill no-op when no embed fn is injected (semantic-off 
   const keys = await store.withVectorStore('readonly', (s) => store.reqToPromise(s.getAllKeys()));
   assert.equal(keys.length, 0, 'no vectors written without an embed fn');
 });
+
+// --- topK: cosine scan for semantic recall (U5) -----------------------------
+
+const embed = require('../extension/lib/embed.js');
+
+// Seed a vector directly under a canonical key (bypassing embed, so the test
+// controls cosines exactly). Vectors are unit-length so cosine == dot product.
+async function seedVector(key, vec, modelVersion = MODEL_V) {
+  await vectorstore.put(vdeps(), key, Float32Array.from(vec), modelVersion);
+}
+function queryDeps() {
+  return { withVectorStore: store.withVectorStore, reqToPromise: store.reqToPromise, cosine: embed.cosine };
+}
+
+test('topK returns the highest-cosine keys, sorted desc, capped at K', async () => {
+  await seedVector('https://e.com/near', [1, 0, 0, 0, 0, 0, 0, 0]);
+  await seedVector('https://e.com/mid',  [0.6, 0.8, 0, 0, 0, 0, 0, 0]);
+  await seedVector('https://e.com/far',  [0, 1, 0, 0, 0, 0, 0, 0]);
+  const q = Float32Array.from([1, 0, 0, 0, 0, 0, 0, 0]);
+  const out = await vectorstore.topK(queryDeps(), q, 2, MODEL_V);
+  assert.equal(out.length, 2, 'capped at K');
+  assert.deepEqual(out.map((r) => r.key), ['https://e.com/near', 'https://e.com/mid'], 'sorted by cosine desc');
+  assert.ok(out[0].score > out[1].score);
+});
+
+test('topK skips vectors tagged a different model version (no cross-space cosine)', async () => {
+  await seedVector('https://e.com/current', [1, 0, 0, 0, 0, 0, 0, 0], 'hash-v2');
+  await seedVector('https://e.com/stale',   [1, 0, 0, 0, 0, 0, 0, 0], 'hash-v1');
+  const q = Float32Array.from([1, 0, 0, 0, 0, 0, 0, 0]);
+  const out = await vectorstore.topK(queryDeps(), q, 10, 'hash-v2');
+  assert.deepEqual(out.map((r) => r.key), ['https://e.com/current'], 'stale-version vector excluded');
+});
+
+test('topK no-ops gracefully: no cosine fn, no query vec, or K<=0 -> []', async () => {
+  await seedVector('https://e.com/a', [1, 0, 0, 0, 0, 0, 0, 0]);
+  const q = Float32Array.from([1, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(await vectorstore.topK({ withVectorStore: store.withVectorStore, reqToPromise: store.reqToPromise }, q, 5, MODEL_V), []);
+  assert.deepEqual(await vectorstore.topK(queryDeps(), null, 5, MODEL_V), []);
+  assert.deepEqual(await vectorstore.topK(queryDeps(), q, 0, MODEL_V), []);
+});
+
+test('topK over an empty store returns []', async () => {
+  const q = Float32Array.from([1, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(await vectorstore.topK(queryDeps(), q, 5, MODEL_V), []);
+});

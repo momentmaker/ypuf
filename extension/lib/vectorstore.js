@@ -148,9 +148,32 @@
     return { embedded, scanned, done };
   }
 
+  // Cosine top-K over every stored vector (semantic recall U5). One pass: read
+  // all rows, cosine each against the query vector (via the injected
+  // deps.cosine — vectorstore never imports lib/embed.js), keep the K highest.
+  // The scan is bounded by the vector count, which equals the page count (small
+  // — a few thousand), so a per-query linear scan stays well inside the latency
+  // bar. Rows tagged a DIFFERENT modelVersion than the query's are skipped: a
+  // half-finished model bump must never cosine query vectors against stale ones
+  // (mismatched spaces). A non-positive K, an empty store, or no cosine fn -> [].
+  // Returns [{ key, score }] sorted by score desc, length <= K.
+  async function topK(deps, queryVec, k, modelVersion) {
+    if (typeof deps.cosine !== 'function' || !queryVec || !(k > 0)) return [];
+    const rows = await deps.withVectorStore('readonly',
+      (s) => deps.reqToPromise(s.getAll()));
+    const scored = [];
+    for (const r of rows || []) {
+      if (!r || !r.vector) continue;
+      if (modelVersion != null && r.modelVersion !== modelVersion) continue;
+      scored.push({ key: r.key, score: deps.cosine(queryVec, r.vector) });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, k);
+  }
+
   const api = {
     get, has, put, deleteKey, deleteByDomain, clear,
-    embedAndPut, backfill, hostOfKey,
+    embedAndPut, backfill, topK, hostOfKey,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
