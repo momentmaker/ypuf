@@ -94,6 +94,29 @@
     };
   }
 
+  function siblingMatch(siblings, term) {
+    const t = term.toLowerCase();
+    return (Array.isArray(siblings) ? siblings : []).some((s) =>
+      s && ((s.url || '').toLowerCase().includes(t) || (s.host || '').toLowerCase().includes(t)));
+  }
+
+  // Narrow assembled rows by the parsed episodic pivots. `with:` filters ONLY
+  // let-go rows by the session (sibling URL/host) they were let go alongside —
+  // open/snoozed rows have no cluster, so a pivot narrows the archive and never
+  // hides a live tab. A time range applies to any row that carries a timestamp.
+  function filterPivots(rows, pivots) {
+    if (!pivots) return Array.isArray(rows) ? rows : [];
+    let out = Array.isArray(rows) ? rows : [];
+    if (pivots.withTerm) {
+      out = out.filter((r) => r.kind !== 'let-go' || siblingMatch(r.siblings, pivots.withTerm));
+    }
+    if (pivots.timeRange) {
+      const { from, to } = pivots.timeRange;
+      out = out.filter((r) => typeof r.timestamp !== 'number' || (r.timestamp >= from && r.timestamp < to));
+    }
+    return out;
+  }
+
   function stripInternal(row) {
     const clean = Object.assign({}, row);
     delete clean.score; delete clean.signal; delete clean._blended;
@@ -119,7 +142,7 @@
     return rank.rerank(recallmerge.merge(rows)).map(stripInternal);
   }
 
-  const api = { assemble, aggregateSignal, ageMsOf, openRow, indexRow };
+  const api = { assemble, filterPivots, aggregateSignal, ageMsOf, openRow, indexRow };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ypuf = Object.assign(root.ypuf || {}, { recallrank: api });

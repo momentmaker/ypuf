@@ -215,3 +215,42 @@ test('U3: a snoozed record flows through assemble as kind:snoozed with its retur
   assert.equal(out[0].snoozeState, 'snoozed');
   assert.equal(out[0].returnAt, 4242);
 });
+
+// --- U6: episodic pivot filtering -----------------------------------------
+
+function frow(over) {
+  return Object.assign({ kind: 'let-go', id: 'r', timestamp: 500 * DAY, siblings: [] }, over);
+}
+
+test('U6: with: keeps only let-go rows whose siblings match the session — open/snoozed pass through', () => {
+  const rows = [
+    frow({ id: 'match', kind: 'let-go', siblings: [{ url: 'https://e.com/tax', host: 'e.com' }] }),
+    frow({ id: 'miss', kind: 'let-go', siblings: [{ url: 'https://x.com/y', host: 'x.com' }] }),
+    frow({ id: 'open', kind: 'open', siblings: [] }),
+    frow({ id: 'snoozed', kind: 'snoozed', siblings: [] }),
+  ];
+  const out = recallrank.filterPivots(rows, { withTerm: 'tax' }).map((r) => r.id);
+  assert.deepEqual(out.sort(), ['match', 'open', 'snoozed'].sort(), 'matching let-go + all live rows kept; non-matching let-go dropped');
+});
+
+test('U6: a time range keeps rows whose timestamp falls inside it; timestamp-less rows (open tabs) pass', () => {
+  const range = { from: 100 * DAY, to: 200 * DAY };
+  const rows = [
+    frow({ id: 'in', timestamp: 150 * DAY }),
+    frow({ id: 'before', timestamp: 50 * DAY }),
+    frow({ id: 'after', timestamp: 250 * DAY }),
+    frow({ id: 'open', kind: 'open', timestamp: null }),
+  ];
+  const out = recallrank.filterPivots(rows, { timeRange: range }).map((r) => r.id);
+  assert.deepEqual(out.sort(), ['in', 'open'].sort());
+});
+
+test('U6: with: and time range compose; no pivots is a pass-through', () => {
+  const rows = [
+    frow({ id: 'keep', timestamp: 150 * DAY, siblings: [{ host: 'e.com' }] }),
+    frow({ id: 'wrongtime', timestamp: 999 * DAY, siblings: [{ host: 'e.com' }] }),
+  ];
+  const both = recallrank.filterPivots(rows, { withTerm: 'e.com', timeRange: { from: 100 * DAY, to: 200 * DAY } });
+  assert.deepEqual(both.map((r) => r.id), ['keep']);
+  assert.equal(recallrank.filterPivots(rows, null).length, 2);
+});

@@ -400,6 +400,14 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
 /* "open now" flag on a one-box hit (Recall v2): the page is a live tab, so the row
    jumps rather than restores — a calm sage marker, mirroring the snooze clock. */
 .recall-open-now { margin-right: 6px; color: var(--accent-sage); opacity: 0.9; font-size: 11px; letter-spacing: 0.02em; }
+/* Episodic pivot chips (Recall v2 / U6): the parsed with:/time filters, shown between
+   the search input and the matches — quiet, dismissible, never reflow the input. */
+.recall-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 2px 0; }
+.recall-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border-radius: 999px;
+  font-size: 11px; color: var(--accent-slate); background: color-mix(in srgb, var(--accent-slate) 12%, transparent); }
+.recall-chip-time { color: var(--accent-sage); background: color-mix(in srgb, var(--accent-sage) 12%, transparent); }
+.recall-chip-x { border: 0; background: none; cursor: pointer; color: inherit; opacity: 0.65; font-size: 13px; line-height: 1; padding: 0 2px; }
+.recall-chip-x:hover { opacity: 1; }
 /* f-hints badge styling lives in style.css (shared with the popup, U11). */
 /* The relief moment (U5): a calm once-a-day acknowledgement. */
 .board-relief {
