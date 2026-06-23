@@ -1872,6 +1872,15 @@
 
         if (it.snippet) li.appendChild(snippetNode(it.snippet, it.matchTerms));
 
+        // "Why this" (U10): one quiet signal-derived clause as the row's last child,
+        // suppressed when empty. Text-only — "same session as <host>" is page-derived.
+        if (it.reason) {
+          const why = document.createElement('div');
+          why.className = 'recall-why';
+          why.textContent = it.reason;
+          li.appendChild(why);
+        }
+
         // Set-bearing recall items offer a one-tap "bring back the set" (the
         // granular checkbox restore stays in the popup); restore-set intersects
         // the requested URLs against the record's stored siblings in the SW.

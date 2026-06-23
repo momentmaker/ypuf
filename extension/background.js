@@ -25,6 +25,7 @@ importScripts(
   'lib/recallrank.js',
   'lib/recallquery.js',
   'lib/proactive.js',
+  'lib/rationale.js',
   'lib/signal.js',
   'lib/tabstate.js',
   'lib/eligibility.js',
@@ -35,7 +36,7 @@ importScripts(
   'lib/blocklist.js',
 );
 
-const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank, recallquery, proactive } = self.ypuf;
+const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank, recallquery, proactive, rationale } = self.ypuf;
 
 const logErr = (e) => console.error('[ypuf]', e);
 
@@ -932,6 +933,9 @@ async function getRecallResults(q, opts = {}) {
       .filter((r) => !r.snoozeState && r.url && !openKeys.has(cluster.originPathKey(r.url)));
     results = proactive.rank(recs, durable, now).map((r) => projectStored(r, durable));
   }
+  // "Why this" (U10): a quiet rationale on every row (search, pivot, and proactive),
+  // suppressed to '' when there's no signal beyond what the meta line already shows.
+  for (const r of results) r.reason = rationale.compose(r, durable);
   return { results, total, pivots: parsed };
 }
 
