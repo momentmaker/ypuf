@@ -18,7 +18,7 @@
   'use strict';
 
   function emptyState() {
-    return { dwell: {}, revisits: {} };
+    return { dwell: {}, revisits: {}, lastActiveAt: {} };
   }
 
   function hostOf(url) {
@@ -44,7 +44,9 @@
     if (!tab || !tab.url || !trackable(tab, deps.classify, deps.userBlocklist)) {
       return { active: null, durable }; // excluded -> zero signal, no key written
     }
+    if (!durable.lastActiveAt) durable.lastActiveAt = {}; // tolerate a pre-U8 durable
     durable.revisits[tab.url] = (durable.revisits[tab.url] || 0) + 1;
+    durable.lastActiveAt[tab.url] = now; // recency, for proactive "reaching for these" (U9). Local-time/DST per the page's clock.
     return { active: { url: tab.url, start: now }, durable };
   }
 
@@ -58,6 +60,7 @@
   function deleteByUrl(url, durable) {
     delete durable.dwell[url];
     delete durable.revisits[url];
+    if (durable.lastActiveAt) delete durable.lastActiveAt[url];
     return durable;
   }
 
@@ -65,10 +68,28 @@
     const match = (u) => { const h = hostOf(u); return h === host || h.endsWith('.' + host); };
     for (const url of Object.keys(durable.dwell)) if (match(url)) delete durable.dwell[url];
     for (const url of Object.keys(durable.revisits)) if (match(url)) delete durable.revisits[url];
+    for (const url of Object.keys(durable.lastActiveAt || {})) if (match(url)) delete durable.lastActiveAt[url];
     return durable;
   }
 
-  const api = { emptyState, trackable, flush, activate, blur, deleteByUrl, deleteByDomain, hostOf };
+  // Bound growth (the signal map is keyed by every URL ever foregrounded and is
+  // never pruned by forget alone): drop dwell/revisits/lastActiveAt for any URL not
+  // foregrounded within maxAgeMs. Run on the recurring prune trigger, not just forget,
+  // so visited-but-never-forgotten URLs age out instead of accumulating forever.
+  function pruneStale(durable, now, maxAgeMs) {
+    const la = durable.lastActiveAt || {};
+    const cutoff = now - maxAgeMs;
+    let removed = 0;
+    for (const url of Object.keys(la)) {
+      if (la[url] < cutoff) {
+        delete durable.dwell[url]; delete durable.revisits[url]; delete la[url];
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
+  const api = { emptyState, trackable, flush, activate, blur, deleteByUrl, deleteByDomain, pruneStale, hostOf };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ypuf = Object.assign(root.ypuf || {}, { signal: api });

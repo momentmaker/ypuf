@@ -24,6 +24,8 @@ importScripts(
   'lib/recallmerge.js',
   'lib/recallrank.js',
   'lib/recallquery.js',
+  'lib/proactive.js',
+  'lib/rationale.js',
   'lib/signal.js',
   'lib/tabstate.js',
   'lib/eligibility.js',
@@ -34,7 +36,7 @@ importScripts(
   'lib/blocklist.js',
 );
 
-const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank, recallquery } = self.ypuf;
+const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank, recallquery, proactive, rationale } = self.ypuf;
 
 const logErr = (e) => console.error('[ypuf]', e);
 
@@ -75,6 +77,8 @@ function initIndex() {
     if (reconciled) await persistSnapshot();
     await capture.expirePending(session, Date.now());
     await sweepPendingForget(Date.now());
+    try { await pruneStaleSignal(Date.now()); } catch (e) { logErr(e); } // bound signal growth; never block the index load
+
     // The overdue sweep must not be load-bearing for the index load — degrade it,
     // don't abort initIndex (which would clear the memo and retry forever).
     try { await autoReopenDue(Date.now()); } catch (e) { logErr(e); }
@@ -346,6 +350,7 @@ async function snoozeStartup() {
 const RETENTION_MAX_AGE_MS = 180 * 86400000; // 180 days
 async function maybePrune() {
   try {
+    await pruneStaleSignal(Date.now()); // bound signal growth on the let-go cadence too, not only cold start
     if (!(await store.shouldPrune({ threshold: 0.75 }))) return;
     const { quota = 0 } = (await navigator.storage.estimate()) || {};
     const maxBytes = quota ? Math.floor(quota * 0.6) : undefined;
@@ -386,6 +391,15 @@ const FREQUENT_REVISITS = 3;
 
 const loadDurable = async () => (await local.get(SIGNAL_KEY)) || signal.emptyState();
 const saveDurable = (durable) => local.set(SIGNAL_KEY, durable);
+
+// Bound signal-map growth (U8): age out URLs not foregrounded within the window —
+// forget alone never fires for visited-but-kept URLs, so the map would grow forever.
+// Runs on cold start (initIndex) and at storage pressure (maybePrune); both recur.
+const SIGNAL_RETENTION_MAX_AGE_MS = RETENTION_MAX_AGE_MS; // same 180-day window as the store
+async function pruneStaleSignal(now) {
+  const durable = await loadDurable();
+  if (signal.pruneStale(durable, now, SIGNAL_RETENTION_MAX_AGE_MS)) await saveDurable(durable);
+}
 
 async function applyForeground(tab) {
   if (!tab) return;
@@ -874,6 +888,7 @@ function projectStored(r, durable) {
     siblings: Array.isArray(r.siblings) ? r.siblings : [],
     snoozeState: r.snoozeState || null,
     returnAt: typeof r.returnAt === 'number' ? r.returnAt : null,
+    autoClosed: !!r.autoClosed,   // so the board's "puff" can settle newly-let-go rows
     snippet: '',
   };
 }
@@ -909,15 +924,19 @@ async function getRecallResults(q, opts = {}) {
     const recs = await store.listRecent(PIVOT_SCAN_LIMIT);
     results = recallrank.filterPivots(recs.map((r) => projectStored(r, durable)), parsed).slice(0, 20);
   } else {
-    // Instant recent: opening the bar surfaces your latest let-go pages, ready to recall
-    // (recovery faster than re-googling — F2). A page you currently have OPEN is no
-    // longer "let go", so omit it. Over-fetch 24 for a target of 8.
+    // Proactive "reaching for these" (U9): before any query, surface the let-go pages
+    // you're most likely reaching for now — ranked by recency-of-activity + frequency
+    // (lib/proactive.js), capped to a calm peek. A page you currently have OPEN is no
+    // longer "let go", so omit it. Over-fetch a wide window before ranking.
     const openTabs = await chrome.tabs.query({}).catch(() => []);
     const openKeys = new Set(openTabs.map((t) => (t.url ? cluster.originPathKey(t.url) : null)).filter(Boolean));
-    const recs = await store.listRecent(24);
-    results = recs.filter((r) => !r.snoozeState && r.url && !openKeys.has(cluster.originPathKey(r.url)))
-      .slice(0, 8).map((r) => projectStored(r, durable));
+    const recs = (await store.listRecent(PIVOT_SCAN_LIMIT))
+      .filter((r) => !r.snoozeState && r.url && !openKeys.has(cluster.originPathKey(r.url)));
+    results = proactive.rank(recs, durable, now).map((r) => projectStored(r, durable));
   }
+  // "Why this" (U10): a quiet rationale on every row (search, pivot, and proactive),
+  // suppressed to '' when there's no signal beyond what the meta line already shows.
+  for (const r of results) r.reason = rationale.compose(r);
   return { results, total, pivots: parsed };
 }
 

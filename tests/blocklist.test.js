@@ -25,6 +25,7 @@ async function seed(id, host, content, url) {
   search.addRecord(rec);
   durable.dwell[rec.url] = 100;
   durable.revisits[rec.url] = 2;
+  durable.lastActiveAt[rec.url] = 4242;
   return rec;
 }
 
@@ -61,10 +62,12 @@ test('forgetPage clears all stores; restorePage brings them all back', async () 
   assert.equal(await store.get('a'), undefined);
   assert.equal(search.search('unique').length, 0);
   assert.equal(durable.dwell[rec.url], undefined);
+  assert.equal(durable.lastActiveAt[rec.url], undefined); // U8: forget leaves no rhythm residue
 
   await privacy.restorePage(bundle, deps());
   assert.ok((await store.get('a')) !== undefined);
   assert.ok(search.search('unique').map((r) => r.id).includes('a'));
   assert.equal(durable.dwell[rec.url], 100);
   assert.equal(durable.revisits[rec.url], 2);
+  assert.equal(durable.lastActiveAt[rec.url], 4242); // U8: undo restores recency too
 });

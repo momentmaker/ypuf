@@ -61,3 +61,51 @@ test('deleteByDomain removes all of a domain’s dwell + revisit signal', () => 
   assert.deepEqual(Object.keys(durable.dwell), ['https://news.com/c']);
   assert.deepEqual(Object.keys(durable.revisits), ['https://news.com/c']);
 });
+
+// --- U8: lastActiveAt (recency) + retention -------------------------------
+
+test('emptyState carries a lastActiveAt map; activate stamps it with the injected now', () => {
+  assert.deepEqual(signal.emptyState().lastActiveAt, {});
+  const s = signal.activate({ url: 'https://a.com/x', incognito: false }, 7777, deps());
+  assert.equal(s.durable.lastActiveAt['https://a.com/x'], 7777);
+});
+
+test('activate tolerates a pre-U8 durable with no lastActiveAt map', () => {
+  const legacy = { dwell: {}, revisits: {} }; // a durable persisted before U8
+  const s = signal.activate({ url: 'https://a.com', incognito: false }, 42, deps({ durable: legacy }));
+  assert.equal(s.durable.lastActiveAt['https://a.com'], 42);
+});
+
+test('deleteByUrl and deleteByDomain also clear lastActiveAt (forget leaves no rhythm residue)', () => {
+  const durable = signal.emptyState();
+  durable.dwell['https://e.com/a'] = 1; durable.revisits['https://e.com/a'] = 1; durable.lastActiveAt['https://e.com/a'] = 100;
+  durable.lastActiveAt['https://e.com/b'] = 200; durable.dwell['https://e.com/b'] = 2;
+  signal.deleteByUrl('https://e.com/a', durable);
+  assert.equal(durable.lastActiveAt['https://e.com/a'], undefined);
+  signal.deleteByDomain('e.com', durable);
+  assert.deepEqual(Object.keys(durable.lastActiveAt), []);
+});
+
+test('pruneStale drops dwell+revisits+lastActiveAt for URLs not active within the window, keeps fresh ones', () => {
+  const now = 1000 * 86400000;
+  const durable = signal.emptyState();
+  const stale = 'https://old.com/x', fresh = 'https://new.com/y';
+  durable.dwell[stale] = 9; durable.revisits[stale] = 3; durable.lastActiveAt[stale] = now - 200 * 86400000;
+  durable.dwell[fresh] = 1; durable.revisits[fresh] = 1; durable.lastActiveAt[fresh] = now - 1 * 86400000;
+  const removed = signal.pruneStale(durable, now, 180 * 86400000);
+  assert.equal(removed, 1);
+  assert.deepEqual(Object.keys(durable.lastActiveAt), [fresh]);
+  assert.deepEqual(Object.keys(durable.dwell), [fresh]);
+  assert.deepEqual(Object.keys(durable.revisits), [fresh]);
+});
+
+test('pruneStale keeps a URL active EXACTLY at the cutoff (strict <), drops one just past it', () => {
+  const now = 1000 * 86400000;
+  const maxAge = 180 * 86400000;
+  const d = signal.emptyState();
+  d.lastActiveAt['https://e.com/at'] = now - maxAge;        // exactly at cutoff -> kept
+  d.lastActiveAt['https://e.com/past'] = now - maxAge - 1;  // one ms older -> dropped
+  d.dwell['https://e.com/at'] = 1; d.dwell['https://e.com/past'] = 1;
+  assert.equal(signal.pruneStale(d, now, maxAge), 1);
+  assert.deepEqual(Object.keys(d.lastActiveAt), ['https://e.com/at']);
+});

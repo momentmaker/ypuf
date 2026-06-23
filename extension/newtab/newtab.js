@@ -20,7 +20,6 @@
   const lanes = window.ypuf.lanes;                // pure lane-placement math (tested in lib/lanes.js)
   const boardkeys = window.ypuf.boardkeys;        // pure cursor + key→intent (tested in lib/boardkeys.js)
   const hints = window.ypuf.hints;                // pure f-hint label assign/match (tested in lib/hints.js)
-  const timegroup = window.ypuf.timegroup;        // pure recall time-bucketing (tested in lib/timegroup.js)
   const returnwindow = window.ypuf.returnwindow;  // pure snooze return-window bucketing (tested in lib/returnwindow.js)
   const theme = window.ypuf.theme;                // pure light/dark/star mode core (tested in lib/theme.js)
   const moonphase = window.ypuf.moonphase;        // pure lunar phase (tested in lib/moonphase.js)
@@ -1873,6 +1872,15 @@
 
         if (it.snippet) li.appendChild(snippetNode(it.snippet, it.matchTerms));
 
+        // "Why this" (U10): one quiet signal-derived clause as the row's last child,
+        // suppressed when empty. Text-only — "same session as <host>" is page-derived.
+        if (it.reason) {
+          const why = document.createElement('div');
+          why.className = 'recall-why';
+          why.textContent = it.reason;
+          li.appendChild(why);
+        }
+
         // Set-bearing recall items offer a one-tap "bring back the set" (the
         // granular checkbox restore stays in the popup); restore-set intersects
         // the requested URLs against the record's stored siblings in the SW.
@@ -1965,8 +1973,6 @@
         }
       }
 
-      const RECENT_GROUP_CAP = 6;   // keep each time-group a calm peek; overflow hides behind "Show N more"
-
       // Quiet group heading (h3 for heading semantics); the visible text stays just the
       // label — the count rides as the accessible name so screen readers announce it.
       function group(label, count) {
@@ -1977,80 +1983,73 @@
         return h;
       }
 
-      function moreButton(n, onExpand) {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'shelf-more';
-        b.textContent = `Show ${n} more`;
-        b.addEventListener('click', () => { if (destroyed) return; onExpand(); b.remove(); });
-        return b;
-      }
 
-      // A labelled, capped group: header + a role=list of up to `cap` rows + a
-      // "Show N more" expander for the overflow.
-      function groupBlock(target, label, items, action, cap) {
-        const build = (it) => row(it, [T.timeAgo ? T.timeAgo(it.timestamp) : ''], action);
-        target.appendChild(group(label, items.length));
-        const ul = document.createElement('ul');
-        ul.className = 'recent';
-        ul.setAttribute('role', 'list');
-        const fill = (arr) => { for (const it of arr) ul.appendChild(build(it)); };
-        const { visible, rest } = timegroup.split(items, cap);   // pure cap/overflow partition (tested)
-        fill(visible);
-        target.appendChild(ul);
-        if (rest.length) target.appendChild(moreButton(rest.length, () => { fill(rest); syncProtectMarks(); }));
-      }
-
-      // Recent shelf: bucket into calm time groups (Today / Yesterday / …) instead of an
-      // endless flat list, each capped to a peek.
-      function renderRecent(target, items, action) {
-        target.textContent = '';
-        for (const g of timegroup.bucketByTime(items, Date.now())) groupBlock(target, g.label, g.items, action, RECENT_GROUP_CAP);
-      }
-
-      send('list-recent', { limit: 30 }).then((resp) => {
-        if (destroyed) return;
-        const items = (resp && resp.items) || [];
-        renderRecent(recentWrap, items, { action: 'open' });
-        syncProtectMarks();   // protected-list may have resolved before any rows existed — re-mark now
-        // U6: the puff — rows let go since the last board open arrive with a soft
-        // settle. One-shot: disarm after the first paint so re-renders stay still.
-        // boardLastOpen === 0 means first-ever open (or a read error) — stay quiet
-        // rather than animate the whole backlog at once. Match rows by id, not index,
-        // since the list is now grouped (DOM order ≠ items order).
-        if (puffArmed && boardLastOpen > 0) {
-          for (const it of items) {
-            if (it.autoClosed && it.timestamp > boardLastOpen) {
-              const r = recentWrap.querySelector('[data-id="' + cssEsc(it.id) + '"]');
-              if (r) r.classList.add('puff');
-            }
-          }
-        }
-        if (puffArmed) puffArmed = false;
-        if (items.length) {   // a quiet route into search for anything older than the peek
-          const older = document.createElement('button');
-          older.type = 'button';
-          older.className = 'shelf-older';
-          older.textContent = 'Search all let-go pages…';
-          older.addEventListener('click', () => search.focus());
-          recentWrap.appendChild(older);
-        } else {   // first run / everything forgotten — the calm empty state (U6), mirrors Snooze
-          recentWrap.appendChild(panelEmpty(recallPuffSvg(),
-            'Nothing let go yet. Let a tab go with ⌘⇧L — its content stays findable.',
-            'Then find it again by what the page said — not just its title.'));
-        }
-      });
-
-      // While a query is active, collapse the panel to JUST the matches — the recent +
-      // snoozed + relief/digest sections hide, so the results aren't buried under the
-      // unfiltered recent list (which read as "search returns junk").
-      const searchMode = (active) => {
-        for (const el of [reliefWrap, digestWrap, recentWrap]) el.hidden = active;
-      };
-
+      // The proactive seq counter is SHARED with applyQuery so a fast first keystroke
+      // supersedes a slow proactive load (Pattern 17 — no late paint over live results).
       let seq = 0;
       let renderedSeq = -1;   // the seq of the batch currently painted — Enter is inert until it catches up to seq
       let timer = null;
+
+      // The proactive "reaching for these" block (U9): one quiet labelled group of the
+      // let-go pages the engine thinks you want now (ranked SW-side by recency+frequency),
+      // replacing the time-grouped recent shelf. Returns whether it rendered any rows.
+      function renderProactive(target, items) {
+        target.textContent = '';
+        if (!items.length) return false;
+        target.appendChild(group('Reaching for these', items.length));
+        const ul = document.createElement('ul');
+        ul.className = 'recent';
+        ul.setAttribute('role', 'list');
+        for (const it of items) ul.appendChild(row(it, [T.timeAgo ? T.timeAgo(it.timestamp) : ''], { action: 'open' }));
+        target.appendChild(ul);
+        return true;
+      }
+
+      // Load the proactive set under a seq token so a fast keystroke supersedes it.
+      // Called at mount AND when the query clears back to empty (so a type-before-reply
+      // can't leave the panel permanently blank).
+      function loadProactive(mySeq) {
+        send('recall-search', { q: '', oneBox: true }).then((resp) => {
+          if (destroyed || mySeq !== seq) return;   // a keystroke already superseded this load
+          renderedSeq = mySeq;
+          const items = (resp && resp.results) || [];
+          const had = renderProactive(recentWrap, items);
+          syncProtectMarks();   // protected-list may have resolved before any rows existed — re-mark now
+          // The puff — rows let go since the last board open arrive with a soft settle.
+          // One-shot: disarm after the first paint. boardLastOpen === 0 means first-ever open.
+          if (puffArmed && boardLastOpen > 0) {
+            for (const it of items) {
+              if (it.autoClosed && it.timestamp > boardLastOpen) {
+                const r = recentWrap.querySelector('[data-id="' + cssEsc(it.id) + '"]');
+                if (r) r.classList.add('puff');
+              }
+            }
+          }
+          if (puffArmed) puffArmed = false;
+          if (had) {   // a quiet route into search for anything older than the peek
+            const older = document.createElement('button');
+            older.type = 'button';
+            older.className = 'shelf-older';
+            older.textContent = 'Search all let-go pages…';
+            older.addEventListener('click', () => search.focus());
+            recentWrap.appendChild(older);
+          } else {   // first run / everything forgotten — the calm empty state, mirrors Snooze
+            recentWrap.appendChild(panelEmpty(recallPuffSvg(),
+              'Nothing let go yet. Let a tab go with ⌘⇧L — its content stays findable.',
+              'Then find it again by what the page said — not just its title.'));
+          }
+        });
+      }
+      loadProactive(++seq);
+
+      // While a query is active, collapse the panel to JUST the matches. The relief/digest
+      // lines hide immediately; the proactive block stays as a DIMMED placeholder through the
+      // initial query gap (no blank flash) and the live render hides it once results land.
+      const searchMode = (active) => {
+        reliefWrap.hidden = digestWrap.hidden = active;
+        if (!active) { recentWrap.hidden = false; recentWrap.classList.remove('dimming'); return; }
+        if (!results.firstChild) { recentWrap.hidden = false; recentWrap.classList.add('dimming'); }
+      };
       // The pivot chips (with: / time) the SW parsed out of the query. Dismissing a
       // chip collapses that pivot back to plain text — drop its phrase, keep the rest
       // — and re-runs. Text-only render (the label is user-typed query text).
@@ -2091,13 +2090,20 @@
         searchMode(!!q);                 // toggle immediately so the recent list hides as you type
         clearKbdCursor();                // a changed query resets selection → Enter opens the top match, not a stale row
         clearTimeout(timer);
-        if (!q) { results.textContent = ''; renderChips(null); return; }   // empty → restore the full panel
+        if (!q) {   // empty → restore the full panel (re-fetch proactive if a prior keystroke dropped it)
+          results.textContent = '';
+          renderChips(null);
+          if (!recentWrap.firstChild) loadProactive(mine);
+          return;
+        }
         timer = setTimeout(() => {
           // oneBox: fold currently-open tabs + snoozed into the query, with adaptive
           // actions. The ⌘⇧K overlay omits this flag, so it never gets open-tab rows.
           send('recall-search', { q, oneBox: true }).then((resp) => {
             if (destroyed || mine !== seq) return;
             renderedSeq = mine;             // this batch is now the painted one — Enter may act on it
+            recentWrap.hidden = true;       // live results are up — drop the dimmed proactive placeholder
+            recentWrap.classList.remove('dimming');
             renderChips(resp && resp.pivots);
             const items = (resp && resp.results) || [];
             renderList(results, items, { action: 'open' });

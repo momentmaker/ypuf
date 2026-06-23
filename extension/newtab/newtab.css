@@ -416,6 +416,12 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
 }
 .recent-item.has-fav .recall-snippet { grid-column: 2; }
 .recall-snippet mark { background: color-mix(in srgb, var(--accent-amber) 26%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
+/* "Why this" rationale (Recall v2 / U10): one quiet signal-derived clause; column 2 aligns under the title. */
+.recall-why { font-size: 11px; line-height: 1.4; margin-top: 2px; color: color-mix(in srgb, var(--ink) 48%, transparent); font-style: italic; }
+.recent-item.has-fav .recall-why { grid-column: 2; }
+/* Proactive "reaching for these" block, dimmed as a placeholder during the query gap (U9) — no blank flash. */
+.recall-scroll .dimming { opacity: 0.45; pointer-events: none; }
+@media (prefers-reduced-motion: no-preference) { .recall-scroll .dimming { transition: opacity 0.12s ease; } }
 /* f-hints badge styling lives in style.css (shared with the popup, U11). */
 /* The relief moment (U5): a calm once-a-day acknowledgement. */
 .board-relief {

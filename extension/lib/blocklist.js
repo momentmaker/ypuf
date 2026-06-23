@@ -42,6 +42,7 @@
       record,
       dwell: deps.durable.dwell[record.url],
       revisits: deps.durable.revisits[record.url],
+      lastActiveAt: deps.durable.lastActiveAt && deps.durable.lastActiveAt[record.url],
     };
     await deps.store.remove(recordId);
     deps.search.removeRecord(recordId);
@@ -55,6 +56,8 @@
     deps.search.addRecord(bundle.record);
     if (bundle.dwell != null) deps.durable.dwell[bundle.record.url] = bundle.dwell;
     if (bundle.revisits != null) deps.durable.revisits[bundle.record.url] = bundle.revisits;
+    // `lastActiveAt` is absent on bundles captured before U8 — restore is a no-op then.
+    if (bundle.lastActiveAt != null) (deps.durable.lastActiveAt || (deps.durable.lastActiveAt = {}))[bundle.record.url] = bundle.lastActiveAt;
   }
 
   // Domain forget: remove every entry for a domain from every store (AE6).
