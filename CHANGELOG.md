@@ -7,6 +7,32 @@ All notable changes to ypuf are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **One-box recall.** A single search box now finds any page — open, let go, or
+  snoozed — and the primary action adapts to what it finds: jump to a tab you
+  already have open, or reopen / restore an archived one. Results are intent-ranked,
+  so the pages you keep returning to rise to the top.
+- **Search by session and time.** Narrow recall with episodic pivots — `with:github`
+  to find what you let go alongside a site, or a phrase like "yesterday" or
+  "last week" — shown as dismissible chips you can clear with a click.
+- **Proactive recall.** Before you type, the panel offers a small *"Reaching for
+  these"* set — the pages you're most likely reaching for right now (recently active
+  and often revisited), so the best search is often the one you never run.
+- **Matched-term highlighting** in the content excerpt, even on fuzzy hits
+  (typing `googl` highlights the matched **google**).
+- **A "What the icons mean" legend** in Settings, and a quiet ↻ marker on rows you
+  revisit often. Press `,` to open Settings from the board.
+
+### Changed
+- **Calmer, uniform recall rows.** The "bring back the set" (⊕) chip and the
+  frequency marker now sit inline on the meta line, so every row is the same height.
+  Snooze items drop the set chip — that timeline is just about when a page returns.
+
+### Fixed
+- **No more duplicate recall rows.** A page you let go more than once now appears
+  once — fixed both at the source (one stored record per page) and in the proactive
+  and pivot lists.
+
 ## [1.0.2] — 2026-06-22
 
 ### Fixed
