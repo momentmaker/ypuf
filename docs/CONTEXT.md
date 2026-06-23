@@ -220,7 +220,15 @@ surface.
 
 - **Tags / folders / any manual organization system** — that's Toby; it's the
   junk drawer we're explicitly killing. *Measured* importance replaces *declared*
-  organization. Hold this line.
+  organization. Hold this line. *Re-examined 2026-06-22* (external suggestion:
+  keyword-tags grouped "like bookmarks" + a 3rd "tag" icon beside protect/trash,
+  Trie-backed search) → **re-parked, no new info.** No observed findability miss
+  (owner finds tabs fine); a tag is declared taxonomy with upkeep, unlike the
+  one-tap *signals* protect/trash feed the engine — same icon row, different
+  species. The real signal in the suggestion was that *findability* is the felt
+  axis → invest in **recall** (`extension/lib/search.js` MiniSearch + the §12
+  flow knowledge layer), not user-declared tags. A calm labeling primitive, if
+  ever: engine-suggested / one-tap, never a user-maintained scheme.
 - **Any interrupt-style new-tab surface** — a new-tab page that ambushes
   (auto-playing, notifying, modal, noisy) is the fastest uninstall in the genre.
   The panel widget board (§5f) must stay quiet and dismissible. Hold this line.
