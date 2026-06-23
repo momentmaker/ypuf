@@ -36,7 +36,7 @@ importScripts(
   'lib/blocklist.js',
 );
 
-const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank, recallquery, proactive, rationale } = self.ypuf;
+const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank, recallmerge, recallquery, proactive, rationale } = self.ypuf;
 
 const logErr = (e) => console.error('[ypuf]', e);
 
@@ -922,7 +922,10 @@ async function getRecallResults(q, opts = {}) {
     // substring source here, so they're not included. Over-fetch wide before slicing to
     // 20, since a with:/time pivot can filter most of the window out.
     const recs = await store.listRecent(PIVOT_SCAN_LIMIT);
-    results = recallrank.filterPivots(recs.map((r) => projectStored(r, durable)), parsed).slice(0, 20);
+    // merge() collapses same-page records (incl. a snoozed twin of a let-go) the way the
+    // search path does, so the pivot archive never shows a page twice.
+    const rows = recallmerge.merge(recs.map((r) => projectStored(r, durable)));
+    results = recallrank.filterPivots(rows, parsed).slice(0, 20);
   } else {
     // Proactive "reaching for these" (U9): before any query, surface the let-go pages
     // you're most likely reaching for now — ranked by recency-of-activity + frequency
@@ -930,8 +933,13 @@ async function getRecallResults(q, opts = {}) {
     // longer "let go", so omit it. Over-fetch a wide window before ranking.
     const openTabs = await chrome.tabs.query({}).catch(() => []);
     const openKeys = new Set(openTabs.map((t) => (t.url ? cluster.originPathKey(t.url) : null)).filter(Boolean));
-    const recs = (await store.listRecent(PIVOT_SCAN_LIMIT))
-      .filter((r) => !r.snoozeState && r.url && !openKeys.has(cluster.originPathKey(r.url)));
+    // dedupeRecords collapses repeat let-gos of the same page to one (newest wins) — the
+    // blank-q path doesn't run through merge(), so without it a page let go more than once
+    // would surface as duplicate "reaching for these" rows.
+    const recs = recallmerge.dedupeRecords(
+      (await store.listRecent(PIVOT_SCAN_LIMIT))
+        .filter((r) => !r.snoozeState && r.url && !openKeys.has(cluster.originPathKey(r.url)))
+    );
     results = proactive.rank(recs, durable, now).map((r) => projectStored(r, durable));
   }
   // "Why this" (U10): a quiet rationale on every row (search, pivot, and proactive),

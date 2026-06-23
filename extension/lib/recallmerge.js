@@ -65,7 +65,26 @@
       .map((g) => combine(g.rows));
   }
 
-  const api = { merge, keyOf };
+  // Collapse a RECORD list to one per canonical key (origin + pathname), keeping the
+  // FIRST occurrence. Callers pass newest-first (store.listRecent), so the freshest record
+  // for each page survives. The blank-q proactive + pure-pivot read paths don't run through
+  // merge() (which dedups the search path), so without this a page let go more than once —
+  // each let-go is a fresh store record — would surface as duplicate rows. Records without a
+  // url can't be keyed, so they pass through untouched. Input is never mutated.
+  function dedupeRecords(records) {
+    if (!Array.isArray(records)) return [];
+    const seen = new Set();
+    const out = [];
+    for (const r of records) {
+      if (!r || !r.url) { if (r) out.push(r); continue; }
+      const k = keyOf(r.url);
+      if (seen.has(k)) continue;
+      seen.add(k); out.push(r);
+    }
+    return out;
+  }
+
+  const api = { merge, keyOf, dedupeRecords };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ypuf = Object.assign(root.ypuf || {}, { recallmerge: api });
