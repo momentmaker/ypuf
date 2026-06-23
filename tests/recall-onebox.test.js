@@ -215,3 +215,61 @@ test('U3: a snoozed record flows through assemble as kind:snoozed with its retur
   assert.equal(out[0].snoozeState, 'snoozed');
   assert.equal(out[0].returnAt, 4242);
 });
+
+test('U7: the excerpt + matchTerms come from the term MiniSearch matched, not the raw typo', () => {
+  // A fuzzy/prefix hit: the user typed 'googl' but the index matched 'google'. The
+  // excerpt must center on 'google' (which is in the content) — the raw query is not.
+  const rec = record({ id: 'g', url: 'https://e.com/g', content: 'the google cloud platform writeup' });
+  const out = recallrank.assemble({
+    hits: [{ id: 'g', score: 9, terms: ['google'] }],
+    records: [rec], q: 'googl', now: NOW,
+  });
+  assert.ok(out[0].snippet.toLowerCase().includes('google'), 'excerpt centers on the matched term');
+  assert.deepEqual(out[0].matchTerms, ['google']);
+});
+
+test('U7: when a hit carries no .terms, matchTerms falls back to the query terms', () => {
+  const rec = record({ id: 'r', content: 'a body of text' });
+  const out = recallrank.assemble({ hits: [hitFor(rec, 5)], records: [rec], q: 'body', now: NOW });
+  assert.deepEqual(out[0].matchTerms, ['body'], 'fallback keeps highlighting working when MiniSearch omits terms');
+});
+
+// --- U6: episodic pivot filtering -----------------------------------------
+
+function frow(over) {
+  return Object.assign({ kind: 'let-go', id: 'r', timestamp: 500 * DAY, siblings: [] }, over);
+}
+
+test('U6: with: keeps only let-go rows whose siblings match the session — open/snoozed pass through', () => {
+  const rows = [
+    frow({ id: 'match', kind: 'let-go', siblings: [{ url: 'https://e.com/tax', host: 'e.com' }] }),
+    frow({ id: 'miss', kind: 'let-go', siblings: [{ url: 'https://x.com/y', host: 'x.com' }] }),
+    frow({ id: 'open', kind: 'open', siblings: [] }),
+    frow({ id: 'snoozed', kind: 'snoozed', siblings: [] }),
+  ];
+  const out = recallrank.filterPivots(rows, { withTerm: 'tax' }).map((r) => r.id);
+  assert.deepEqual(out.sort(), ['match', 'open', 'snoozed'].sort(), 'matching let-go + all live rows kept; non-matching let-go dropped');
+});
+
+test('U6: a time range keeps rows whose timestamp falls inside it; timestamp-less rows (open tabs) pass', () => {
+  const range = { from: 100 * DAY, to: 200 * DAY };
+  const rows = [
+    frow({ id: 'in', timestamp: 150 * DAY }),
+    frow({ id: 'before', timestamp: 50 * DAY }),
+    frow({ id: 'after', timestamp: 250 * DAY }),
+    frow({ id: 'at-to', timestamp: 200 * DAY }),   // upper bound is exclusive
+    frow({ id: 'open', kind: 'open', timestamp: null }),
+  ];
+  const out = recallrank.filterPivots(rows, { timeRange: range }).map((r) => r.id);
+  assert.deepEqual(out.sort(), ['in', 'open'].sort(), 'at-to (=== to) is excluded; open (no timestamp) passes');
+});
+
+test('U6: with: and time range compose; no pivots is a pass-through', () => {
+  const rows = [
+    frow({ id: 'keep', timestamp: 150 * DAY, siblings: [{ host: 'e.com' }] }),
+    frow({ id: 'wrongtime', timestamp: 999 * DAY, siblings: [{ host: 'e.com' }] }),
+  ];
+  const both = recallrank.filterPivots(rows, { withTerm: 'e.com', timeRange: { from: 100 * DAY, to: 200 * DAY } });
+  assert.deepEqual(both.map((r) => r.id), ['keep']);
+  assert.equal(recallrank.filterPivots(rows, null).length, 2);
+});

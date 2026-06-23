@@ -1773,10 +1773,13 @@
       // Search + relief/digest stay pinned; the let-go archive lives in a bounded scroll
       // region so the panel is a calm peek that never grows the board. (Snooze lives in its
       // own panel now — this panel is pure search + recent let-go archive.)
+      const chipsWrap = document.createElement('div');   // active pivot chips, between the input and the matches
+      chipsWrap.className = 'recall-chips';
+      chipsWrap.hidden = true;
       const recallScroll = document.createElement('div');
       recallScroll.className = 'recall-scroll';
       recallScroll.append(results, recentWrap);
-      body.append(reliefWrap, digestWrap, search, recallScroll);
+      body.append(reliefWrap, digestWrap, search, chipsWrap, recallScroll);
 
       // The relief moment (U5/R12): once a day, a calm acknowledgement that what you
       // let go is safe. The SW gates the claim, so it shows on whichever surface you
@@ -1817,6 +1820,21 @@
         syncProtectMarks();
       }).catch(() => {});
 
+      // The "recall by what it said" line: the page-text excerpt where the query hit,
+      // with the matched term highlighted. Built text-only — page-derived content never
+      // touches innerHTML; highlighted runs are <mark> text nodes (lib/highlight.js).
+      const HL = (window.ypuf && window.ypuf.highlight) || null;
+      function snippetNode(text, terms) {
+        const div = document.createElement('div');
+        div.className = 'recall-snippet';
+        const segs = HL ? HL.segments(text, (terms || []).join(' ')) : [{ text, hl: false }];
+        for (const seg of segs) {
+          if (seg.hl) { const m = document.createElement('mark'); m.textContent = seg.text; div.appendChild(m); }
+          else div.appendChild(document.createTextNode(seg.text));
+        }
+        return div;
+      }
+
       function row(it, tags, action) {
         // Resolve the favicon (local _favicon, no network) without mutating the SW response object.
         const r = (it.faviconUrl || !it.url) ? it : Object.assign({}, it, { faviconUrl: faviconUrl(it.url) });
@@ -1852,6 +1870,8 @@
           tag.append(icon('clock'));
           if (meta) meta.prepend(tag); else li.appendChild(tag);
         }
+
+        if (it.snippet) li.appendChild(snippetNode(it.snippet, it.matchTerms));
 
         // Set-bearing recall items offer a one-tap "bring back the set" (the
         // granular checkbox restore stays in the popup); restore-set intersects
@@ -2029,7 +2049,41 @@
       };
 
       let seq = 0;
+      let renderedSeq = -1;   // the seq of the batch currently painted — Enter is inert until it catches up to seq
       let timer = null;
+      // The pivot chips (with: / time) the SW parsed out of the query. Dismissing a
+      // chip collapses that pivot back to plain text — drop its phrase, keep the rest
+      // — and re-runs. Text-only render (the label is user-typed query text).
+      function renderChips(pivots) {
+        chipsWrap.textContent = '';
+        const chips = (pivots && pivots.chips) || [];
+        if (!chips.length) { chipsWrap.hidden = true; return; }
+        chipsWrap.hidden = false;
+        chips.forEach((chip, idx) => {
+          const el = document.createElement('span');
+          el.className = 'recall-chip recall-chip-' + chip.kind;
+          const label = document.createElement('span');
+          label.className = 'recall-chip-label';
+          label.textContent = chip.kind === 'with' ? 'with ' + chip.label : chip.label;
+          const x = document.createElement('button');
+          x.type = 'button';
+          x.className = 'recall-chip-x';
+          x.textContent = '×';
+          x.setAttribute('aria-label', `Remove ${chip.kind === 'with' ? 'session' : 'time'} filter: ${chip.label}`);
+          x.addEventListener('click', () => {
+            // Rebuild from the free text + each chip's contribution: kept chips stay
+            // verbatim (still pivots), the dismissed one collapses to plain text.
+            const parts = [pivots.text];
+            chips.forEach((c, i) => parts.push(i === idx ? (c.collapse || '') : c.phrase));
+            search.value = parts.filter(Boolean).join(' ').trim();
+            applyQuery();
+            search.focus();
+          });
+          el.append(label, x);
+          chipsWrap.appendChild(el);
+        });
+      }
+
       const applyQuery = () => {
         const q = search.value.trim();
         const mine = ++seq;              // bump on EVERY call (incl. clear) so an in-flight
@@ -2037,12 +2091,14 @@
         searchMode(!!q);                 // toggle immediately so the recent list hides as you type
         clearKbdCursor();                // a changed query resets selection → Enter opens the top match, not a stale row
         clearTimeout(timer);
-        if (!q) { results.textContent = ''; return; }   // empty → restore the full panel
+        if (!q) { results.textContent = ''; renderChips(null); return; }   // empty → restore the full panel
         timer = setTimeout(() => {
           // oneBox: fold currently-open tabs + snoozed into the query, with adaptive
           // actions. The ⌘⇧K overlay omits this flag, so it never gets open-tab rows.
           send('recall-search', { q, oneBox: true }).then((resp) => {
             if (destroyed || mine !== seq) return;
+            renderedSeq = mine;             // this batch is now the painted one — Enter may act on it
+            renderChips(resp && resp.pivots);
             const items = (resp && resp.results) || [];
             renderList(results, items, { action: 'open' });
             if (!items.length) {
@@ -2075,6 +2131,10 @@
         if (e.key === 'ArrowDown') { e.preventDefault(); moveKbd(1); return; }
         if (e.key === 'ArrowUp') { e.preventDefault(); moveKbd(-1); return; }
         if (e.key === 'Enter') {
+          // Inert while a newer query is still debouncing / in-flight, so a fast typist's
+          // Enter can't fire on a stale batch — this guards the cursorless top-hit
+          // fallback (recallRows()[0]), not just the cursored path.
+          if (search.value.trim() && renderedSeq !== seq) { e.preventDefault(); return; }
           const target = cursorRow() || recallRows()[0];
           if (target) { e.preventDefault(); clickIn(target, '.title.clickable'); reanchorCursor(); }
         }

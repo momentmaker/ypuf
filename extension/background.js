@@ -23,6 +23,7 @@ importScripts(
   'lib/rank.js',
   'lib/recallmerge.js',
   'lib/recallrank.js',
+  'lib/recallquery.js',
   'lib/signal.js',
   'lib/tabstate.js',
   'lib/eligibility.js',
@@ -33,7 +34,7 @@ importScripts(
   'lib/blocklist.js',
 );
 
-const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank } = self.ypuf;
+const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank, recallquery } = self.ypuf;
 
 const logErr = (e) => console.error('[ypuf]', e);
 
@@ -860,43 +861,64 @@ async function snoozeResnooze(recordId, preset, custom) {
 
 // --- recall (U6 / flow F2) -----------------------------------------------
 
-// One-box recall (Recall v2). The new-tab panel passes `oneBox` to fold live open
-// tabs into the query and tag each row's kind (open/snoozed/let-go) for an adaptive
-// action; the ⌘⇧K overlay does NOT, so it only ever sees index rows it can action.
-// The rank/dedup/projection live in the pure recallrank.assemble seam.
+const PIVOT_SCAN_LIMIT = 200;   // pure-pivot over-fetch: a with:/time filter may drop most of the window
+
+// Project a stored record into a recall row (shared by the blank-q shelf and the
+// pure-pivot path so the two never drift from recallrank's assembled row shape).
+function projectStored(r, durable) {
+  return {
+    kind: r.snoozeState ? 'snoozed' : 'let-go',
+    id: r.id, title: r.title, url: r.url, host: r.host, contentLess: r.contentLess,
+    timestamp: r.timestamp,
+    frequent: ((durable.revisits && durable.revisits[r.url]) || 0) >= FREQUENT_REVISITS,
+    siblings: Array.isArray(r.siblings) ? r.siblings : [],
+    snoozeState: r.snoozeState || null,
+    returnAt: typeof r.returnAt === 'number' ? r.returnAt : null,
+    snippet: '',
+  };
+}
+
+// One-box recall (Recall v2). The query is first parsed for episodic pivots
+// (`with: <session>` + a relative time phrase); the remaining free text drives the
+// search, and the pivots narrow the result. The new-tab panel passes `oneBox` to
+// fold live open tabs in and renders the pivots as dismissible chips; the ⌘⇧K
+// overlay does NOT (it only sees index rows it can action). The decidable parts
+// live in the pure recallrank.assemble / filterPivots + recallquery.parse seams.
 async function getRecallResults(q, opts = {}) {
   await initIndex();
   await sweepPendingForget(Date.now()); // keep set offers free of just-forgotten siblings
   const total = await store.count();
   const durable = await loadDurable();
   const now = Date.now();
+  // Pivots (with: / time) are a panel feature with dismissible chips — the ⌘⇧K overlay
+  // (no oneBox) searches the query literally, so it can never silently filter with no UI.
+  const parsed = opts.oneBox ? recallquery.parse(q || '', now)
+    : { text: (q || '').trim(), withTerm: null, timeRange: null, chips: [] };
   let results = [];
-  if (q) {
-    const hits = search.search(q).slice(0, 20);
+  if (parsed.text) {
+    const hits = search.search(parsed.text).slice(0, 20);
     const records = await Promise.all(hits.map((h) => store.get(h.id)));
     const openTabs = opts.oneBox ? await chrome.tabs.query({}).catch(() => []) : [];
-    results = recallrank.assemble({ hits, records, openTabs, durable, q, now, oneBox: !!opts.oneBox });
+    const rows = recallrank.assemble({ hits, records, openTabs, durable, q: parsed.text, now, oneBox: !!opts.oneBox });
+    results = recallrank.filterPivots(rows, parsed);
+  } else if (parsed.withTerm || parsed.timeRange) {
+    // Pure-pivot query (no free text): narrow the recent archive by the pivot alone,
+    // newest-first. Both let-go and snoozed records are eligible; live tabs aren't a
+    // substring source here, so they're not included. Over-fetch wide before slicing to
+    // 20, since a with:/time pivot can filter most of the window out.
+    const recs = await store.listRecent(PIVOT_SCAN_LIMIT);
+    results = recallrank.filterPivots(recs.map((r) => projectStored(r, durable)), parsed).slice(0, 20);
   } else {
     // Instant recent: opening the bar surfaces your latest let-go pages, ready to recall
     // (recovery faster than re-googling — F2). A page you currently have OPEN is no
-    // longer "let go", so omit it — reopening one drops it from the shelf until it's
-    // let go again. Snooze/back-now live in their own surfaces. Over-fetch 24 for a
-    // target of 8 so heavy multi-tab use still fills the shelf after filtering.
+    // longer "let go", so omit it. Over-fetch 24 for a target of 8.
     const openTabs = await chrome.tabs.query({}).catch(() => []);
     const openKeys = new Set(openTabs.map((t) => (t.url ? cluster.originPathKey(t.url) : null)).filter(Boolean));
     const recs = await store.listRecent(24);
     results = recs.filter((r) => !r.snoozeState && r.url && !openKeys.has(cluster.originPathKey(r.url)))
-      .slice(0, 8).map((r) => ({
-        kind: 'let-go',
-        id: r.id, title: r.title, url: r.url, host: r.host, contentLess: r.contentLess,
-        timestamp: r.timestamp,
-        frequent: ((durable.revisits && durable.revisits[r.url]) || 0) >= FREQUENT_REVISITS,
-        siblings: Array.isArray(r.siblings) ? r.siblings : [],
-        snoozeState: r.snoozeState || null,
-        snippet: '',
-      }));
+      .slice(0, 8).map((r) => projectStored(r, durable));
   }
-  return { results, total };
+  return { results, total, pivots: parsed };
 }
 
 // Jump to an already-open tab (the one-box kind:'open' action). Resolve the
