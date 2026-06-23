@@ -68,6 +68,22 @@ test('itemRow defaults the click id to the row id when the action omits one', ()
   assert.equal(opened, 'rec-9');
 });
 
+test('U4: an open-tab row wires its title to the jump action with the tabId as id (text-only)', () => {
+  // Recall v2 one-box: a kind:'open' result jumps to the live tab. newtab.js passes
+  // { action:'jump', id: tabId }; itemRow must carry it like any other action and the
+  // title must still render text-only (open-tab titles are page-derived too).
+  let jumped = null;
+  const row = sr.itemRow({ id: '', title: XSS, host: 'figma.com' }, [], null, { action: 'jump', id: 42 });
+  assert.equal(row.children[0].click.action, 'jump');
+  assert.equal(row.children[0].click.id, 42);
+  const node = sr.toDom(row, fakeDoc(), { jump: (tabId) => { jumped = tabId; } });
+  const titleEl = node.children[0];
+  assert.equal(titleEl.textContent, XSS);   // open-tab title rendered as inert text
+  assert.equal(titleEl._html, null);
+  titleEl.listeners.click[0]();
+  assert.equal(jumped, 42);
+});
+
 test('shelf builds one row per item, each opening its own record id', () => {
   const ul = sr.shelf([{ id: 'a', title: 'A', host: 'h' }, { id: 'b', title: 'B', host: 'h' }], null);
   assert.equal(ul.tag, 'ul');

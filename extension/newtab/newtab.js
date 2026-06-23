@@ -1754,6 +1754,9 @@
           // back-now lists, and leaving the duplicate behind would re-fire on click.
           body.querySelectorAll('[data-id="' + cssEsc(id) + '"]').forEach((el) => el.remove());
         },
+        // One-box (Recall v2): a kind:'open' row jumps to the live tab rather than
+        // restoring an archived copy. The SW validates the tabId against live state.
+        jump: (tabId) => { send('focus-tab', { tabId: Number(tabId) }); },
       };
       let destroyed = false;   // armed by the teardown so late SW replies can't write into a torn-down panel
       const undoTimers = new Set();   // pending forget-undo timers, cleared on teardown so none outlive the mount
@@ -1761,8 +1764,8 @@
       const search = document.createElement('input');
       search.type = 'search';
       search.className = 'recall-search';
-      search.placeholder = 'Recall a let-go page…';
-      search.setAttribute('aria-label', 'Recall a let-go page');
+      search.placeholder = 'Find any page — open, let go, or snoozed…';
+      search.setAttribute('aria-label', 'Find any page — open, let go, or snoozed');
       const reliefWrap = document.createElement('div');
       const digestWrap = document.createElement('div');
       const results = document.createElement('div');
@@ -1817,14 +1820,30 @@
       function row(it, tags, action) {
         // Resolve the favicon (local _favicon, no network) without mutating the SW response object.
         const r = (it.faviconUrl || !it.url) ? it : Object.assign({}, it, { faviconUrl: faviconUrl(it.url) });
-        const li = SR.toDom(SR.itemRow(r, tags, T, action), document, handlers);
+        // One-box (Recall v2): the primary action adapts to the row's state — a
+        // currently-open tab JUMPS to the live tab (focus-tab), a let-go/snoozed page
+        // opens/restores. Both wire the same .title.clickable, so the shared Enter
+        // handler dispatches the right action without knowing the kind.
+        const act = (it.kind === 'open' && it.tabId != null) ? { action: 'jump', id: it.tabId } : action;
+        const li = SR.toDom(SR.itemRow(r, tags, T, act), document, handlers);
         const fav = li.querySelector('.fav');
         // A missing favicon shouldn't shout: drop it silently rather than show a placeholder.
         if (fav) fav.addEventListener('error', () => { fav.remove(); li.classList.remove('has-fav'); });
 
+        // A currently-open match reads as "jump there", not "restore". Calm sage marker.
+        if (it.kind === 'open') {
+          const meta = li.querySelector('.meta');
+          const tag = document.createElement('span');
+          tag.className = 'recall-open-now';
+          tag.textContent = 'open now';
+          tag.setAttribute('aria-label', 'currently open — press to jump to the tab');
+          if (meta) meta.prepend(tag); else li.appendChild(tag);
+        }
+
         // Search spans the whole index, so a currently-snoozed page can appear here. Flag it
         // with a small clock so it reads as "away, coming back" rather than a plain let-go.
-        if (it.snoozeState) {
+        // (Suppressed when it's also open now — the "open now" marker takes precedence.)
+        if (it.snoozeState && it.kind !== 'open') {
           const meta = li.querySelector('.meta');
           const tag = document.createElement('span');
           tag.className = 'recall-snoozed';
@@ -2020,14 +2039,16 @@
         clearTimeout(timer);
         if (!q) { results.textContent = ''; return; }   // empty → restore the full panel
         timer = setTimeout(() => {
-          send('recall-search', { q }).then((resp) => {
+          // oneBox: fold currently-open tabs + snoozed into the query, with adaptive
+          // actions. The ⌘⇧K overlay omits this flag, so it never gets open-tab rows.
+          send('recall-search', { q, oneBox: true }).then((resp) => {
             if (destroyed || mine !== seq) return;
             const items = (resp && resp.results) || [];
             renderList(results, items, { action: 'open' });
             if (!items.length) {
               const none = document.createElement('p');
               none.className = 'muted recall-no-match';
-              none.textContent = `No matches for “${q}”.`;
+              none.textContent = `Nothing open, let go, or snoozed matches “${q}”.`;
               results.appendChild(none);
             }
           });
