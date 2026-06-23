@@ -29,6 +29,10 @@
   const STYLES = `
     :host {
       all: initial;
+      /* Own top-level stacking context at the max z-index so no page element (however
+         high its own z-index) can paint over the modal. The host is appended last to
+         <html>, so even a page element also at max z-index loses on DOM order. */
+      position: fixed; z-index: 2147483647;
       --bg: #fffdf9; --ink: #1a1613; --line: #e8e2da; --hover: #efe9e0; --muted: #9a918a;
       --accent: #c8713a; --field: #f8f5f0; --backdrop: rgba(26,22,19,0.28); --shadow: rgba(26,22,19,0.32);
     }
