@@ -53,29 +53,82 @@
 
   // The blended score for one row. Below the relevance floor the row keeps its
   // raw text score (pure-text order); above it, intent lifts it by up to MAX_LIFT.
+  //
+  // TWO-AXIS (semantic recall U5): candidacy is driven by a `primary` score on a
+  // shared 0..1 basis, so a zero-keyword meaning-match isn't buried by the text
+  // FLOOR. When the caller passes a two-axis context (`opts.primaryMax` set,
+  // meaning at least one row carries a semantic value), `primary = max(textNorm,
+  // semantic)` where `textNorm = textScore / opts.textMax` (cosine is already
+  // 0..1), the FLOOR/cap operate on `primary` (NOT text-only — an all-semantic
+  // result set has text-max 0, so a text-only FLOOR*0 would admit everything),
+  // and the lifted score is in the same 0..1 space so neither axis buries the
+  // other. With NO semantic context (`opts.primaryMax` absent), this is the exact
+  // legacy text-unit blend — preserved byte-for-byte so the keyword path is
+  // unchanged when semantic is off.
   function blend(textScore, signal, opts) {
-    const topScore = opts && opts.topScore > 0 ? opts.topScore : textScore;
+    const o = opts || {};
+    if (o.primaryMax > 0) {
+      const textMax = o.textMax > 0 ? o.textMax : 0;
+      const textNorm = textMax > 0 ? (textScore > 0 ? textScore / textMax : 0) : 0;
+      const sem = o.semantic > 0 ? (o.semantic > 1 ? 1 : o.semantic) : 0;
+      const primary = textNorm > sem ? textNorm : sem;
+      if (primary < FLOOR * o.primaryMax) return primary;
+      return primary * (1 + MAX_LIFT * intentStrength(signal));
+    }
+    const topScore = o.topScore > 0 ? o.topScore : textScore;
     const score = textScore > 0 ? textScore : 0;
     if (score < FLOOR * topScore) return score;
     return score * (1 + MAX_LIFT * intentStrength(signal));
   }
 
-  // Re-rank text-search hits by blended score. Each hit: { id, score, signal }
-  // where signal.ageMs is already (now - lastAccessed), born-equal-aware. Returns
-  // a NEW array (input untouched), each row annotated with `_blended`, sorted by
-  // blended score desc, stable on ties (original order preserved).
+  // The 0..1 candidacy axis for one row: max of its text relevance (normalized
+  // against the run's text-max) and its semantic cosine. Used to find the run's
+  // primaryMax before blending.
+  function primaryOf(textScore, semantic, textMax) {
+    const textNorm = textMax > 0 ? (textScore > 0 ? textScore / textMax : 0) : 0;
+    const sem = semantic > 0 ? (semantic > 1 ? 1 : semantic) : 0;
+    return textNorm > sem ? textNorm : sem;
+  }
+
+  // Re-rank text-search hits by blended score. Each hit: { id, score, signal,
+  // semantic? } where signal.ageMs is already (now - lastAccessed),
+  // born-equal-aware, and `semantic` is an optional 0..1 cosine (a meaning-match
+  // candidate). Returns a NEW array (input untouched), each row annotated with
+  // `_blended`, sorted by blended score desc, stable on ties (original order).
+  //
+  // The two-axis path engages ONLY when at least one row carries a semantic
+  // value; otherwise the run is identical to the legacy keyword rerank.
   function rerank(hits) {
     if (!Array.isArray(hits) || hits.length === 0) return [];
-    let topScore = 0;
-    for (const h of hits) if (h && h.score > topScore) topScore = h.score;
+    let textMax = 0;
+    let hasSemantic = false;
+    for (const h of hits) {
+      if (!h) continue;
+      if (h.score > textMax) textMax = h.score;
+      if (h.semantic > 0) hasSemantic = true;
+    }
+
+    let opts;
+    if (hasSemantic) {
+      let primaryMax = 0;
+      for (const h of hits) {
+        if (!h) continue;
+        const p = primaryOf(h.score, h.semantic, textMax);
+        if (p > primaryMax) primaryMax = p;
+      }
+      opts = (h) => ({ textMax, primaryMax, semantic: h.semantic });
+    } else {
+      opts = () => ({ topScore: textMax });
+    }
+
     const annotated = hits.map((h, i) => ({
-      hit: h, i, blended: blend(h.score, h.signal, { topScore }),
+      hit: h, i, blended: blend(h.score, h.signal, opts(h)),
     }));
     annotated.sort((a, b) => (b.blended - a.blended) || (a.i - b.i));
     return annotated.map((a) => Object.assign({}, a.hit, { _blended: a.blended }));
   }
 
-  const api = { rerank, blend, intentStrength, FLOOR, MAX_LIFT };
+  const api = { rerank, blend, intentStrength, primaryOf, FLOOR, MAX_LIFT };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ypuf = Object.assign(root.ypuf || {}, { rank: api });

@@ -45,8 +45,11 @@ Paste one of these into each permission's justification field.
   (Chrome's local most-visited API; nothing leaves the device).
 - **`favicon`** — Shows site icons next to recalled pages and board items
   (Chrome's local `_favicon` API).
+- **`unlimitedStorage`** — Lets the optional "Recall by meaning" model (~30&nbsp;MB,
+  downloaded only on opt-in) and the local content index persist without quota
+  eviction. Nothing leaves the device.
 
-### Host permission justification (`<all_urls>`, **optional**)
+### Host permission justification (`<all_urls>` + the model-release host, **optional**)
 
 > Requested **only when the user explicitly asks for it**, never on install.
 > ypuf needs page access in two on-demand cases: (1) to read a page's readable
@@ -57,9 +60,17 @@ Paste one of these into each permission's justification field.
 > it is indexed locally only. Sensitive sites (banking, health, government,
 > password managers) and incognito are excluded.
 
+> **Recall-by-meaning model host** (`github.com/momentmaker/ypuf/releases/*` and its
+> `objects.githubusercontent.com` redirect, **optional**) — requested only when the
+> user enables "Recall by meaning," to download a small static-embedding model once.
+> A narrow pattern, not `<all_urls>`; revoked when the feature is turned off. Only
+> model weights are fetched — no page content, query, or browsing data.
+
 > **No remotely hosted code.** ypuf is 100% vanilla JavaScript bundled in the
-> package; it loads and executes no external scripts. (Confirms the MV3 remote-code
-> policy.)
+> package; it loads and executes no external scripts. The optional semantic-recall
+> model is **data** (a weights file + tokenizer), not code — the embedding logic ships
+> in the package — so the MV3 remote-code policy is satisfied (answer "No" to *using
+> remote code* in the dashboard). The asset is SHA-256-pinned and re-verified on read.
 
 ---
 

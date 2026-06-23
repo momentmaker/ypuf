@@ -4,6 +4,18 @@ ypuf incorporates code adapted from the MIT-licensed project below. Any file in
 this repository that is derived from it **must retain the original copyright
 notice** in its header, in addition to ypuf's own.
 
+## potion-base-8M (optional semantic-recall model)
+
+- Source: https://huggingface.co/minishlab/potion-base-8M
+- License: MIT (Minish Lab — Model2Vec)
+
+The optional "Recall by meaning" feature downloads a static-embedding model
+distilled by Minish Lab's Model2Vec. ypuf re-hosts the exact `model.safetensors`
++ `tokenizer.json` bytes as an immutable GitHub Release asset (pinned by SHA-256),
+fetched only when the user opts in. The model is *data*, not code; ypuf's
+embedding logic (`extension/lib/embed.js`) is original vanilla JS. The MIT notice
+is retained here as required for redistribution.
+
 ## tab-out
 
 - Source: https://github.com/zarazhangrui/tab-out

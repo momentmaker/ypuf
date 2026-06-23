@@ -83,6 +83,36 @@
     };
   }
 
+  // A semantic (meaning-match) candidate: a per-page VECTOR scored by cosine
+  // against the query, with NO MiniSearch hit. The SW resolves the cosine top-K
+  // back to records (store.getByCanonicalKey) and hands them here; this
+  // synthesizes a FINISHED ROW (appended to `rows` BEFORE recallmerge.merge —
+  // NOT a hits[] entry, since there's no text hit to rank). It carries:
+  //  - kind 'semantic' (a distinct origin, like 'open'/'snoozed'),
+  //  - the cosine on the `semantic` field (the new rank axis),
+  //  - EMPTY matchTerms, so excerptAround returns '' rather than throwing on a
+  //    page the query never keyword-matched (there's no term to center on),
+  //  - score 0 (the text axis is genuinely absent; `semantic` drives candidacy).
+  // Dedup against a keyword twin happens in recallmerge.merge; assemble re-stamps
+  // the semantic value onto the surviving row so a both-matched page keeps the
+  // keyword twin's terms/excerpt AND its cosine.
+  function semanticRow(rec, cosine) {
+    const sem = cosine > 0 ? (cosine > 1 ? 1 : cosine) : 0;
+    return {
+      kind: 'semantic',
+      id: rec.id, url: rec.url, host: rec.host, title: rec.title,
+      contentLess: rec.contentLess, timestamp: rec.timestamp,
+      frequent: false,
+      siblings: Array.isArray(rec.siblings) ? rec.siblings : [],
+      snoozeState: rec.snoozeState || null,
+      returnAt: typeof rec.returnAt === 'number' ? rec.returnAt : null,
+      untilStartup: !!rec.untilStartup,
+      snippet: '',
+      matchTerms: [],
+      score: 0, semantic: sem, signal: { revisits: 0, dwell: 0, ageMs: null },
+    };
+  }
+
   // A currently-open tab matched on url/title (it has no indexed content). Incognito
   // tabs never surface to the new-tab page. Returns null when it doesn't match q.
   function openRow(tab, q) {
@@ -126,14 +156,22 @@
 
   function stripInternal(row) {
     const clean = Object.assign({}, row);
-    delete clean.score; delete clean.signal; delete clean._blended;
+    delete clean.score; delete clean.signal; delete clean._blended; delete clean.semantic;
     return clean;
   }
 
   // `records` is parallel to `hits` and may contain nulls (ids evicted between
-  // the text search and store.get) — those rows are skipped.
+  // the text search and store.get) — those rows are skipped. `semanticRows` are
+  // pre-built meaning-match rows (semanticRow above) the SW resolved from the
+  // cosine top-K; they're unioned with the keyword/open rows BEFORE merge, so a
+  // page matched by both collapses to one canonical row. The merge keeps the
+  // keyword twin's display fields, so we re-stamp the max cosine per key onto the
+  // survivor afterward (else combine() — which bases on the keyword twin — would
+  // drop the semantic value the rerank needs). A survivor still tagged
+  // kind:'semantic' (a semantic-only candidate, no keyword twin) is remapped to
+  // its record's real, actionable kind (let-go / snoozed).
   function assemble(input) {
-    const { hits = [], records = [], openTabs = [], durable = {}, q = '', now = 0, oneBox = false } = input || {};
+    const { hits = [], records = [], openTabs = [], semanticRows = [], durable = {}, q = '', now = 0, oneBox = false } = input || {};
     const sigByKey = aggregateSignal(durable);
     const signalFor = (url) => sigByKey.get(cluster.originPathKey(url)) || { revisits: 0, dwell: 0 };
 
@@ -146,10 +184,28 @@
     if (oneBox) {
       for (const t of openTabs) { const r = openRow(t, q); if (r) rows.push(r); }
     }
-    return rank.rerank(recallmerge.merge(rows)).map(stripInternal);
+
+    // The max cosine seen per canonical key, so the value survives a merge that
+    // bases the survivor on a keyword twin (which has no `semantic`).
+    const semByKey = new Map();
+    for (const r of semanticRows) {
+      if (!r || !r.url) continue;
+      rows.push(r);
+      const k = cluster.originPathKey(r.url);
+      const prev = semByKey.get(k) || 0;
+      if (r.semantic > prev) semByKey.set(k, r.semantic);
+    }
+
+    const merged = recallmerge.merge(rows);
+    for (const r of merged) {
+      const sem = r.url ? semByKey.get(cluster.originPathKey(r.url)) : 0;
+      if (sem > 0) r.semantic = sem;
+      if (r.kind === 'semantic') r.kind = r.snoozeState ? 'snoozed' : 'let-go';
+    }
+    return rank.rerank(merged).map(stripInternal);
   }
 
-  const api = { assemble, filterPivots, aggregateSignal, ageMsOf, openRow, indexRow };
+  const api = { assemble, filterPivots, aggregateSignal, ageMsOf, openRow, indexRow, semanticRow };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ypuf = Object.assign(root.ypuf || {}, { recallrank: api });

@@ -684,3 +684,61 @@ boundary, and the host-permission grants — is verified by hand.
       field is **not** hijacked into hint mode.
 - [ ] Pressing `f` while the **What's indexed / Protected sites** sub-view is open does
       nothing (no badges over the hidden shelf).
+
+---
+
+# Semantic recall — recall by meaning (fork C)
+
+The pure cores (embed/cosine, vector store + backfill, model-asset hash/verify, the
+two-axis rank, the settings-state resolver `lib/semanticui.js`) are covered by
+`node --test`. The behavior below needs real `chrome.permissions`, network, Cache
+Storage, and the settings DOM, so it is verified by hand.
+
+> The model asset must be UPLOADED to the pinned GitHub Release (U7 / release step)
+> before the download path works end-to-end; until then `ensureModel` 404s and the
+> failure state is what you'll see (which is itself worth confirming reads calmly).
+
+## Settings toggle + states (U6 / R1, R2, R9)
+
+- [ ] **Off by default:** a fresh profile's settings overlay shows a **Recall by
+      meaning** group with the toggle **off**; recall works (keyword) with it off.
+- [ ] **Disclosure:** flipping the toggle on shows the card with the committed copy
+      ("Recall by meaning downloads a ~30MB model once from ypuf's GitHub — nothing
+      from your pages or searches ever leaves your device. Keyword recall keeps
+      working while it loads.") with **Enable** / **Not now**. **Not now** leaves it off.
+- [ ] **Permission flow:** clicking **Enable** fires Chrome's host-access prompt for the
+      **narrow** GitHub-release origins (NOT `<all_urls>`) in the same click. **Deny** →
+      the toggle returns to off with "Couldn't get permission — keyword recall still works."
+- [ ] **In-progress:** granting starts the download; the toggle is **visually locked**
+      (not re-tappable) and a calm **progress bar + "Preparing recall by meaning…"**
+      replaces the card. **Closing the new tab mid-download aborts**; re-opening the
+      board re-offers the disclosure (the SW flag stays unset until success).
+- [ ] **Failure:** with the asset absent (or a forced 404 / a tampered cached blob), the
+      download throws → toggle returns to off with "Couldn't download the model — keyword
+      recall still works. Try again?" and a single **Try again** action that re-runs it.
+- [ ] **Ready + backfill:** on a successful download the group stays in one continuous
+      quiet **"Preparing…"** through download→verify→backfill (no unexplained post-download
+      stall), then settles to **On — finding pages by meaning** on its own. Recall stays
+      usable (keyword + partial semantic) the whole time.
+- [ ] **Evicted:** with the toggle on, clear the `ypuf-semantic-v1` Cache Storage bucket
+      (DevTools → Application → Cache Storage) and reopen the board → the group reads
+      "Model was cleared by the browser — keyword recall is active. Re-download?" with one
+      **Re-download** action; keyword recall keeps working.
+- [ ] **Confirmed off:** turning the toggle off shows an **inline** confirm ("Turning this
+      off removes the downloaded model and all meaning-vectors. Keyword recall continues.")
+      with **Turn off** / **Keep on** — never a silent flip, never a blocked `window.confirm`.
+      **Turn off** purges the vectors + the cached asset and revokes the narrow grant;
+      **auto-let-go stays on** (only `<all_urls>` removal disables it).
+- [ ] **Reduced motion:** with macOS **Reduce motion** on, the card appears with no fade,
+      the progress bar fills instantly, and the toggle changes by color only.
+
+## Wiring + privacy (U3/U4/U5 atop U6)
+
+- [ ] After ready, a **gist query** (words not literally on the page) surfaces a relevant
+      let-go page that keyword recall misses — blended invisibly into the one ranked list
+      (no "by meaning" marker this slice).
+- [ ] **Forget** a page (board or popup) → its meaning-vector is gone (it no longer
+      surfaces by gist). The popup's **What's indexed** disclosure notes this.
+- [ ] After a **confirmed off**, `chrome.storage.local.get('semanticEnabled')` is false,
+      the `ypuf-semantic-v1` Cache bucket is gone, and a gist query returns keyword-only —
+      no semantic residue.

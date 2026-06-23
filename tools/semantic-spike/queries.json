@@ -1,0 +1,8 @@
+[
+  {"q": "an app for memorizing written characters with spaced repetition", "expect": "WaniKani"},
+  {"q": "studying sentence grammar patterns for a foreign language", "expect": "Bunpro"},
+  {"q": "a calm walking meditation phone app", "expect": "Pilgrim"},
+  {"q": "who will run the central bank next and what it means for investors", "expect": "Fed Chair"},
+  {"q": "chinese artificial-intelligence lab developer console", "expect": "DeepSeek"},
+  {"q": "checking how much I spent on the language-model API", "expect": "Billing overview"}
+]
