@@ -18,6 +18,8 @@ importScripts(
   'lib/exclusion.js',
   'lib/store.js',
   'lib/vectorstore.js',
+  'lib/embed.js',
+  'lib/modelasset.js',
   'lib/search.js',
   'lib/capture.js',
   'lib/cluster.js',
@@ -37,7 +39,7 @@ importScripts(
   'lib/blocklist.js',
 );
 
-const { store, vectorstore, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank, recallmerge, recallquery, proactive, rationale } = self.ypuf;
+const { store, vectorstore, embed, modelasset, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank, recallmerge, recallquery, proactive, rationale } = self.ypuf;
 
 const logErr = (e) => console.error('[ypuf]', e);
 
@@ -377,6 +379,36 @@ const RECALL_RESULT_CAP = 30;    // final list cap AFTER the semantic union+blen
 let _semantic = null;
 function setSemanticModel(model) { _semantic = model || null; }
 
+// The `_semantic` seam U5 consumes: bind the parsed model (matrix/dim/tokenizer)
+// into the embed-lib closures the rest of the SW calls by name. `embed(text)`
+// curries the loaded matrix so callers (query-time top-K, embed-on-capture,
+// backfill) never thread the matrix; `cosine` is the pure vector-distance fn;
+// `modelVersion` is the VERIFIED ASSET HASH that tags every vector (U3/U4).
+function semanticSeam(model) {
+  return {
+    embed: (text) => embed.embed(text, { matrix: model.matrix, dim: model.dim, tokenizer: model.tokenizer }),
+    cosine: embed.cosine,
+    modelVersion: model.modelVersion,
+  };
+}
+
+// Load the verified model FROM Cache Storage into the in-memory seam. The page
+// owns the DOWNLOAD (document-lifetime + progress); the SW owns the in-memory
+// PARSED matrix for its own use (query-embed, embed-on-capture, backfill), so it
+// re-reads + re-verifies the cached bytes here on each SW wake (the enable flag is
+// persistent, the parsed model is not). A cache miss (evicted / never downloaded)
+// returns false and leaves _semantic null — the caller surfaces the evicted state
+// and recall stays keyword-only. Idempotent: a no-op if already loaded this life.
+async function loadSemanticModel() {
+  if (_semantic) return true;
+  let model;
+  try { model = await modelasset.loadFromCache(); }
+  catch (e) { logErr(e); return false; }
+  if (!model) return false; // evicted / not yet downloaded — keyword fallback
+  setSemanticModel(semanticSeam(model));
+  return true;
+}
+
 const isSemanticEnabled = async () => (await local.get(SEMANTIC_KEY)) === true;
 // Ready = the user opted in AND the model is loaded this SW life. Vector WRITES
 // gate on ready; vector DROPS (forget/blocklist/evict) do NOT — a page's vector
@@ -478,7 +510,14 @@ function runVectorBackfill() {
 // (getByCanonicalKey -> null) is dropped without error.
 async function semanticCandidates(queryText) {
   try {
-    if (!queryText || !(await isSemanticReady())) return [];
+    if (!queryText) return [];
+    // Lazy-load on a bare SW wake: a recall query can wake the worker without
+    // onStartup firing, so the seam may be empty even though the user opted in and
+    // the asset is cached. Load it here so the FIRST query after a wake is already
+    // semantic (not keyword-only until something else triggers the load). Cheap +
+    // idempotent — a no-op once loaded; a cache miss leaves it keyword-only.
+    if (!_semantic && (await isSemanticEnabled())) { await loadSemanticModel(); runVectorBackfill(); }
+    if (!(await isSemanticReady())) return [];
     if (typeof _semantic.embed !== 'function' || typeof _semantic.cosine !== 'function') return [];
     const queryVec = _semantic.embed(queryText);
     if (!queryVec) return [];
@@ -510,16 +549,37 @@ async function semanticPurge() {
   setSemanticModel(null);
 }
 
+// The page polls this to drive its settings state machine (U6):
+//   enabled — the persistent opt-in flag
+//   ready   — model loaded into the seam this SW life (semantic actually live)
+//   cached  — the verified asset is present in Cache Storage (re-loadable on wake)
+// The EVICTED state is `enabled && !cached`: the user opted in but the browser
+// dropped the bucket, so the page offers a re-download. `enabled && cached && !ready`
+// is the cold-wake window before loadSemanticModel runs — the page re-asks shortly.
 async function semanticState() {
-  return { enabled: await isSemanticEnabled(), ready: await isSemanticReady() };
+  let cached = false;
+  try { cached = await modelasset.isCached(); } catch (e) { logErr(e); }
+  return { enabled: await isSemanticEnabled(), ready: await isSemanticReady(), cached };
 }
 
-// Persist opt-in intent. The model DOWNLOAD + load (and the verified-hash
-// modelVersion) are U4's, run from the new-tab page; this only records intent and
-// kicks the backfill if a model is already loaded this SW life.
+// Persist opt-in intent. The model DOWNLOAD runs in the new-tab PAGE (U4); the
+// page then sends `semantic-loaded`, which loads the cached bytes into the SW seam
+// and kicks the backfill. If a model is ALREADY loaded this SW life (a re-enable),
+// load + backfill immediately so the page doesn't have to re-download.
 async function semanticEnable() {
   await local.set(SEMANTIC_KEY, true);
-  if (await isSemanticReady()) runVectorBackfill();
+  if (await loadSemanticModel() && await isSemanticReady()) runVectorBackfill();
+  return semanticState();
+}
+
+// The page reports the model is downloaded + cached (U6, after modelasset.ensureModel
+// resolves). Persist intent, load the verified bytes into the seam from Cache Storage,
+// and start the resumable backfill — the one continuous "preparing…" the page shows
+// spans download→verify→this backfill. Returns state so the page can settle its UI.
+async function semanticLoaded() {
+  await local.set(SEMANTIC_KEY, true);
+  const loaded = await loadSemanticModel();
+  if (loaded && await isSemanticReady()) runVectorBackfill();
   return semanticState();
 }
 
@@ -527,6 +587,19 @@ async function semanticDisable() {
   await local.set(SEMANTIC_KEY, false);
   await semanticPurge();
   return semanticState();
+}
+
+// Cold-start: if the user opted in AND the asset survived in Cache Storage, re-load
+// it into the seam (the parsed model doesn't persist across SW kills) and resume the
+// backfill (a prior pass may have been interrupted; it's idempotent + cursor-resumable).
+// If the asset was evicted, _semantic stays null and recall is keyword-only until the
+// page's settings surface offers a re-download (the evicted state). Best-effort — a
+// failure here must never block the index load or the auto-sweep.
+async function semanticStartup() {
+  try {
+    if (!(await isSemanticEnabled())) return;
+    if (await loadSemanticModel() && await isSemanticReady()) runVectorBackfill();
+  } catch (e) { logErr(e); }
 }
 
 // Retention (R21): age + LRU + byte-budget, triggered when storage crosses
@@ -1316,7 +1389,7 @@ async function rearmAutoAlarm() {
   if (await isAutoEnabled()) ensureAutoAlarm();
 }
 
-chrome.runtime.onInstalled.addListener(() => { initIndex(); rearmAutoAlarm().catch(() => {}); });
+chrome.runtime.onInstalled.addListener(() => { initIndex(); rearmAutoAlarm().catch(() => {}); semanticStartup().catch(logErr); });
 chrome.runtime.onStartup.addListener(() => {
   // Stamp startup so tabs created in the next grace window are flagged as a
   // restored-session burst (U1/R3) and excluded from auto-close.
@@ -1324,6 +1397,7 @@ chrome.runtime.onStartup.addListener(() => {
   initIndex();
   rearmAutoAlarm().catch(() => {});
   snoozeStartup().catch(logErr); // re-arm clock alarms + resolve "when I'm back" (U3/R9)
+  semanticStartup().catch(logErr); // re-load the cached model into the seam + resume backfill (U4/U6)
 });
 
 chrome.commands.onCommand.addListener((command) => {
@@ -1392,6 +1466,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // opt-in/opt-out lifecycle; disable purges every vector (R8).
   if (msg.type === 'semantic-state') return respond(semanticState());
   if (msg.type === 'semantic-enable') return respond(semanticEnable());
+  if (msg.type === 'semantic-loaded') return respond(semanticLoaded());
   if (msg.type === 'semantic-disable') return respond(semanticDisable());
 });
 

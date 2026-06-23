@@ -163,6 +163,38 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
 .segmented.muted { opacity: 0.45; pointer-events: none; }
 .auto-sub { font-size: 11.5px; color: var(--muted); }
 
+/* Recall-by-meaning group (U6): the opt-in semantic toggle + its calm states.
+   Reuses the .switch / .toggle-row / .auto-sub conventions from the auto group. */
+.semantic-body { display: flex; flex-direction: column; gap: 11px; }
+/* Locked toggle (download/load in flight): not re-tappable, dimmed, no pointer. */
+.switch.locked { opacity: 0.5; pointer-events: none; }
+/* The disclosure / confirm card: a quiet inset, not a modal. Motion-gated entrance
+   only when the body carries .can-animate (cleared under prefers-reduced-motion). */
+.semantic-card {
+  border: 1px solid var(--warm-gray); border-radius: var(--r-md, 10px);
+  padding: 11px 13px; display: flex; flex-direction: column; gap: 10px;
+}
+.semantic-copy { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ink); }
+@media (prefers-reduced-motion: no-preference) {
+  .semantic-body.can-animate .semantic-card { animation: semantic-card-in 0.18s ease-out; }
+  @keyframes semantic-card-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+}
+.semantic-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.semantic-action {
+  font: inherit; font-size: 12.5px; cursor: pointer; padding: 5px 12px;
+  border: 1px solid var(--warm-gray); border-radius: 8px;
+  background: none; color: var(--ink);
+}
+.semantic-action.primary { background: var(--accent-sage); color: var(--on-accent); border-color: transparent; }
+.semantic-action:focus-visible { outline: 2px solid var(--accent-amber); outline-offset: 2px; }
+/* Progress affordance: a calm bar. Under reduced motion the fill jumps (.no-anim). */
+.semantic-progress { display: flex; flex-direction: column; gap: 7px; }
+.semantic-bar { height: 5px; border-radius: 3px; background: var(--warm-gray); overflow: hidden; }
+.semantic-bar-fill { height: 100%; width: 0; border-radius: 3px; background: var(--accent-sage); }
+@media (prefers-reduced-motion: no-preference) {
+  .semantic-bar:not(.no-anim) .semantic-bar-fill { transition: width 0.25s ease; }
+}
+
 /* Never-touch group (U4). */
 .nevertouch-list { display: flex; flex-direction: column; gap: 5px; }
 .nevertouch-empty { font-size: 12px; }

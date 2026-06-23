@@ -28,6 +28,8 @@
   const barometer = window.ypuf.barometer;        // pure snooze-queue → favicon state (tested in lib/barometer.js)
   const puffscene = window.ypuf.puffscene;        // pure living-puff scene geometry (tested in lib/puffscene.js)
   const puffmoment = window.ypuf.puffmoment;      // pure one-shot moment particle paths (tested in lib/puffmoment.js)
+  const modelasset = window.ypuf.modelasset;      // semantic model download/cache/permission shell (U4)
+  const semanticui = window.ypuf.semanticui;      // pure "recall by meaning" settings-state resolver (tested in lib/semanticui.js)
 
   const docBody = document.body;
   const grid = document.getElementById('board-grid');
@@ -558,6 +560,235 @@
     send('auto-state').then(draw).catch(() => draw(null));
   }
 
+  // Recall-by-meaning group (U6): the opt-in semantic-recall toggle with every
+  // interaction state (disclosure · in-progress · ready+backfill · failure ·
+  // permission-denied · evicted · off-confirm). The PAGE owns the model download
+  // (modelasset.ensureModel — document lifetime + progress); the SW owns the parsed
+  // matrix for its own use (it re-loads from Cache Storage on `semantic-loaded`).
+  // The pure lib/semanticui.js resolves the SW state + a transient page phase to the
+  // single view state, so the machine has no gap left to invent. Off by default —
+  // the SW's semanticEnabled flag starts unset, so resolve() returns 'off'.
+  function buildSemanticGroup(container) {
+    const g = settingsGroup('Recall by meaning');
+    const body = document.createElement('div'); body.className = 'semantic-body';
+    g.appendChild(body); container.appendChild(g);
+
+    // Transient session phase (resets on reload — Pattern 17/20: an aborted download
+    // re-offers next open). The SW state is the durable truth; phase only layers the
+    // in-page gesture (disclosing / downloading / denied / failed / confirming).
+    let phase = 'idle';
+    let swState = { enabled: false, ready: false, cached: false };
+    let progress = 0;        // 0..1 download fraction for the in-progress affordance
+    let downloadSeq = 0;     // supersede a stale download's progress/result (Pattern 17)
+
+    const refreshState = () => send('semantic-state').then((s) => {
+      if (s) swState = s;
+      draw();
+    }).catch(() => draw());
+
+    // Poll once while a 'preparing' (cold-wake load / backfill) is outstanding so the
+    // group settles to 'ready' on its own without the user re-opening settings.
+    let prepPoll = null;
+    function maybePollPreparing() {
+      const live = document.body.contains(body);
+      const preparing = semanticui.resolve(swState, phase) === 'preparing';
+      if (preparing && live && !prepPoll) {
+        prepPoll = setInterval(() => {
+          if (!document.body.contains(body)) { clearInterval(prepPoll); prepPoll = null; return; }
+          send('semantic-state').then((s) => { if (s) swState = s; draw(); }).catch(() => {});
+        }, 1500);
+      } else if ((!preparing || !live) && prepPoll) {
+        clearInterval(prepPoll); prepPoll = null;
+      }
+    }
+
+    // --- the gestures (impure shell) ---------------------------------------
+
+    // Enable: request the NARROW host permission FIRST, in this user gesture (the
+    // narrow-pattern flow — never <all_urls>). Denied → the permission-denied state.
+    // Granted → start the page download.
+    function onEnable() {
+      modelasset.requestHostPermission().then((granted) => {
+        if (!document.body.contains(body)) return;
+        if (!granted) { phase = 'denied'; draw(); return; }
+        startDownload();
+      }).catch(() => { if (document.body.contains(body)) { phase = 'denied'; draw(); } });
+    }
+
+    // Run the model download IN THE PAGE (document lifetime + progress). On success,
+    // tell the SW to load the cached bytes into its seam + start the backfill
+    // (`semantic-loaded`), then settle to ready/preparing. On any throw (download or
+    // SHA-256 mismatch) → the failure state with a retry. Closing the NTP aborts —
+    // the persisted in-progress claim (SW flag stays unset until success) re-offers.
+    function startDownload() {
+      phase = 'downloading'; progress = 0;
+      const mySeq = ++downloadSeq;
+      draw();
+      modelasset.ensureModel({
+        onProgress: ({ loaded, total }) => {
+          if (mySeq !== downloadSeq || !document.body.contains(body)) return;
+          progress = total ? Math.min(1, loaded / total) : 0;
+          drawProgress();   // update only the bar — don't rebuild the card each chunk
+        },
+      }).then(() => {
+        if (mySeq !== downloadSeq || !document.body.contains(body)) return;
+        // Cached + verified in the page; hand off to the SW (load seam + backfill).
+        send('semantic-loaded').then((s) => {
+          if (mySeq !== downloadSeq || !document.body.contains(body)) return;
+          if (s) swState = s;
+          phase = 'idle';   // the SW state now drives 'ready' / 'preparing'
+          draw();
+        }).catch(() => { phase = 'idle'; refreshState(); });
+      }).catch(() => {
+        if (mySeq !== downloadSeq || !document.body.contains(body)) return;
+        phase = 'failed'; draw();
+      });
+    }
+
+    // Confirmed off (the inline confirm already shown): tell the SW to disable
+    // (clear flag → purge vectors + modelasset.purge cache) THEN revoke the narrow
+    // host permission, and clear the seam. Mirrors the U3 semanticDisable; the page
+    // owns the cache purge + revoke (the SW can't revoke a page-granted permission).
+    function onConfirmOff() {
+      phase = 'idle';
+      send('semantic-disable').then((s) => {
+        modelasset.purge().catch(() => {});            // remove the cached ~30MB asset
+        modelasset.revokeHostPermission().catch(() => {}); // give back the narrow grant
+        if (!document.body.contains(body)) return;
+        if (s) swState = s; else swState = { enabled: false, ready: false, cached: false };
+        draw();
+      }).catch(() => { if (document.body.contains(body)) refreshState(); });
+    }
+
+    // --- the view (one draw per state) -------------------------------------
+
+    // A quiet line of explanatory/status copy under the toggle (text-only).
+    function subLine(text) {
+      const sub = document.createElement('div'); sub.className = 'auto-sub';
+      sub.textContent = text; return sub;
+    }
+
+    // A single calm action button (the disclosure/failure/eviction affordance).
+    function actionBtn(label, onClick, opts) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = (opts && opts.primary) ? 'semantic-action primary' : 'semantic-action';
+      b.textContent = label;
+      b.addEventListener('click', onClick);
+      return b;
+    }
+
+    // The progress affordance: a calm bar (instant fill under reduced motion) +
+    // one continuous "preparing…" caption (download→verify→backfill). Rebuilt by
+    // draw(); the per-chunk update only moves the fill (drawProgress).
+    let progressFill = null;
+    function progressAffordance(caption) {
+      const wrap = document.createElement('div'); wrap.className = 'semantic-progress';
+      const track = document.createElement('div'); track.className = 'semantic-bar';
+      if (reduceMotion()) track.classList.add('no-anim');   // fill jumps, no transition
+      progressFill = document.createElement('div'); progressFill.className = 'semantic-bar-fill';
+      track.appendChild(progressFill);
+      wrap.append(track, subLine(caption));
+      return wrap;
+    }
+    function drawProgress() {
+      if (progressFill) progressFill.style.width = Math.round(progress * 100) + '%';
+    }
+
+    // The toggle pill, mirroring buildAutoGroup's .switch (color-only change under
+    // reduced motion is handled in CSS). Locked states get aria-disabled + no handler.
+    function toggleRow(state, label, onToggle) {
+      const on = semanticui.toggleOn(state);
+      const locked = semanticui.toggleLocked(state);
+      const sw = document.createElement('button');
+      sw.type = 'button'; sw.className = 'switch' + (on ? ' on' : '') + (locked ? ' locked' : '');
+      sw.setAttribute('role', 'switch'); sw.setAttribute('aria-checked', String(on));
+      sw.setAttribute('aria-label', 'Recall by meaning'); sw.title = on ? 'On' : 'Off';
+      if (locked) sw.setAttribute('aria-disabled', 'true');
+      else sw.addEventListener('click', onToggle);
+      const swLabel = document.createElement('span'); swLabel.className = 'toggle-label'; swLabel.textContent = label;
+      const row = document.createElement('div'); row.className = 'toggle-row'; row.append(sw, swLabel);
+      return row;
+    }
+
+    function draw() {
+      if (!document.body.contains(body)) { if (prepPoll) { clearInterval(prepPoll); prepPoll = null; } return; }
+      const state = semanticui.resolve(swState, phase);
+      body.textContent = '';
+      progressFill = null;
+      // The card/affordance entrance is gated on motion in CSS (.semantic-card); add a
+      // class only when motion is welcome so reduced-motion users get no fade.
+      if (!reduceMotion()) body.classList.add('can-animate'); else body.classList.remove('can-animate');
+
+      if (state === 'off') {
+        body.append(
+          toggleRow(state, 'Off', () => { phase = 'disclosing'; draw(); }),
+          subLine('Find a let-go page by its gist, not just its words. Keyword recall always works.'),
+        );
+      } else if (state === 'disclosure') {
+        // The toggle reads on (the user just flipped it) while the disclosure decides.
+        const card = document.createElement('div'); card.className = 'semantic-card';
+        const copy = document.createElement('p'); copy.className = 'semantic-copy';
+        copy.textContent = semanticui.DISCLOSURE_COPY;   // the committed string, text-only
+        const actions = document.createElement('div'); actions.className = 'semantic-actions';
+        actions.append(
+          actionBtn('Enable', onEnable, { primary: true }),
+          actionBtn('Not now', () => { phase = 'idle'; draw(); }),   // leaves it off
+        );
+        card.append(copy, actions);
+        body.append(toggleRow('disclosure-on', 'Off', () => { phase = 'idle'; draw(); }), card);
+      } else if (state === 'in-progress') {
+        body.append(
+          toggleRow(state, 'Turning on…', () => {}),
+          progressAffordance('Preparing recall by meaning…'),
+        );
+        drawProgress();
+      } else if (state === 'preparing') {
+        // Download done; the SW is loading the model + running the backfill. One
+        // continuous quiet state — no unexplained post-download stall.
+        const wrap = progressAffordance('Preparing recall by meaning…');
+        if (progressFill) progressFill.style.width = '100%';   // download bar full; backfill is indeterminate-quiet
+        body.append(toggleRow(state, 'On', () => { phase = 'confirming'; draw(); }), wrap);
+        maybePollPreparing();
+      } else if (state === 'ready') {
+        body.append(
+          toggleRow(state, 'On — finding pages by meaning', () => { phase = 'confirming'; draw(); }),
+          subLine('Searches blend keyword + meaning. Forgetting a page removes its meaning-vector too.'),
+        );
+      } else if (state === 'permission-denied') {
+        body.append(
+          toggleRow('off', 'Off', () => { phase = 'disclosing'; draw(); }),
+          subLine('Couldn’t get permission — keyword recall still works.'),
+        );
+      } else if (state === 'failure') {
+        const note = subLine('Couldn’t download the model — keyword recall still works. Try again?');
+        const actions = document.createElement('div'); actions.className = 'semantic-actions';
+        actions.append(actionBtn('Try again', startDownload, { primary: true }));
+        body.append(toggleRow('off', 'Off', () => { phase = 'disclosing'; draw(); }), note, actions);
+      } else if (state === 'evicted') {
+        // Opted in, but the browser dropped the cached asset. Recall is keyword-only
+        // until a re-download; the re-download reuses the same in-gesture flow (the
+        // narrow grant is likely still held, so requestHostPermission resolves fast).
+        const note = subLine('Model was cleared by the browser — keyword recall is active. Re-download?');
+        const actions = document.createElement('div'); actions.className = 'semantic-actions';
+        actions.append(actionBtn('Re-download', onEnable, { primary: true }));
+        body.append(toggleRow(state, 'On', () => { phase = 'confirming'; draw(); }), note, actions);
+      } else if (state === 'off-confirm') {
+        // An INLINE confirm before the destructive purge — not a modal, but not a
+        // silent accidental flip either (U6).
+        const note = subLine('Turning this off removes the downloaded model and all meaning-vectors. Keyword recall continues.');
+        const actions = document.createElement('div'); actions.className = 'semantic-actions';
+        actions.append(
+          actionBtn('Turn off', onConfirmOff, { primary: true }),
+          actionBtn('Keep on', () => { phase = 'idle'; draw(); }),
+        );
+        body.append(toggleRow(state, 'On', () => {}), note, actions);
+      }
+      maybePollPreparing();
+    }
+
+    refreshState();
+  }
+
   // Never-touch group (U4): the protected sites auto-let-go must never close. Add is
   // recall-row-only in v1 (no manual domain input); remove + empty-state live here.
   function buildNeverTouchGroup(container) {
@@ -657,6 +888,7 @@
   function buildSettingsGroups(container) {
     buildThemeControl(container);
     buildAutoGroup(container);
+    buildSemanticGroup(container);
     buildNeverTouchGroup(container);
     buildBoardGroup(container);
     buildLegendGroup(container);
