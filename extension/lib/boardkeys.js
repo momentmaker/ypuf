@@ -37,7 +37,7 @@
     o: 'open', Enter: 'open', r: 'restoreSet',
     d: 'forget', u: 'undo', p: 'protect',
     '/': 'search', g: 'g', G: 'bottom',
-    e: 'edit', f: 'hints', '?': 'help', Escape: 'escape',
+    e: 'edit', f: 'hints', ',': 'settings', '?': 'help', Escape: 'escape',
   };
 
   function intent(key, ctx) {

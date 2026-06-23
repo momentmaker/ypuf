@@ -1,31 +1,25 @@
 /*
  * ypuf — recall "why this" rationale (Recall v2 / U10).
  *
- * Pure: compose ONE quiet clause explaining why a recall row is worth a glance —
- * or '' to suppress the line entirely. It only surfaces signal the row's meta line
- * doesn't already show (host + how-long-ago), so a zero-history row adds no line.
+ * Pure: name the ONE quiet signal that makes a recall row worth a glance — or '' to
+ * suppress it. The panel renders this as a small inline meta icon (with the phrase as
+ * its tooltip + aria-label), so a zero-signal row adds no marker at all.
  *
- *   compose(row) -> "often revisited" | "same session as <host>" | ""
+ *   compose(row) -> "often revisited" | ""
  *
- * Born-equal-safe by construction (Pattern 19): it never claims recall/reopen
- * activity — only revisit FREQUENCY (the `frequent` flag the SW already stamped on
- * the row, from foreground returns) and the session a page was let go alongside
- * (lib/cluster.js siblings). A never-recalled row (lastAccessed === timestamp)
- * therefore can't earn a false claim.
+ * Only revisit FREQUENCY is surfaced (the `frequent` flag the SW stamps from foreground
+ * returns). Session membership is intentionally NOT a clause here: it's already shown by
+ * the row's ⊕N "bring back the set" chip, so a second "same session as <host>" line would
+ * be redundant. Born-equal-safe by construction (Pattern 19): frequency never implies
+ * recall/reopen activity, so a never-recalled row (lastAccessed === timestamp) earns
+ * nothing false.
  */
 (function (root) {
   'use strict';
 
-  function hostOf(url) { try { return new URL(url).hostname; } catch { return ''; } }
-
   function compose(row) {
     if (!row) return '';
-    if (row.frequent) return 'often revisited';
-    const sibs = Array.isArray(row.siblings) ? row.siblings : [];
-    const s0 = sibs[0];
-    const host = s0 ? (s0.host || hostOf(s0.url)) : '';
-    if (host) return 'same session as ' + host;
-    return '';
+    return row.frequent ? 'often revisited' : '';
   }
 
   const api = { compose };

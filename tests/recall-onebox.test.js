@@ -95,6 +95,34 @@ test('U2: empty input -> empty; merge does not mutate input rows', () => {
   assert.equal(JSON.stringify(rows), snap);
 });
 
+// --- dedupeRecords: the read-path (proactive / pure-pivot) dedup ----------
+
+const rec = (id, url) => ({ id, url });
+
+test('dedupeRecords collapses repeat let-gos of one page to the FIRST (newest-first caller) record', () => {
+  const out = merge.dedupeRecords([rec('new', 'https://e.com/a'), rec('old', 'https://e.com/a')]);
+  assert.deepEqual(out.map((r) => r.id), ['new']);
+});
+
+test('dedupeRecords keys by origin+pathname — query/hash collapse, distinct paths survive', () => {
+  const out = merge.dedupeRecords([
+    rec('q1', 'https://e.com/a?ref=x'),
+    rec('q2', 'https://e.com/a#frag'),   // same path -> dropped
+    rec('b', 'https://e.com/b'),         // distinct path -> kept
+  ]);
+  assert.deepEqual(out.map((r) => r.id), ['q1', 'b']);
+});
+
+test('dedupeRecords passes url-less records through (cannot be keyed) and never mutates input', () => {
+  const input = [rec('a', 'https://e.com/a'), { id: 'noUrl' }, rec('a2', 'https://e.com/a')];
+  const snap = JSON.stringify(input);
+  const out = merge.dedupeRecords(input);
+  assert.deepEqual(out.map((r) => r.id), ['a', 'noUrl']);
+  assert.equal(JSON.stringify(input), snap);
+  assert.deepEqual(merge.dedupeRecords([]), []);
+  assert.deepEqual(merge.dedupeRecords(null), []);
+});
+
 // --- U3: the one-box assembler seam (pure, no chrome.*) -------------------
 
 const recallrank = require('../extension/lib/recallrank.js');
