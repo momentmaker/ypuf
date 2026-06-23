@@ -17,6 +17,7 @@ importScripts(
   'lib/attribution.js',
   'lib/exclusion.js',
   'lib/store.js',
+  'lib/vectorstore.js',
   'lib/search.js',
   'lib/capture.js',
   'lib/cluster.js',
@@ -36,7 +37,7 @@ importScripts(
   'lib/blocklist.js',
 );
 
-const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank, recallmerge, recallquery, proactive, rationale } = self.ypuf;
+const { store, vectorstore, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank, recallmerge, recallquery, proactive, rationale } = self.ypuf;
 
 const logErr = (e) => console.error('[ypuf]', e);
 
@@ -77,6 +78,10 @@ function initIndex() {
     if (reconciled) await persistSnapshot();
     await capture.expirePending(session, Date.now());
     await sweepPendingForget(Date.now());
+    // One-time v1->v2 index back-fill: records written before the canonicalKey
+    // index existed are invisible to it until re-put — heal them so key->record
+    // (and the backfill's existence check) covers the whole store. Idempotent.
+    try { await store.backfillCanonicalKeys(); } catch (e) { logErr(e); }
     try { await pruneStaleSignal(Date.now()); } catch (e) { logErr(e); } // bound signal growth; never block the index load
 
     // The overdue sweep must not be load-bearing for the index load — degrade it,
@@ -205,6 +210,7 @@ async function handleLetGo() {
   );
   if (res && res.record) {
     await persistSnapshot();
+    await embedOnCapture(res.record); // semantic: incremental vector at let-go (no-op when off)
     showUndoNotification(res.record);
     maybePrune();
   }
@@ -234,6 +240,7 @@ async function handleSnooze(preset, custom, tab) {
   );
   if (res && res.record) {
     await persistSnapshot();
+    await embedOnCapture(res.record); // semantic: snooze captures via the same pipeline
     if (typeof res.record.returnAt === 'number') createSnoozeAlarm(res.record.id, res.record.returnAt);
     maybePrune();
   }
@@ -346,6 +353,144 @@ async function snoozeStartup() {
   await flipBackNow(snooze.pendingStartup(all).map((r) => r.id)); // resolve "when I'm back"
 }
 
+// --- semantic recall: per-page vector lifecycle (U3) ---------------------
+// One model-version-tagged vector per canonical page, embedded at let-go and via
+// a resumable backfill on opt-in, dropped at every record-deletion + eviction
+// chokepoint, purged on opt-out. The EMBEDDING model itself (and the verified
+// asset-hash that tags each vector) is loaded by U4 — until then `_semantic`
+// stays null and every vector op no-ops, so off-by-default users pay nothing.
+
+const SEMANTIC_KEY = 'semanticEnabled';
+const VECTOR_CURSOR_KEY = 'vectorBackfillCursor';
+const VECTOR_BACKFILL_BATCH = 25;
+
+// Set by U4 once the verified model is loaded: { embed(text)->Float32Array,
+// modelVersion }. modelVersion is the VERIFIED ASSET HASH of the loaded bytes
+// (passed in by U4 — never an invented source constant), so a vector can never
+// be tagged a version it wasn't embedded with. Stays null while semantic is off
+// or the model hasn't loaded; the holder is in-memory and re-populated by U4 on
+// each SW wake (the enable flag is persistent, the loaded model is not).
+let _semantic = null;
+function setSemanticModel(model) { _semantic = model || null; }
+
+const isSemanticEnabled = async () => (await local.get(SEMANTIC_KEY)) === true;
+// Ready = the user opted in AND the model is loaded this SW life. Vector WRITES
+// gate on ready; vector DROPS (forget/blocklist/evict) do NOT — a page's vector
+// must be droppable even with the model unloaded, so dropVectorDeps omits embed.
+async function isSemanticReady() {
+  return _semantic != null && (await isSemanticEnabled());
+}
+
+// The injected accessors lib/vectorstore.js + lib/blocklist.js receive. The
+// embed fn + modelVersion are present only when the model is loaded (writes);
+// the IDB accessors + canonicalKeyOf are always present (drops never need embed).
+function vectorDeps(withEmbed) {
+  const deps = {
+    withVectorStore: store.withVectorStore,
+    reqToPromise: store.reqToPromise,
+    canonicalKeyOf: cluster.originPathKey,
+  };
+  if (withEmbed && _semantic) {
+    deps.embed = _semantic.embed;
+    // listKeys/recordExists/loadCursor/saveCursor power the resumable backfill.
+    deps.listKeys = async () => (await store.getAll())
+      .filter((r) => r.url && !r.contentLess && r.content)
+      .map((r) => ({ key: cluster.originPathKey(r.url), url: r.url, text: r.content }));
+    deps.recordExists = async (key) => (await store.getByCanonicalKey(key)) != null;
+    deps.loadCursor = async () => (await local.get(VECTOR_CURSOR_KEY)) || 0;
+    deps.saveCursor = (c) => local.set(VECTOR_CURSOR_KEY, c);
+  }
+  return deps;
+}
+const dropVectorDeps = () => vectorDeps(false);
+
+// Embed-on-capture: after a record is stored on letGo, embed its readable text
+// and store the vector (overwriting any prior vector for the same canonical key
+// — a re-let-go newest-wins). A content-less / floor record has nothing to embed
+// AND must not keep a stale vector from a prior content-ful capture of the same
+// page (e.g. the page is now blocklisted/discarded) — so DROP any existing vector
+// in that case (§7: no scrubbed-content vector stays searchable). Best-effort: a
+// vector miss degrades that page to keyword (backfill recovers it), never an error.
+async function embedOnCapture(record) {
+  if (!record || !record.url) return;
+  if (!(await isSemanticReady())) return;
+  try {
+    if (record.contentLess || !record.content) {
+      const key = cluster.originPathKey(record.url);
+      if (key) await vectorstore.deleteKey(dropVectorDeps(), key);
+      return;
+    }
+    await vectorstore.embedAndPut(vectorDeps(true), record.url, record.content, _semantic.modelVersion);
+  } catch (e) { logErr(e); }
+}
+
+// The onEvict(records) callback store.prune/quotaPrune fire with the FULL evicted
+// records — resolve each record's url->canonical key and drop its vector, so an
+// LRU/byte-budget eviction (cold-start sweep OR the in-put() quota path) leaves
+// no orphan vector. Drops never need the model loaded.
+async function dropEvictedVectors(records) {
+  const deps = dropVectorDeps();
+  for (const r of records || []) {
+    try {
+      if (r && r.url) {
+        const key = cluster.originPathKey(r.url);
+        if (key) await vectorstore.deleteKey(deps, key);
+      }
+    } catch (e) { logErr(e); }
+  }
+}
+
+// Resumable, idempotent backfill (opt-in): embed every indexed page lacking a
+// current-version vector, advancing a persisted cursor so an SW kill resumes
+// rather than restarts. Serialized behind one chain so a coincident re-trigger
+// (cold start + a settings re-enable) can't run two passes over the same cursor.
+// Loops batch-by-batch to completion; each batch re-checks record existence at
+// embed time (a concurrently-forgotten page gets no re-created vector).
+let _backfillChain = Promise.resolve();
+function runVectorBackfill() {
+  _backfillChain = _backfillChain.then(async () => {
+    if (!(await isSemanticReady())) return;
+    const deps = vectorDeps(true);
+    let guard = 0; // bound the loop defensively; one batch advances the cursor each pass
+    let res;
+    do {
+      res = await vectorstore.backfill(deps, {
+        modelVersion: _semantic.modelVersion, batchSize: VECTOR_BACKFILL_BATCH,
+      });
+      guard += 1;
+    } while (res && !res.done && guard < 100000);
+  }).catch(logErr);
+  return _backfillChain;
+}
+
+// Opt-out (U6 confirms the destructive intent first): clear the persisted enable
+// flag, drop EVERY vector + the backfill cursor, and forget the loaded model. The
+// cached model asset itself is U4's to remove. Leaves no semantic residue (R8).
+async function semanticPurge() {
+  try { await vectorstore.clear(dropVectorDeps()); } catch (e) { logErr(e); }
+  await local.set(VECTOR_CURSOR_KEY, 0);
+  setSemanticModel(null);
+}
+
+async function semanticState() {
+  return { enabled: await isSemanticEnabled(), ready: await isSemanticReady() };
+}
+
+// Persist opt-in intent. The model DOWNLOAD + load (and the verified-hash
+// modelVersion) are U4's, run from the new-tab page; this only records intent and
+// kicks the backfill if a model is already loaded this SW life.
+async function semanticEnable() {
+  await local.set(SEMANTIC_KEY, true);
+  if (await isSemanticReady()) runVectorBackfill();
+  return semanticState();
+}
+
+async function semanticDisable() {
+  await local.set(SEMANTIC_KEY, false);
+  await semanticPurge();
+  return semanticState();
+}
+
 // Retention (R21): age + LRU + byte-budget, triggered when storage crosses
 // ~75% of quota. After eviction the index is rebuilt from the (smaller) store.
 const RETENTION_MAX_AGE_MS = 180 * 86400000; // 180 days
@@ -355,7 +500,8 @@ async function maybePrune() {
     if (!(await store.shouldPrune({ threshold: 0.75 }))) return;
     const { quota = 0 } = (await navigator.storage.estimate()) || {};
     const maxBytes = quota ? Math.floor(quota * 0.6) : undefined;
-    const removed = await store.prune({ maxAgeMs: RETENTION_MAX_AGE_MS, maxBytes });
+    // onEvict drops each evicted page's vector — no orphan vectors survive a prune.
+    const removed = await store.prune({ maxAgeMs: RETENTION_MAX_AGE_MS, maxBytes, onEvict: dropEvictedVectors });
     if (removed) { search.buildFrom(await store.getAll()); await persistSnapshot(); }
   } catch { /* best-effort; never blocks a let-go */ }
 }
@@ -646,6 +792,7 @@ async function autoCloseOne(id, deps, siblings, staleWindowMs) {
     const extra = (siblings && siblings.length) ? { autoClosed: true, siblings } : { autoClosed: true };
     const res = await capture.letGo(projectTab(live), deps, extra);
     if (!res || !res.record) { await releaseClose(id); return false; } // nothing persisted → retry later
+    await embedOnCapture(res.record); // semantic: auto-closed pages embed too (no-op when off)
     // letGo's closeTab swallows errors (so a capture stays reversible even if the
     // close throws). Confirm the tab is actually gone before counting it: on a
     // real chrome.tabs.remove failure the page is captured but still open, so we
@@ -745,7 +892,19 @@ function notifyBoard(event) {
 
 // --- privacy controls (U8) ----------------------------------------------
 
-const privacyDeps = (durable) => ({ store, search, signal, durable });
+// Vector drops are load-bearing for privacy (§7) and must fire even with the
+// model unloaded, so always wire the drop-capable vectorstore deps. When the
+// model IS ready, also carry embed + modelVersion so restorePage (forget-undo)
+// can re-embed the restored page rather than leave it permanently keyword-only.
+async function privacyDeps(durable) {
+  const ready = await isSemanticReady();
+  return {
+    store, search, signal, durable,
+    vectorstore,
+    vectorDeps: ready ? vectorDeps(true) : dropVectorDeps(),
+    modelVersion: _semantic ? _semantic.modelVersion : null,
+  };
+}
 
 async function whatsIndexed() {
   const recs = await store.listRecent(Infinity);
@@ -754,7 +913,7 @@ async function whatsIndexed() {
 
 async function forgetPage(recordId) {
   const durable = await loadDurable();
-  const bundle = await privacy.forgetPage(recordId, privacyDeps(durable));
+  const bundle = await privacy.forgetPage(recordId, await privacyDeps(durable));
   await saveDurable(durable);
   await clearSnoozeAlarm(recordId); // cancel any pending return
   await persistSnapshot();
@@ -773,7 +932,7 @@ async function forgetPageUndo(recordId) {
   const entry = pending.find((p) => p.recordId === recordId);
   if (!entry || entry.expiry <= Date.now()) return { ok: false };
   const durable = await loadDurable();
-  await privacy.restorePage(entry.bundle, privacyDeps(durable));
+  await privacy.restorePage(entry.bundle, await privacyDeps(durable));
   await saveDurable(durable);
   await persistSnapshot();
   await session.set('pendingForget', pending.filter((p) => p.recordId !== recordId));
@@ -800,7 +959,7 @@ async function forgetDomain(host) {
   const ids = gone.map((r) => r.id);
   const urls = gone.map((r) => r.url);
   const durable = await loadDurable();
-  const n = await privacy.forgetDomain(host, privacyDeps(durable));
+  const n = await privacy.forgetDomain(host, await privacyDeps(durable));
   await saveDurable(durable);
   await purgeDomainStores(host);
   for (const id of ids) clearSnoozeAlarm(id);
@@ -813,7 +972,7 @@ async function blocklistAdd(host) {
   const list = await getUserBlocklist();
   if (!list.includes(host)) { list.push(host); await local.set(BLOCKLIST_KEY, list); }
   const durable = await loadDurable();
-  const n = await privacy.retroactivePurge(host, privacyDeps(durable));
+  const n = await privacy.retroactivePurge(host, await privacyDeps(durable));
   await saveDurable(durable);
   await purgeDomainStores(host);
   await persistSnapshot();
@@ -1180,6 +1339,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'snooze-resnooze' && msg.recordId && msg.preset) return respond(snoozeResnooze(msg.recordId, msg.preset, msg.custom));
   if (msg.type === 'board-get-config') return respond(boardGetConfig());
   if (msg.type === 'board-save-config' && msg.config) return respond(boardSaveConfig(msg.config));
+  // Semantic recall (U3 seam; U4/U6 drive the model + UI). enable/disable are the
+  // opt-in/opt-out lifecycle; disable purges every vector (R8).
+  if (msg.type === 'semantic-state') return respond(semanticState());
+  if (msg.type === 'semantic-enable') return respond(semanticEnable());
+  if (msg.type === 'semantic-disable') return respond(semanticDisable());
 });
 
 // Auto-let-go grant lifecycle. If the user revokes the broad <all_urls> host
