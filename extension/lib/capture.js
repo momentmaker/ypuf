@@ -60,6 +60,25 @@
     await session.set(PENDING_KEY, pending.filter((p) => p.recordId !== recordId));
   }
 
+  // Re-letting-go a page must not stack duplicates: each let-go writes a fresh record,
+  // so before the write we collapse any prior records for the SAME canonical page
+  // (origin+pathname) — newest content, siblings, and timestamp win. Host-indexed lookup
+  // keeps it cheap, and it self-heals duplicates accumulated before this guard existed.
+  // Skipped when no `canonicalKey` dep is wired (back-compat). NOTE: a prior record's
+  // pending-undo entry (if any) is left to expire — undoing a superseded let-go reopens
+  // the URL but won't resurrect the collapsed archive row; that's the page you just re-let-go.
+  async function collapsePrior(record, deps) {
+    if (typeof deps.canonicalKey !== 'function' || !record.url || !record.host) return;
+    const key = deps.canonicalKey(record.url);
+    if (!key) return;
+    const priors = await deps.store.getByDomain(record.host);
+    for (const p of priors) {
+      if (!p || p.id === record.id || !p.url || deps.canonicalKey(p.url) !== key) continue;
+      await deps.store.remove(p.id);
+      deps.search.removeRecord(p.id);
+    }
+  }
+
   async function letGo(tab, deps, recordExtra) {
     const { id } = tab;
     if (deps.inFlight.has(id)) return { kind: 'skipped', reason: 'in-flight' };
@@ -84,6 +103,7 @@
         record = buildFloorRecord({ cls, tab, now, id: deps.makeId(), extra: recordExtra });
       }
 
+      await collapsePrior(record, deps);
       await deps.store.put(record);
       deps.search.addRecord(record);
       // Record the pending-undo BEFORE closing the tab: if closeTab throws
