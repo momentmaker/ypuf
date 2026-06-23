@@ -7,6 +7,8 @@ All notable changes to ypuf are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-06-23
+
 ### Added
 - **One-box recall.** A single search box now finds any page — open, let go, or
   snoozed — and the primary action adapts to what it finds: jump to a tab you
@@ -81,7 +83,8 @@ First public release — submitted to the Chrome Web Store.
   when you turn on content indexing or add a panel source — never by default.
 - No remote code; the extension is unminified vanilla JS bundled in the package.
 
-[Unreleased]: https://github.com/momentmaker/ypuf/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/momentmaker/ypuf/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/momentmaker/ypuf/releases/tag/v1.1.0
 [1.0.2]: https://github.com/momentmaker/ypuf/releases/tag/v1.0.2
 [1.0.1]: https://github.com/momentmaker/ypuf/releases/tag/v1.0.1
 [1.0.0]: https://chromewebstore.google.com/detail/ypuf/fpapcjbmlhcclofloedaklhkeneiajid
