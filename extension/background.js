@@ -24,6 +24,7 @@ importScripts(
   'lib/recallmerge.js',
   'lib/recallrank.js',
   'lib/recallquery.js',
+  'lib/proactive.js',
   'lib/signal.js',
   'lib/tabstate.js',
   'lib/eligibility.js',
@@ -34,7 +35,7 @@ importScripts(
   'lib/blocklist.js',
 );
 
-const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank, recallquery } = self.ypuf;
+const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank, recallquery, proactive } = self.ypuf;
 
 const logErr = (e) => console.error('[ypuf]', e);
 
@@ -885,6 +886,7 @@ function projectStored(r, durable) {
     siblings: Array.isArray(r.siblings) ? r.siblings : [],
     snoozeState: r.snoozeState || null,
     returnAt: typeof r.returnAt === 'number' ? r.returnAt : null,
+    autoClosed: !!r.autoClosed,   // so the board's "puff" can settle newly-let-go rows
     snippet: '',
   };
 }
@@ -920,14 +922,15 @@ async function getRecallResults(q, opts = {}) {
     const recs = await store.listRecent(PIVOT_SCAN_LIMIT);
     results = recallrank.filterPivots(recs.map((r) => projectStored(r, durable)), parsed).slice(0, 20);
   } else {
-    // Instant recent: opening the bar surfaces your latest let-go pages, ready to recall
-    // (recovery faster than re-googling — F2). A page you currently have OPEN is no
-    // longer "let go", so omit it. Over-fetch 24 for a target of 8.
+    // Proactive "reaching for these" (U9): before any query, surface the let-go pages
+    // you're most likely reaching for now — ranked by recency-of-activity + frequency
+    // (lib/proactive.js), capped to a calm peek. A page you currently have OPEN is no
+    // longer "let go", so omit it. Over-fetch a wide window before ranking.
     const openTabs = await chrome.tabs.query({}).catch(() => []);
     const openKeys = new Set(openTabs.map((t) => (t.url ? cluster.originPathKey(t.url) : null)).filter(Boolean));
-    const recs = await store.listRecent(24);
-    results = recs.filter((r) => !r.snoozeState && r.url && !openKeys.has(cluster.originPathKey(r.url)))
-      .slice(0, 8).map((r) => projectStored(r, durable));
+    const recs = (await store.listRecent(PIVOT_SCAN_LIMIT))
+      .filter((r) => !r.snoozeState && r.url && !openKeys.has(cluster.originPathKey(r.url)));
+    results = proactive.rank(recs, durable, now).map((r) => projectStored(r, durable));
   }
   return { results, total, pivots: parsed };
 }
