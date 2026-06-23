@@ -75,6 +75,8 @@ function initIndex() {
     if (reconciled) await persistSnapshot();
     await capture.expirePending(session, Date.now());
     await sweepPendingForget(Date.now());
+    try { await pruneStaleSignal(Date.now()); } catch (e) { logErr(e); } // bound signal growth; never block the index load
+
     // The overdue sweep must not be load-bearing for the index load — degrade it,
     // don't abort initIndex (which would clear the memo and retry forever).
     try { await autoReopenDue(Date.now()); } catch (e) { logErr(e); }
@@ -386,6 +388,15 @@ const FREQUENT_REVISITS = 3;
 
 const loadDurable = async () => (await local.get(SIGNAL_KEY)) || signal.emptyState();
 const saveDurable = (durable) => local.set(SIGNAL_KEY, durable);
+
+// Bound signal-map growth (U8): age out URLs not foregrounded within the window —
+// forget alone never fires for visited-but-kept URLs, so the map would grow forever.
+// Runs on cold start (initIndex) and at storage pressure (maybePrune); both recur.
+const SIGNAL_RETENTION_MAX_AGE_MS = 180 * 86400000; // mirrors the store's 180-day retention
+async function pruneStaleSignal(now) {
+  const durable = await loadDurable();
+  if (signal.pruneStale(durable, now, SIGNAL_RETENTION_MAX_AGE_MS)) await saveDurable(durable);
+}
 
 async function applyForeground(tab) {
   if (!tab) return;
