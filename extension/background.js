@@ -20,6 +20,9 @@ importScripts(
   'lib/search.js',
   'lib/capture.js',
   'lib/cluster.js',
+  'lib/rank.js',
+  'lib/recallmerge.js',
+  'lib/recallrank.js',
   'lib/signal.js',
   'lib/tabstate.js',
   'lib/eligibility.js',
@@ -30,7 +33,7 @@ importScripts(
   'lib/blocklist.js',
 );
 
-const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles } = self.ypuf;
+const { store, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank } = self.ypuf;
 
 const logErr = (e) => console.error('[ypuf]', e);
 
@@ -857,41 +860,55 @@ async function snoozeResnooze(recordId, preset, custom) {
 
 // --- recall (U6 / flow F2) -----------------------------------------------
 
-async function getRecallResults(q) {
+// One-box recall (Recall v2). The new-tab panel passes `oneBox` to fold live open
+// tabs into the query and tag each row's kind (open/snoozed/let-go) for an adaptive
+// action; the ⌘⇧K overlay does NOT, so it only ever sees index rows it can action.
+// The rank/dedup/projection live in the pure recallrank.assemble seam.
+async function getRecallResults(q, opts = {}) {
   await initIndex();
   await sweepPendingForget(Date.now()); // keep set offers free of just-forgotten siblings
   const total = await store.count();
   const durable = await loadDurable();
-  const project = (r, snippet) => ({
-    id: r.id, title: r.title, url: r.url, host: r.host, contentLess: r.contentLess,
-    timestamp: r.timestamp,
-    frequent: ((durable.revisits && durable.revisits[r.url]) || 0) >= FREQUENT_REVISITS,
-    siblings: Array.isArray(r.siblings) ? r.siblings : [],
-    snoozeState: r.snoozeState || null,   // search spans snoozed records too — let the row flag them
-    snippet: snippet || '',
-  });
+  const now = Date.now();
   let results = [];
   if (q) {
     const hits = search.search(q).slice(0, 20);
-    const recs = await Promise.all(hits.map((h) => store.get(h.id)));
-    // Cap the content excerptAround scans (matches near the top dominate; bounds the
-    // per-keystroke cost so a huge page can't make recall janky).
-    results = recs.filter(Boolean).map((r) => project(r, search.excerptAround((r.content || '').slice(0, 8000), q, 90)));
+    const records = await Promise.all(hits.map((h) => store.get(h.id)));
+    const openTabs = opts.oneBox ? await chrome.tabs.query({}).catch(() => []) : [];
+    results = recallrank.assemble({ hits, records, openTabs, durable, q, now, oneBox: !!opts.oneBox });
   } else {
     // Instant recent: opening the bar surfaces your latest let-go pages, ready to recall
     // (recovery faster than re-googling — F2). A page you currently have OPEN is no
     // longer "let go", so omit it — reopening one drops it from the shelf until it's
-    // let go again. Snooze/back-now live in their own surfaces. This server-side filter
-    // is the durable half of row-dismissal; newtab.js handlers.open removes the row
-    // immediately on click so it disappears before this re-query runs. Over-fetch 24
-    // for a target of 8 so heavy multi-tab use still fills the shelf after filtering.
+    // let go again. Snooze/back-now live in their own surfaces. Over-fetch 24 for a
+    // target of 8 so heavy multi-tab use still fills the shelf after filtering.
     const openTabs = await chrome.tabs.query({}).catch(() => []);
     const openKeys = new Set(openTabs.map((t) => (t.url ? cluster.originPathKey(t.url) : null)).filter(Boolean));
     const recs = await store.listRecent(24);
     results = recs.filter((r) => !r.snoozeState && r.url && !openKeys.has(cluster.originPathKey(r.url)))
-      .slice(0, 8).map((r) => project(r, ''));
+      .slice(0, 8).map((r) => ({
+        kind: 'let-go',
+        id: r.id, title: r.title, url: r.url, host: r.host, contentLess: r.contentLess,
+        timestamp: r.timestamp,
+        frequent: ((durable.revisits && durable.revisits[r.url]) || 0) >= FREQUENT_REVISITS,
+        siblings: Array.isArray(r.siblings) ? r.siblings : [],
+        snoozeState: r.snoozeState || null,
+        snippet: '',
+      }));
   }
   return { results, total };
+}
+
+// Jump to an already-open tab (the one-box kind:'open' action). Resolve the
+// caller-supplied tabId against the SW's OWN live enumeration before acting
+// (Pattern 15) — never hand a message-body id straight to chrome.tabs.update.
+async function focusTab(tabId) {
+  const tabs = await chrome.tabs.query({}).catch(() => []);
+  const t = tabs.find((x) => x.id === tabId);
+  if (!t) return { ok: false };
+  await chrome.tabs.update(tabId, { active: true });
+  if (t.windowId != null) await chrome.windows.update(t.windowId, { focused: true }).catch(() => {});
+  return { ok: true };
 }
 
 // Shared reopen+dedup core (slice 4 / R8): focus an already-open tab whose URL
@@ -1087,8 +1104,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // sendResponse would hang the overlay/popup until Chrome times out the channel.
   const respond = (p) => { p.then(sendResponse).catch((e) => sendResponse({ error: String(e) })); return true; };
   if (msg.type === 'list-recent') return respond(listRecent(msg.limit || 15));
-  if (msg.type === 'recall-search') return respond(getRecallResults(msg.q));
+  if (msg.type === 'recall-search') return respond(getRecallResults(msg.q, { oneBox: !!msg.oneBox }));
   if (msg.type === 'recall-open' && msg.recordId) return respond(reopenRecord(msg.recordId).then(() => ({ ok: true })));
+  if (msg.type === 'focus-tab' && msg.tabId != null) return respond(focusTab(msg.tabId));
   if (msg.type === 'restore-set' && msg.recordId) return respond(restoreSet(msg.recordId, msg.urls));
   if (msg.type === 'whats-indexed') return respond(whatsIndexed());
   if (msg.type === 'forget-page' && msg.recordId) return respond(forgetPage(msg.recordId));

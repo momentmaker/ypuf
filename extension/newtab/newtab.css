@@ -397,6 +397,9 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
    a small calm clock in the meta line so a coming-back page reads as such, not a plain let-go. */
 .recall-snoozed { display: inline-flex; vertical-align: middle; margin-right: 4px; color: var(--accent-slate); opacity: 0.85; }
 .recall-snoozed svg { width: 12px; height: 12px; display: block; }
+/* "open now" flag on a one-box hit (Recall v2): the page is a live tab, so the row
+   jumps rather than restores — a calm sage marker, mirroring the snooze clock. */
+.recall-open-now { margin-right: 6px; color: var(--accent-sage); opacity: 0.9; font-size: 11px; letter-spacing: 0.02em; }
 /* f-hints badge styling lives in style.css (shared with the popup, U11). */
 /* The relief moment (U5): a calm once-a-day acknowledgement. */
 .board-relief {
