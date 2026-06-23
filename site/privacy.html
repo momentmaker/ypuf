@@ -86,11 +86,19 @@
     <h2>Network requests</h2>
     <p>The core of ypuf — letting tabs go and recalling them — makes <b>zero network
       requests</b>. Page text is extracted locally; recall search runs locally.</p>
-    <p>The only outbound requests come from <b>optional panels you choose to add</b> to
-      your new-tab board (e.g. an RSS feed or a crypto-price panel). Those fetch from the
-      source you picked, are disclosed in the panel, and add no tracking — the same as
-      visiting that source in a tab. If you add no such panels, ypuf makes no network
-      requests at all.</p>
+    <p>Outbound requests come only from features <b>you turn on</b>:</p>
+    <ul>
+      <li><b>Optional board panels</b> (e.g. an RSS feed or a crypto-price panel) fetch from the
+        source you picked, are disclosed in the panel, and add no tracking — the same as visiting
+        that source in a tab.</li>
+      <li><b>Recall by meaning</b> (off by default) downloads a small (~30&nbsp;MB) language model
+        <b>once</b> from ypuf's GitHub release, then runs entirely on your device. It is a normal
+        file download — GitHub sees the request like any download — but <b>no page content, search
+        query, or browsing data is ever part of it</b>, and nothing further is sent after it loads.
+        Turn it off and the model and all meaning-vectors are deleted.</li>
+    </ul>
+    <p>If you add no panels and leave Recall by meaning off, ypuf makes <b>no network requests at
+      all</b>. Either way, your <b>page content and searches never leave your device</b>.</p>
 
     <h2>Data this maps to</h2>
     <table>

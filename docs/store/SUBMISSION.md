@@ -121,3 +121,24 @@ Chrome Web Store developer docs (2026). Companion files: `listing.md` (copy),
       tag would make `release.yml` try to re-publish a version the store already has
       (the CWS API rejects a duplicate version). Automated release tags start at
       `v1.0.1` (`./scripts/release.sh 1.0.1 --push`).
+
+---
+
+## 8. Semantic-recall model asset (per model version, not per release)
+
+The optional "Recall by meaning" feature fetches a static-embedding model the user
+opts into. The bytes are re-hosted as an **immutable GitHub Release asset**, pinned by
+SHA-256 in `extension/lib/modelasset.js`. Until the asset is uploaded, opt-in falls
+back to keyword recall (no crash) — so this is a prerequisite for the feature to work
+end-to-end, done **once per model version**, not on every store release.
+
+- [ ] Create a GitHub release `semantic-model-v1` and upload `model.safetensors`
+      (~30 MB) + `tokenizer.json` (potion-base-8M, MIT — see `NOTICE.md`).
+- [ ] Verify the pinned hash matches the uploaded bytes:
+      `shasum -a 256 model.safetensors` must equal `SAFETENSORS_SHA256` in
+      `extension/lib/modelasset.js`. **Update URL + hash atomically in the same commit**
+      on any model bump (a mismatched hash makes every download fail-closed).
+- [ ] After a model bump, vectors tagged with the old `modelVersion` self-invalidate
+      and re-backfill (U3) — no stale-vector blending.
+- [ ] Dashboard *Privacy practices → remote code*: answer **No** (the model is data,
+      not code).
