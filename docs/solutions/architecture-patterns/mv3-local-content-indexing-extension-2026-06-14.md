@@ -1,7 +1,7 @@
 ---
 title: MV3 patterns for a local, privacy-first content-indexing extension
 date: 2026-06-14
-last_updated: 2026-06-19
+last_updated: 2026-06-23
 category: docs/solutions/architecture-patterns
 module: extension (service worker, lib, overlay, popup)
 problem_type: architecture_pattern
@@ -29,7 +29,13 @@ applies_when:
   - Layering keyboard, cursor, or floating-overlay state over a host UI that re-renders from a shared root
   - Seeding a new default panel/item onto an existing user-editable persisted config via a one-time migration
   - Bucketing scheduled future returns into wall-clock windows (a forward timeline) for display
-tags: [chrome-mv3, service-worker, indexeddb, content-script, privacy, message-passing, no-build, minisearch, alarms, offscreen, concurrency, background-mutation, scheduling, session-clustering, snapshot-at-event, context-restore, working-set, sandbox, iframe-isolation, broker, ssrf, csp, network-egress, single-flight, swr-cache, postmessage, text-only-render, lifecycle-guard, teardown, generation-token, host-glue-extraction, drag-and-drop, keyboard-navigation, derived-signal, re-render-state-reset, config-migration, idempotency, seed-migration, time-windows, scheduling-ui]
+  - Folding a behavioural signal into text-relevance ranking without letting it dominate unrelated queries
+  - Unifying several independently-authoritative result sources (live tabs, a queue, an index) at query time
+  - Parsing episodic/natural-language query operators (with:, relative time phrases) with an injected clock
+  - Highlighting a search excerpt off the actual matched index term rather than the raw user query
+  - Surfacing a blank-state "what you want right now" ranking before the user types anything
+  - Composing a single quiet rationale for a ranked result without over-claiming a defaulted signal
+tags: [chrome-mv3, service-worker, indexeddb, content-script, privacy, message-passing, no-build, minisearch, alarms, offscreen, concurrency, background-mutation, scheduling, session-clustering, snapshot-at-event, context-restore, working-set, sandbox, iframe-isolation, broker, ssrf, csp, network-egress, single-flight, swr-cache, postmessage, text-only-render, lifecycle-guard, teardown, generation-token, host-glue-extraction, drag-and-drop, keyboard-navigation, derived-signal, re-render-state-reset, config-migration, idempotency, seed-migration, time-windows, scheduling-ui, ranking, intent-ranking, query-parsing, search-highlight, blank-state, proactive-ui, cross-source-dedup, recall]
 ---
 
 # MV3 patterns for a local, privacy-first content-indexing extension
@@ -609,6 +615,85 @@ the abstraction. The rule: geometry shared across an injected-standalone surface
 and inline HTML is duplication *by necessity* — name the seam (a comment, or this note) so the next
 reader doesn't consolidate it into a module the overlay can't load.
 
+### 28. Intent ranking is a bounded tie-breaker above a relevance floor — not a multiplier, and not `boostDocument`
+
+`extension/lib/rank.js` folds behavioral signal (revisit/dwell/recency) into MiniSearch text relevance,
+but only as a tie-breaker among rows already above a relevance floor, with the invariant
+`FLOOR * (1 + MAX_LIFT) <= 1` (`0.6 * 1.5 = 0.9`) guaranteeing even a floor-edge row maxing its signal
+cannot pass the strongest *zero-signal* text hit. The naive move — multiply text score by engagement —
+makes a 200×-revisit daily-driver outrank a strong exact match on an *unrelated* query, and recall stops
+being trusted. It must be a **post-search re-rank**, not MiniSearch `boostDocument`: boostDocument runs
+per-term during scoring and never sees the final top score the floor is relative to, so the guarantee
+isn't even expressible inside it. Normalize the unbounded, query-relative MiniSearch score against the
+run's top score before blending. Extends pattern 19 (born-equal `ageMs` contributes no recency lift).
+
+### 29. Cross-state one-box dedup: unify at query time, dedup after on the *existing* canonical key, merge field-level
+
+`extension/lib/recallmerge.js` + `recallrank.js` unify three independently-authoritative sources — live
+`chrome.tabs`, the snooze queue, and the IDB index — at *query* time; open/snoozed rows are never written
+to the index (pattern 3 stays intact). Dedup *after* assembly on the project's existing public key
+`cluster.originPathKey` (origin+pathname), never a re-implemented one, so dedup/forget/restore/signal all
+key the same way. The merge is **field-level, not row-level supersede**: action (`kind` + `tabId`) comes
+from the highest-precedence twin (open > snoozed > let-go) but display fields (`content`, `siblings`,
+`excerpt`) are retained from the index twin — row-level supersede silently surfaces a page-you-have-open
+with an empty excerpt and no `with:` pivots. Reconciliation seam (pattern 9 generalized from per-tab to
+per-canonical-key): signal is keyed by *full* URL but dedup is origin+pathname, so `recallrank.aggregateSignal`
+sums signal across every full-URL collapsing to one key, or a page banked under `?q=…` gets zero lift.
+
+### 30. Episodic query parsing: inject `now`, strip ALL phrase occurrences, and make chip-dismiss *collapse* not suppress
+
+`extension/lib/recallquery.js` parses `with: <session>` + relative-time phrases that pivot on *how the
+engine filed a page* (not user tags), with `now` injected so the day math is node-testable. It strips
+**every** occurrence of a recognized phrase, not just the first — a duplicate (`today today`) or a second
+phrase (`today yesterday`) otherwise leaks into the literal content search or leaves an un-dismissable chip
+that re-parses itself on dismiss. Each chip carries a `collapse` form so dismissing *declassifies back to
+plain text* (a `with:` chip collapses to its bare term; a time chip to nothing) rather than suppressing the
+query. The weekday math has the classic edge — "last tuesday" *on* a Tuesday means a week ago
+(`delta === 0 → 7`) — so it's tested across all seven weekdays (pattern 25 lineage).
+
+### 31. Highlight the term the search *matched*, not the one the user *typed*
+
+`extension/lib/recallrank.js` keys the excerpt + highlight off MiniSearch `hit.terms` (the actual matched
+index term), falling back to the raw query only when terms are absent. The obvious choice — center the
+excerpt on the typed query — breaks under fuzzy/prefix matching: `googl` matches the index term `google`,
+but `googl` appears nowhere in the page text, so `excerptAround` finds nothing and the row renders blank.
+The rows that most *need* fuzzy matching are then precisely the ones that show no excerpt — the feature
+silently undercuts itself. Highlighting stays text-only via `lib/highlight.js` `segments()` → `<mark>`
+text nodes (pattern 16: page-derived content never reaches innerHTML).
+
+### 32. Bound an unbounded signal map by a freshness field — and never prune pre-migration orphans
+
+`extension/lib/signal.js` adds a per-URL `lastActiveAt` and `pruneStale(durable, now, maxAgeMs)` to bound
+the signal map, which is keyed by every URL ever foregrounded and which `forget` never fires for. The prune
+iterates **only entries that carry `lastActiveAt`** and drops those past the cutoff: a pre-migration orphan
+(written before the field existed) has no timestamp and is simply never visited, so it survives untouched
+until it organically gains one. The tempting alternative — "missing freshness field = stale" — would wipe
+*all* accumulated signal on the first run after deploy, the hardest moment to catch in testing. Fire it on a
+*recurring* trigger — both `initIndex` cold start and the `maybePrune` let-go cadence — so a long-lived
+session still prunes; reuse the store's `RETENTION_MAX_AGE_MS` so the windows can't drift.
+
+### 33. Proactive blank-state list: share the streaming generation token, and re-load on clear
+
+`extension/lib/proactive.js` ranks the recent let-go set by recency (`lastActiveAt`) + frequency before the
+user types; a zero-signal record scores 0 and keeps its newest-first input position, so the set degrades to
+"recent let-go". The pure ranker was never the risk — the review-found defects were all in the host glue
+(`extension/newtab/newtab.js`): the proactive load must share the **same monotonic seq token** as the
+keystroke search (a `destroyed`-only flag can't tell a stale proactive reply from the current one — pattern
+17 lineage), and it must **re-load when the query clears to empty** (`if (!recentWrap.firstChild) loadProactive(mine)`),
+or a type-before-reply leaves the panel permanently blank. A dimmed placeholder during the load avoids a
+blank flash (reduced-motion-gated).
+
+### 34. A "why this" rationale is born-equal-safe *by construction* — restrict its inputs, don't guard its outputs
+
+`extension/lib/rationale.js` composes one quiet clause (`"often revisited"` / `"same session as <host>"`, or
+`''`) from **only** the row's `frequent` flag (revisit frequency) and its session siblings — never recall
+activity. Born-equal safety (pattern 19: a never-recalled `lastAccessed === timestamp` row must earn no
+"recalled" claim) then holds because no code path reads `lastAccessed` — the review-fix even *removed* the
+unused `durable`/signal argument so the function physically cannot reach recall data. "Safe by construction"
+(narrow the inputs to signals that can't express the false claim) beats "safe by careful conditional"
+(guard one instance of it). It renders text-only as the row's last child and returns `''` for a zero-history
+row so the surface stays quiet.
+
 ## Why This Matters
 
 Each of these is a real failure mode that shipped past unit tests and was only
@@ -707,6 +792,28 @@ between writes could re-seed the panel on every boot (pattern 24). All three wer
 all three were the *same* host-glue class slices 1-5 keep surfacing. The seam is no longer
 widening; it is concentrating at the panel mount's async lifecycle, exactly where patterns 17 and
 24 now stand guard.
+
+The Recall v2 slice (intent-ranked one-box recall, episodic pivots, matched-term highlight,
+proactive blank-state recall, and a quiet "why this" rationale — three PRs, completing requirements
+R1–R11) added the most new decidable surface of any slice, and every one of those surfaces was
+extracted into a pure tested lib *before* it could become a finding: the bounded intent-ranking
+blend (pattern 28, `lib/rank.js`), the cross-state one-box dedup (pattern 29, `lib/recallmerge.js` +
+`lib/recallrank.js`), the episodic query parser (pattern 30, `lib/recallquery.js`), the proactive
+ranker (pattern 33, `lib/proactive.js`), and the born-equal-safe rationale composer (pattern 34,
+`lib/rationale.js`). The throughline held with no exceptions: across all three phases the
+correctness and security reviewers returned **zero** findings, and every actionable issue any
+reviewer raised lived in the SW/page glue, not the pure cores — a stale-async re-show in the
+proactive blank-state load (the same Pattern 17 seq-token class as slices 1 and 5), a chip-dismiss
+that dropped a term because the parser stripped only the first phrase occurrence (the seam between
+parser and render), a comment claiming a prune trigger that wasn't wired, and a rationale that
+re-derived `frequent` instead of reading the projected field. Two of the new patterns are *also*
+sharpened forms of earlier lessons rather than fresh seams: pattern 28's FLOOR·(1+MAX_LIFT)≤1
+invariant is the same "bound the unbounded signal" discipline as the retention work (pattern 32),
+applied to ranking lift instead of map growth; pattern 34 is Pattern 19 (born-equal) re-stated at
+the projection seam — the composer can only surface signals a never-recalled row legitimately has.
+Five slices in, the prevention reflex is now the default posture, not a reaction: the question at
+plan time is no longer "will the glue bite us" but "which decidable cores can we extract before it
+does," and Recall v2 answered it for six surfaces at once.
 
 ## When to Apply
 
@@ -812,7 +919,8 @@ widening; it is concentrating at the panel mount's async lifecycle, exactly wher
   `docs/plans/2026-06-16-002-feat-ypuf-slice5-newtab-panel-board-plan.md`,
   `docs/plans/2026-06-17-001-feat-board-calm-premium-redesign-plan.md`,
   `docs/plans/2026-06-18-001-feat-board-keyboard-settings-soul-plan.md`,
-  `docs/plans/2026-06-19-001-feat-snooze-panel-plan.md`
+  `docs/plans/2026-06-19-001-feat-snooze-panel-plan.md`,
+  `docs/plans/2026-06-22-001-feat-recall-v2-superpowers-plan.md`
 - Origins: `docs/brainstorms/2026-06-14-ypuf-v1-sequence-and-slice1-requirements.md`,
   `docs/brainstorms/2026-06-15-ypuf-slice2-auto-let-go-requirements.md`,
   `docs/brainstorms/2026-06-15-ypuf-slice3-snooze-requirements.md`,
@@ -820,9 +928,13 @@ widening; it is concentrating at the panel mount's async lifecycle, exactly wher
   `docs/brainstorms/2026-06-16-ypuf-slice5-newtab-panel-board-requirements.md`,
   `docs/brainstorms/2026-06-17-ypuf-board-calm-premium-redesign-requirements.md`,
   `docs/brainstorms/2026-06-18-ypuf-board-keyboard-settings-soul-requirements.md`,
-  `docs/brainstorms/2026-06-19-ypuf-snooze-panel-requirements.md`
+  `docs/brainstorms/2026-06-19-ypuf-snooze-panel-requirements.md`,
+  `docs/brainstorms/2026-06-22-ypuf-recall-superpowers-requirements.md`
 - PRs: momentmaker/ypuf#1 (slice 1), momentmaker/ypuf#2 (slice 2),
   momentmaker/ypuf#4 (slice 3), momentmaker/ypuf#6 (slice 4),
   momentmaker/ypuf#8 (slice 5), momentmaker/ypuf#9 (slice 5 redesign),
   momentmaker/ypuf#11 (board calm settings, soul & keyboard layer),
-  momentmaker/ypuf#21 (snooze panel)
+  momentmaker/ypuf#21 (snooze panel),
+  momentmaker/ypuf#31 (Recall v2 Phase A — intent rank + one-box, U1–U4),
+  momentmaker/ypuf#32 (Recall v2 Phase B — episodic pivots + highlight, U5–U7),
+  momentmaker/ypuf#33 (Recall v2 Phase C — proactive + "why this", U8–U10)
