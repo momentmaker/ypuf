@@ -80,3 +80,44 @@ test('U5: empty / whitespace input is inert', () => {
   assert.equal(p.withTerm, null);
   assert.equal(p.timeRange, null);
 });
+
+test('U5: a time phrase mid-free-text is lifted out cleanly', () => {
+  const now = new Date(2026, 5, 23).getTime();
+  const p = recallquery.parse('react last tuesday hooks', now);
+  assert.equal(p.text, 'react hooks');
+  assert.equal(new Date(p.timeRange.from).getDay(), 2);
+  assert.equal(p.withTerm, null);
+});
+
+test('U5: ALL recognized time phrases are stripped — a duplicate/second phrase never leaks into the text', () => {
+  const now = new Date(2026, 5, 23, 15).getTime();
+  const sod = startOfDay(now);
+  const dup = recallquery.parse('today today', now);
+  assert.equal(dup.text, '', 'both "today"s removed — none lingers as a search term');
+  assert.deepEqual(dup.timeRange, { from: sod, to: sod + DAY });
+  assert.equal(dup.chips.length, 1);
+
+  const two = recallquery.parse('today yesterday', now);
+  assert.equal(two.text, '', 'the second phrase is not left as a literal content-search term');
+  assert.deepEqual(two.timeRange, { from: sod, to: sod + DAY }, 'first phrase wins the range');
+});
+
+test('U5: dismiss round-trip — collapsing a chip and re-parsing leaves no chip (the dismiss contract)', () => {
+  const now = new Date(2026, 5, 23).getTime();
+  const reparse = (p, dismissIdx) => {
+    const parts = [p.text];
+    p.chips.forEach((c, i) => parts.push(i === dismissIdx ? (c.collapse || '') : c.phrase));
+    return recallquery.parse(parts.filter(Boolean).join(' ').trim(), now);
+  };
+  // with: collapses to plain text — the term is KEPT as search text, not dropped.
+  const w = recallquery.parse('github with: tax research', now);
+  assert.equal(w.chips[0].collapse, 'tax research');
+  const afterW = reparse(w, 0);
+  assert.equal(afterW.withTerm, null);
+  assert.equal(afterW.chips.length, 0);
+  assert.equal(afterW.text, 'github tax research', 'the session term survives as plain text');
+
+  // time collapses away; the duplicate-word case must become dismissable (no re-trigger).
+  const t = recallquery.parse('today today', now);
+  assert.equal(reparse(t, 0).chips.length, 0, 'dismissing the time chip clears it for good');
+});

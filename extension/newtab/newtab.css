@@ -408,8 +408,7 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
 .recall-chip-time { color: var(--accent-sage); background: color-mix(in srgb, var(--accent-sage) 12%, transparent); }
 .recall-chip-x { border: 0; background: none; cursor: pointer; color: inherit; opacity: 0.65; font-size: 13px; line-height: 1; padding: 0 2px; }
 .recall-chip-x:hover { opacity: 1; }
-/* Recall-by-content excerpt (Recall v2 / U7): the matched line of page text, quiet and
-   clamped to two lines, with the matched term marked. Column 2 aligns it under the title. */
+/* Recall-by-content excerpt (Recall v2 / U7). Grid column 2 aligns it under the title (not the favicon). */
 .recall-snippet {
   font-size: 11px; line-height: 1.45; margin-top: 2px;
   color: color-mix(in srgb, var(--ink) 50%, transparent);

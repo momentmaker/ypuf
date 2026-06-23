@@ -1871,8 +1871,6 @@
           if (meta) meta.prepend(tag); else li.appendChild(tag);
         }
 
-        // Recall by content: the matched line of page text, highlighted. Omitted for
-        // content-less / open-tab rows (no excerpt to show).
         if (it.snippet) li.appendChild(snippetNode(it.snippet, it.matchTerms));
 
         // Set-bearing recall items offer a one-tap "bring back the set" (the
@@ -2073,8 +2071,11 @@
           x.textContent = '×';
           x.setAttribute('aria-label', `Remove ${chip.kind === 'with' ? 'session' : 'time'} filter: ${chip.label}`);
           x.addEventListener('click', () => {
-            const kept = chips.filter((_, i) => i !== idx).map((c) => c.phrase);
-            search.value = [pivots.text, ...kept].join(' ').trim();
+            // Rebuild from the free text + each chip's contribution: kept chips stay
+            // verbatim (still pivots), the dismissed one collapses to plain text.
+            const parts = [pivots.text];
+            chips.forEach((c, i) => parts.push(i === idx ? (c.collapse || '') : c.phrase));
+            search.value = parts.filter(Boolean).join(' ').trim();
             applyQuery();
             search.focus();
           });

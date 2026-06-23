@@ -70,13 +70,22 @@
       if (!m) continue;
       timePhrase = m[0];
       timeRange = timeRangeFor(m[0].toLowerCase(), now);
-      head = (head.slice(0, m.index) + ' ' + head.slice(m.index + m[0].length)).replace(/\s+/g, ' ').trim();
       break;
     }
+    if (timeRange) {
+      // Strip EVERY recognized time phrase from the free text — not just the first —
+      // so a duplicate ("today today") or a second phrase ("today yesterday") can't
+      // linger as a literal content-search term or leave a chip that re-parses on dismiss.
+      for (const re of TIME_PATTERNS) head = head.replace(new RegExp(re.source, 'gi'), ' ');
+      head = head.replace(/\s+/g, ' ').trim();
+    }
 
+    // `phrase` is what a kept chip contributes back to the query verbatim; `collapse`
+    // is what a DISMISSED chip leaves behind — a `with:` term collapses to plain search
+    // text (the contract: dismiss declassifies, never suppresses), a time filter is removed.
     const chips = [];
-    if (withTerm) chips.push({ kind: 'with', label: withTerm, phrase: withClause });
-    if (timeRange) chips.push({ kind: 'time', label: timePhrase, phrase: timePhrase });
+    if (withTerm) chips.push({ kind: 'with', label: withTerm, phrase: withClause, collapse: withTerm });
+    if (timeRange) chips.push({ kind: 'time', label: timePhrase, phrase: timePhrase, collapse: '' });
 
     return { text: head, withTerm, timeRange, chips };
   }

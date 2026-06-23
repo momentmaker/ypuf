@@ -228,6 +228,12 @@ test('U7: the excerpt + matchTerms come from the term MiniSearch matched, not th
   assert.deepEqual(out[0].matchTerms, ['google']);
 });
 
+test('U7: when a hit carries no .terms, matchTerms falls back to the query terms', () => {
+  const rec = record({ id: 'r', content: 'a body of text' });
+  const out = recallrank.assemble({ hits: [hitFor(rec, 5)], records: [rec], q: 'body', now: NOW });
+  assert.deepEqual(out[0].matchTerms, ['body'], 'fallback keeps highlighting working when MiniSearch omits terms');
+});
+
 // --- U6: episodic pivot filtering -----------------------------------------
 
 function frow(over) {
@@ -251,10 +257,11 @@ test('U6: a time range keeps rows whose timestamp falls inside it; timestamp-les
     frow({ id: 'in', timestamp: 150 * DAY }),
     frow({ id: 'before', timestamp: 50 * DAY }),
     frow({ id: 'after', timestamp: 250 * DAY }),
+    frow({ id: 'at-to', timestamp: 200 * DAY }),   // upper bound is exclusive
     frow({ id: 'open', kind: 'open', timestamp: null }),
   ];
   const out = recallrank.filterPivots(rows, { timeRange: range }).map((r) => r.id);
-  assert.deepEqual(out.sort(), ['in', 'open'].sort());
+  assert.deepEqual(out.sort(), ['in', 'open'].sort(), 'at-to (=== to) is excluded; open (no timestamp) passes');
 });
 
 test('U6: with: and time range compose; no pivots is a pass-through', () => {

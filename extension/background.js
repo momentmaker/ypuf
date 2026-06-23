@@ -861,6 +861,8 @@ async function snoozeResnooze(recordId, preset, custom) {
 
 // --- recall (U6 / flow F2) -----------------------------------------------
 
+const PIVOT_SCAN_LIMIT = 200;   // pure-pivot over-fetch: a with:/time filter may drop most of the window
+
 // Project a stored record into a recall row (shared by the blank-q shelf and the
 // pure-pivot path so the two never drift from recallrank's assembled row shape).
 function projectStored(r, durable) {
@@ -888,8 +890,10 @@ async function getRecallResults(q, opts = {}) {
   const total = await store.count();
   const durable = await loadDurable();
   const now = Date.now();
-  const parsed = recallquery.parse(q || '', now);
-  const pivots = { text: parsed.text, withTerm: parsed.withTerm, timeRange: parsed.timeRange, chips: parsed.chips };
+  // Pivots (with: / time) are a panel feature with dismissible chips — the ⌘⇧K overlay
+  // (no oneBox) searches the query literally, so it can never silently filter with no UI.
+  const parsed = opts.oneBox ? recallquery.parse(q || '', now)
+    : { text: (q || '').trim(), withTerm: null, timeRange: null, chips: [] };
   let results = [];
   if (parsed.text) {
     const hits = search.search(parsed.text).slice(0, 20);
@@ -900,8 +904,9 @@ async function getRecallResults(q, opts = {}) {
   } else if (parsed.withTerm || parsed.timeRange) {
     // Pure-pivot query (no free text): narrow the recent archive by the pivot alone,
     // newest-first. Both let-go and snoozed records are eligible; live tabs aren't a
-    // substring source here, so they're not included.
-    const recs = await store.listRecent(200);
+    // substring source here, so they're not included. Over-fetch wide before slicing to
+    // 20, since a with:/time pivot can filter most of the window out.
+    const recs = await store.listRecent(PIVOT_SCAN_LIMIT);
     results = recallrank.filterPivots(recs.map((r) => projectStored(r, durable)), parsed).slice(0, 20);
   } else {
     // Instant recent: opening the bar surfaces your latest let-go pages, ready to recall
@@ -913,7 +918,7 @@ async function getRecallResults(q, opts = {}) {
     results = recs.filter((r) => !r.snoozeState && r.url && !openKeys.has(cluster.originPathKey(r.url)))
       .slice(0, 8).map((r) => projectStored(r, durable));
   }
-  return { results, total, pivots };
+  return { results, total, pivots: parsed };
 }
 
 // Jump to an already-open tab (the one-box kind:'open' action). Resolve the
