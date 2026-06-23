@@ -8,6 +8,7 @@ const capture = require('../extension/lib/capture.js');
 const exclusion = require('../extension/lib/exclusion.js');
 const store = require('../extension/lib/store.js');
 const search = require('../extension/lib/search.js');
+const cluster = require('../extension/lib/cluster.js');
 
 beforeEach(() => {
   globalThis.indexedDB = new globalThis.IDBFactory();
@@ -29,6 +30,7 @@ function makeDeps(over) {
     makeId: () => 'rec-' + (++counter),
     inFlight: new Set(),
     store, search,
+    canonicalKey: cluster.originPathKey,
   }, over);
   return { deps, ctx };
 }
@@ -61,6 +63,38 @@ test('AE5: undo removes the record, clears the index, reopens the tab', async ()
   assert.equal(search.search('everest').length, 0);
   assert.deepEqual(ctx.opened, ['https://example.com/a']);
   assert.equal((await capture.readPending(deps.session)).length, 0);
+});
+
+test('re-letting-go a page collapses the prior record(s) for the same canonical URL (newest wins)', async () => {
+  const { deps } = makeDeps();
+  const r1 = await capture.letGo({ id: 7, url: 'https://example.com/a?ref=1', title: 'A', incognito: false }, deps);
+  // Same page (query differs, time later) → REPLACE the prior record, don't stack a duplicate.
+  const r2 = await capture.letGo({ id: 8, url: 'https://example.com/a?ref=2', title: 'A', incognito: false },
+    Object.assign({}, deps, { now: () => 2000 }));
+
+  const key = cluster.originPathKey('https://example.com/a');
+  const samePage = (await store.getAll()).filter((rec) => cluster.originPathKey(rec.url) === key);
+  assert.equal(samePage.length, 1);                        // collapsed to one record
+  assert.equal(samePage[0].id, r2.record.id);              // the newer record survives
+  assert.equal(samePage[0].timestamp, 2000);               // with the fresh timestamp
+  assert.equal(await store.get(r1.record.id), undefined);  // the prior is gone from the store
+  assert.ok(!search.search('climbed everest').map((x) => x.id).includes(r1.record.id)); // and de-indexed
+});
+
+test('a different path on the same host is NOT collapsed', async () => {
+  const { deps } = makeDeps();
+  const a = await capture.letGo({ id: 7, url: 'https://example.com/a', title: 'A', incognito: false }, deps);
+  const b = await capture.letGo({ id: 8, url: 'https://example.com/b', title: 'B', incognito: false }, deps);
+  assert.ok(await store.get(a.record.id), 'distinct page a survives');
+  assert.ok(await store.get(b.record.id), 'distinct page b survives');
+});
+
+test('without a canonicalKey dep wired, letGo does not collapse (back-compat)', async () => {
+  const { deps } = makeDeps({ canonicalKey: undefined });
+  const r1 = await capture.letGo({ id: 7, url: 'https://example.com/a', title: 'A', incognito: false }, deps);
+  const r2 = await capture.letGo({ id: 8, url: 'https://example.com/a', title: 'A', incognito: false }, deps);
+  assert.ok(await store.get(r1.record.id));
+  assert.ok(await store.get(r2.record.id));
 });
 
 test('a blocklisted tab is stored title+URL only, query stripped, without injecting', async () => {

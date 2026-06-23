@@ -158,6 +158,7 @@ async function buildDeps() {
     inFlight,
     store,
     search,
+    canonicalKey: cluster.originPathKey,
   };
 }
 
