@@ -124,6 +124,13 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
 .cheatsheet-list { display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; align-items: baseline; margin: 0; }
 .cheatsheet-list dt { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent-slate); white-space: nowrap; }
 .cheatsheet-list dd { margin: 0; font-size: 13px; color: var(--ink); }
+
+/* Settings legend: the recall-row glyphs keyed to their meaning (the real icons). */
+.legend-list { display: grid; grid-template-columns: 20px 1fr; gap: 8px 12px; align-items: center; margin: 0; }
+.legend-icon { display: inline-flex; align-items: center; justify-content: center; color: var(--accent-slate); }
+.legend-icon svg { width: 15px; height: 15px; display: block; }
+.legend-glyph { font-size: 14px; line-height: 1; }
+.legend-list dd { margin: 0; font-size: 12.5px; color: var(--ink); }
 .cheatsheet-note { margin-top: 14px; font-size: 11.5px; }
 
 /* Auto-let-go group (U3): a pill switch + a segmented eagerness control. */
@@ -416,9 +423,10 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
 }
 .recent-item.has-fav .recall-snippet { grid-column: 2; }
 .recall-snippet mark { background: color-mix(in srgb, var(--accent-amber) 26%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
-/* "Why this" rationale (Recall v2 / U10): one quiet signal-derived clause; column 2 aligns under the title. */
-.recall-why { font-size: 11px; line-height: 1.4; margin-top: 2px; color: color-mix(in srgb, var(--ink) 48%, transparent); font-style: italic; }
-.recent-item.has-fav .recall-why { grid-column: 2; }
+/* "Why this" rationale (Recall v2 / U10): a quiet inline meta-line icon (recurrence =
+   "often revisited"), so a marked row keeps the same height as every other row. */
+.recall-why { display: inline-flex; vertical-align: middle; margin-left: 5px; color: color-mix(in srgb, var(--ink) 42%, transparent); }
+.recall-why svg { width: 12px; height: 12px; display: block; }
 /* Proactive "reaching for these" block, dimmed as a placeholder during the query gap (U9) — no blank flash. */
 .recall-scroll .dimming { opacity: 0.45; pointer-events: none; }
 @media (prefers-reduced-motion: no-preference) { .recall-scroll .dimming { transition: opacity 0.12s ease; } }
@@ -470,8 +478,7 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
 .recent-item .fav { width: 16px; height: 16px; border-radius: 3px; object-fit: cover; margin-top: 1px; }
 .recent-item.has-fav .fav { grid-column: 1; grid-row: 1 / 4; }
 .recent-item.has-fav .title,
-.recent-item.has-fav .meta,
-.recent-item.has-fav .set-restore { grid-column: 2; }
+.recent-item.has-fav .meta { grid-column: 2; }
 
 /* Quiet time-group header (small caps), reset for the <h3> element. */
 .panel-group-label {
@@ -481,20 +488,22 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
 .recall-scroll > div > .panel-group-label:first-child,
 .recall-scroll > .panel-group-label:first-child { margin-top: 2px; }
 
-/* "Bring back the set" → a quiet chip, revealed on hover / focus / cursor like protect+forget. */
+/* "Bring back the set" → a quiet inline tag at the end of the meta line (so a set-bearing
+   row never stands taller than its neighbours), revealed on hover / focus / cursor. Its
+   leading "·" delimiter is part of the tag, so it hides and reveals together — no dangling
+   dot at rest. */
 .set-restore {
-  margin-top: 3px; align-self: flex-start; justify-self: start;
-  font: inherit; font-size: 11px; line-height: 1.4;
+  display: inline; font: inherit; font-size: 11px; line-height: 1.4;
   color: var(--accent-slate);
-  background: color-mix(in srgb, var(--accent-slate) 14%, transparent);
-  border: none; border-radius: 999px; padding: 1px 8px; cursor: pointer;
-  opacity: 0; transition: opacity .14s ease, background .14s ease;
+  background: none; border: none; padding: 0; margin: 0; cursor: pointer;
+  opacity: 0; transition: opacity .14s ease, color .14s ease;
 }
+.set-restore::before { content: '· '; color: color-mix(in srgb, var(--ink) 58%, transparent); }
 .panel .recent-item:hover .set-restore,
 .recent-item.kbd-cursor .set-restore,
 .set-restore:focus-visible { opacity: 1; }
-.set-restore:hover { background: color-mix(in srgb, var(--accent-slate) 24%, transparent); }
-.set-restore:focus-visible { outline: 2px solid var(--accent-amber); outline-offset: 1px; }
+.set-restore:hover { color: var(--accent-amber); }
+.set-restore:focus-visible { outline: 2px solid var(--accent-amber); outline-offset: 1px; border-radius: 3px; }
 
 /* Group overflow + "search older" affordances — calm, secondary. */
 .shelf-more, .shelf-older {

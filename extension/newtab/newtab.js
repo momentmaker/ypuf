@@ -404,6 +404,8 @@
            ['path', { d: 'M8 1.6v1.6M8 12.8v1.6M14.4 8h-1.6M3.2 8H1.6M12.5 3.5l-1.1 1.1M4.6 11.4l-1.1 1.1M12.5 12.5l-1.1-1.1M4.6 4.6L3.5 3.5' }]],
     close: [['path', { d: 'M4 4l8 8M12 4l-8 8' }]],
     clock: [['circle', { cx: 8, cy: 8, r: 5.6 }], ['path', { d: 'M8 4.8V8l2.2 1.6' }]],
+    repeat: [['path', { d: 'M4.5 8a3.5 3.5 0 013.5-3.5h2.2' }], ['path', { d: 'M8.8 2.8l1.6 1.7-1.6 1.7' }],
+             ['path', { d: 'M11.5 8a3.5 3.5 0 01-3.5 3.5H5.8' }], ['path', { d: 'M7.2 13.2l-1.6-1.7 1.6-1.7' }]],
   };
   function icon(name) {
     const svg = document.createElementNS(SVGNS, 'svg');
@@ -462,6 +464,7 @@
     ['/', 'Jump to recall search'],
     ['f', 'Hint every link — type a label to open'],
     ['e', 'Toggle edit mode'],
+    [',', 'Open settings'],
     ['?', 'This cheatsheet'],
     ['Esc', 'Clear cursor · close'],
   ];
@@ -629,11 +632,34 @@
     g.appendChild(seg); container.appendChild(g);
   }
 
+  // Legend group: a quiet key to the recall-row glyphs, so their meaning is discoverable
+  // without hovering (the tooltips stay the fast path). Renders the REAL icon next to each
+  // meaning so the key matches exactly what's on the rows.
+  function buildLegendGroup(container) {
+    const g = settingsGroup('What the icons mean');
+    const list = document.createElement('dl'); list.className = 'legend-list';
+    const LEGEND = [
+      { icon: 'repeat', desc: 'Often revisited — a page you keep coming back to.' },
+      { glyph: '⊕', desc: 'Bring back the other tabs this page was let go with.' },
+      { icon: 'clock', desc: 'In Snooze — set aside, coming back later.' },
+      { icon: 'shield', desc: 'Protected — auto-let-go never closes this site.' },
+      { icon: 'trash', desc: 'Forget — remove this page from recall.' },
+    ];
+    for (const e of LEGEND) {
+      const dt = document.createElement('dt'); dt.className = 'legend-icon' + (e.glyph ? ' legend-glyph' : '');
+      if (e.glyph) dt.textContent = e.glyph; else dt.append(icon(e.icon));
+      const dd = document.createElement('dd'); dd.textContent = e.desc;
+      list.append(dt, dd);
+    }
+    g.appendChild(list); container.appendChild(g);
+  }
+
   function buildSettingsGroups(container) {
     buildThemeControl(container);
     buildAutoGroup(container);
     buildNeverTouchGroup(container);
     buildBoardGroup(container);
+    buildLegendGroup(container);
   }
 
   function openSettings() {
@@ -1700,6 +1726,7 @@
       }
       case 'edit': e.preventDefault(); editBtn.click(); break;
       case 'hints': e.preventDefault(); enterHints(); break;       // U9
+      case 'settings': e.preventDefault(); openSettings(); break;
       case 'help': e.preventDefault(); openCheatsheet(); break;    // U10
       case 'escape':
         if (isField(e.target)) e.target.blur();
@@ -1872,13 +1899,18 @@
 
         if (it.snippet) li.appendChild(snippetNode(it.snippet, it.matchTerms));
 
-        // "Why this" (U10): one quiet signal-derived clause as the row's last child,
-        // suppressed when empty. Text-only — "same session as <host>" is page-derived.
+        // "Why this" (U10): the one quiet signal worth a glance, as a small inline icon on
+        // the meta line (so a marked row never stands taller than its neighbours). The phrase
+        // is the icon's tooltip + accessible name; suppressed entirely when there's no signal.
         if (it.reason) {
-          const why = document.createElement('div');
+          const meta = li.querySelector('.meta');
+          const why = document.createElement('span');
           why.className = 'recall-why';
-          why.textContent = it.reason;
-          li.appendChild(why);
+          why.setAttribute('role', 'img');
+          why.title = it.reason;
+          why.setAttribute('aria-label', it.reason);
+          why.append(icon('repeat'));
+          (meta || li).appendChild(why);
         }
 
         // Set-bearing recall items offer a one-tap "bring back the set" (the
@@ -1899,7 +1931,10 @@
             restoreInflight = true;
             send('restore-set', { recordId: it.id, urls }).then(() => { if (!destroyed) restoreInflight = false; }).catch(() => { restoreInflight = false; });
           });
-          li.appendChild(restore);
+          // Inline on the meta line so a set-bearing row keeps the same height as every
+          // other row (a stacked chip reserved a line even at opacity:0, breaking the rhythm).
+          const meta = li.querySelector('.meta');
+          if (meta) meta.appendChild(restore); else li.appendChild(restore);
         }
         if (it.id) { addProtect(li, it); addForget(li, it); }   // hover-revealed pair: protect · forget
         return li;
@@ -2472,24 +2507,8 @@
           ctrls.appendChild(later);
           li.appendChild(ctrls);
         }
-
-        // Bring back the set (⊕N) — the same chip as recall, when this was part of a session.
-        if (it.siblings && it.siblings.length) {
-          const urls = it.siblings.map((s) => s.url);
-          const n = it.siblings.length;
-          const chip = document.createElement('button');
-          chip.type = 'button'; chip.className = 'set-restore';
-          chip.textContent = '⊕ ' + n;
-          chip.title = 'Bring back the ' + n + ' tab' + (n === 1 ? '' : 's') + ' this was open with';
-          chip.setAttribute('aria-label', 'Bring back the ' + n + ' tab' + (n === 1 ? '' : 's') + ' ' + titleOf(it) + ' was open with');
-          let setInflight = false;
-          chip.addEventListener('click', () => {
-            if (setInflight) return;
-            setInflight = true;
-            send('restore-set', { recordId: it.id, urls }).then(() => { if (alive) setInflight = false; }).catch(() => { setInflight = false; });
-          });
-          li.appendChild(chip);
-        }
+        // The "bring back the set" (⊕N) chip is a recall-panel affordance only — the Snooze
+        // timeline is about when a page returns (Wake / Later), not restoring its companions.
         return li;
       }
       function listOf(items, opts) {

@@ -58,6 +58,7 @@ test('intent maps the vim normal-mode keys', () => {
   assert.equal(m('p'), 'protect'); assert.equal(m('/'), 'search');
   assert.equal(m('g'), 'g'); assert.equal(m('G'), 'bottom');
   assert.equal(m('e'), 'edit'); assert.equal(m('f'), 'hints');
+  assert.equal(m(','), 'settings');
   assert.equal(m('?'), 'help'); assert.equal(m('Escape'), 'escape');
 });
 
@@ -74,6 +75,7 @@ test('intent yields to a focused field — only Escape passes through', () => {
   const ctx = { fieldFocused: true };
   assert.equal(bk.intent('j', ctx), 'none');
   assert.equal(bk.intent('?', ctx), 'none');     // ? must type a literal ? in a field
+  assert.equal(bk.intent(',', ctx), 'none');     // , must type a literal comma in a field
   assert.equal(bk.intent('d', ctx), 'none');
   assert.equal(bk.intent('r', ctx), 'none');
   assert.equal(bk.intent('Escape', ctx), 'escape'); // Esc still blurs the field
