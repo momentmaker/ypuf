@@ -79,3 +79,105 @@ test('U2: empty input -> empty; merge does not mutate input rows', () => {
   merge.merge(rows);
   assert.equal(JSON.stringify(rows), snap);
 });
+
+// --- U3: the one-box assembler seam (pure, no chrome.*) -------------------
+
+const recallrank = require('../extension/lib/recallrank.js');
+
+const DAY = 86400000;
+const NOW = 1000 * DAY;
+
+// A production-shaped store record (born-equal unless lastAccessed is overridden).
+function record(over) {
+  const base = { id: 'r', url: 'https://e.com/a', host: 'e.com', title: 'A', content: 'body text here', timestamp: 500 * DAY };
+  const r = Object.assign(base, over);
+  if (r.lastAccessed === undefined) r.lastAccessed = r.timestamp; // born-equal by default
+  return r;
+}
+function hitFor(rec, score) { return { id: rec.id, score }; }
+
+test('U3: assemble ranks a frequently-revisited record above an equal-text stale one', () => {
+  const hot = record({ id: 'hot', url: 'https://e.com/hot' });
+  const cold = record({ id: 'cold', url: 'https://e.com/cold' });
+  const out = recallrank.assemble({
+    hits: [hitFor(cold, 10), hitFor(hot, 10)],
+    records: [cold, hot],
+    durable: { revisits: { 'https://e.com/hot': 12 }, dwell: {} },
+    q: 'body', now: NOW,
+  });
+  assert.equal(out[0].id, 'hot');
+});
+
+test('U3/Pattern 9: signal banked under a query-bearing URL still attaches after dedup', () => {
+  // The record url is query-stripped; the signal was banked under the full URL.
+  const rec = record({ id: 'pr', url: 'https://github.com/o/r/pull/9' });
+  const stale = record({ id: 'doc', url: 'https://e.com/doc' });
+  const out = recallrank.assemble({
+    hits: [hitFor(stale, 10), hitFor(rec, 10)],
+    records: [stale, rec],
+    durable: { revisits: { 'https://github.com/o/r/pull/9?tab=files': 20 }, dwell: {} },
+    q: 'body', now: NOW,
+  });
+  assert.equal(out[0].id, 'pr', 'aggregated signal across the canonical key lifts the PR');
+});
+
+test('U3/Pattern 19: a born-equal record gets no recency lift over a recently-touched one', () => {
+  const recent = record({ id: 'recent', url: 'https://e.com/recent', lastAccessed: 999 * DAY });
+  const born = record({ id: 'born', url: 'https://e.com/born' }); // lastAccessed === timestamp
+  const out = recallrank.assemble({
+    hits: [hitFor(born, 10), hitFor(recent, 10)],
+    records: [born, recent],
+    durable: { revisits: {}, dwell: {} },
+    q: 'body', now: NOW,
+  });
+  assert.equal(out[0].id, 'recent');
+  assert.equal(recallrank.ageMsOf(born, NOW), null, 'born-equal -> no age');
+});
+
+test('U3: an open-only tab (no index twin) surfaces on a url/title match when oneBox', () => {
+  const out = recallrank.assemble({
+    hits: [], records: [], oneBox: true, q: 'figma', now: NOW,
+    openTabs: [{ id: 7, url: 'https://figma.com/board', title: 'Figma — board', incognito: false }],
+  });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'open');
+  assert.equal(out[0].tabId, 7);
+  assert.equal(out[0].id, null, 'a pure open tab has no record id');
+});
+
+test('U3: incognito open tabs never surface', () => {
+  const out = recallrank.assemble({
+    hits: [], records: [], oneBox: true, q: 'secret', now: NOW,
+    openTabs: [{ id: 1, url: 'https://secret.com/x', title: 'secret', incognito: true }],
+  });
+  assert.equal(out.length, 0);
+});
+
+test('U3: oneBox=false (the ⌘⇧K overlay path) emits no open-tab rows', () => {
+  const out = recallrank.assemble({
+    hits: [], records: [], oneBox: false, q: 'figma', now: NOW,
+    openTabs: [{ id: 7, url: 'https://figma.com/board', title: 'Figma', incognito: false }],
+  });
+  assert.equal(out.length, 0);
+});
+
+test('U3: an open tab and its let-go twin dedup to one row that jumps but keeps the snippet', () => {
+  const rec = record({ id: 'fig', url: 'https://figma.com/board', content: 'figma design board notes' });
+  const out = recallrank.assemble({
+    hits: [hitFor(rec, 9)], records: [rec], oneBox: true, q: 'figma', now: NOW,
+    openTabs: [{ id: 42, url: 'https://figma.com/board?node=1', title: 'Figma', incognito: false }],
+  });
+  assert.equal(out.length, 1, 'open + let-go twin collapse');
+  assert.equal(out[0].kind, 'open');
+  assert.equal(out[0].tabId, 42);
+  assert.equal(out[0].id, 'fig', 'recordId retained');
+  assert.ok(out[0].snippet, 'excerpt retained from the indexed twin');
+});
+
+test('U3: assemble output carries no internal score/signal fields', () => {
+  const rec = record({ id: 'r', content: 'hello body' });
+  const out = recallrank.assemble({ hits: [hitFor(rec, 5)], records: [rec], q: 'body', now: NOW });
+  assert.equal(out[0].score, undefined);
+  assert.equal(out[0].signal, undefined);
+  assert.equal(out[0]._blended, undefined);
+});
