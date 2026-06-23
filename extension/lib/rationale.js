@@ -5,26 +5,25 @@
  * or '' to suppress the line entirely. It only surfaces signal the row's meta line
  * doesn't already show (host + how-long-ago), so a zero-history row adds no line.
  *
- *   compose(record, signal) -> "often revisited" | "same session as <host>" | ""
+ *   compose(row) -> "often revisited" | "same session as <host>" | ""
  *
  * Born-equal-safe by construction (Pattern 19): it never claims recall/reopen
- * activity — only revisit FREQUENCY (foreground returns, lib/signal.js) and the
- * session a page was let go alongside (lib/cluster.js siblings). A record that was
- * never recalled (lastAccessed === timestamp) therefore can't earn a false claim.
+ * activity — only revisit FREQUENCY (the `frequent` flag the SW already stamped on
+ * the row, from foreground returns) and the session a page was let go alongside
+ * (lib/cluster.js siblings). A never-recalled row (lastAccessed === timestamp)
+ * therefore can't earn a false claim.
  */
 (function (root) {
   'use strict';
 
-  const FREQUENT = 3; // matches background's FREQUENT_REVISITS — the §4 "load-bearing" bar
-
   function hostOf(url) { try { return new URL(url).hostname; } catch { return ''; } }
 
-  function compose(record, signal) {
-    if (!record || !signal) return '';
-    const revisits = (signal.revisits && record.url && signal.revisits[record.url]) || 0;
-    if (revisits >= FREQUENT) return 'often revisited';
-    const sibs = Array.isArray(record.siblings) ? record.siblings : [];
-    const host = sibs.length ? (sibs[0].host || hostOf(sibs[0].url)) : '';
+  function compose(row) {
+    if (!row) return '';
+    if (row.frequent) return 'often revisited';
+    const sibs = Array.isArray(row.siblings) ? row.siblings : [];
+    const s0 = sibs[0];
+    const host = s0 ? (s0.host || hostOf(s0.url)) : '';
     if (host) return 'same session as ' + host;
     return '';
   }

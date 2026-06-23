@@ -2005,37 +2005,42 @@
         return true;
       }
 
-      const proactiveSeq = ++seq;
-      send('recall-search', { q: '', oneBox: true }).then((resp) => {
-        if (destroyed || proactiveSeq !== seq) return;   // a keystroke already superseded the proactive load
-        renderedSeq = proactiveSeq;
-        const items = (resp && resp.results) || [];
-        const had = renderProactive(recentWrap, items);
-        syncProtectMarks();   // protected-list may have resolved before any rows existed — re-mark now
-        // The puff — rows let go since the last board open arrive with a soft settle.
-        // One-shot: disarm after the first paint. boardLastOpen === 0 means first-ever open.
-        if (puffArmed && boardLastOpen > 0) {
-          for (const it of items) {
-            if (it.autoClosed && it.timestamp > boardLastOpen) {
-              const r = recentWrap.querySelector('[data-id="' + cssEsc(it.id) + '"]');
-              if (r) r.classList.add('puff');
+      // Load the proactive set under a seq token so a fast keystroke supersedes it.
+      // Called at mount AND when the query clears back to empty (so a type-before-reply
+      // can't leave the panel permanently blank).
+      function loadProactive(mySeq) {
+        send('recall-search', { q: '', oneBox: true }).then((resp) => {
+          if (destroyed || mySeq !== seq) return;   // a keystroke already superseded this load
+          renderedSeq = mySeq;
+          const items = (resp && resp.results) || [];
+          const had = renderProactive(recentWrap, items);
+          syncProtectMarks();   // protected-list may have resolved before any rows existed — re-mark now
+          // The puff — rows let go since the last board open arrive with a soft settle.
+          // One-shot: disarm after the first paint. boardLastOpen === 0 means first-ever open.
+          if (puffArmed && boardLastOpen > 0) {
+            for (const it of items) {
+              if (it.autoClosed && it.timestamp > boardLastOpen) {
+                const r = recentWrap.querySelector('[data-id="' + cssEsc(it.id) + '"]');
+                if (r) r.classList.add('puff');
+              }
             }
           }
-        }
-        if (puffArmed) puffArmed = false;
-        if (had) {   // a quiet route into search for anything older than the peek
-          const older = document.createElement('button');
-          older.type = 'button';
-          older.className = 'shelf-older';
-          older.textContent = 'Search all let-go pages…';
-          older.addEventListener('click', () => search.focus());
-          recentWrap.appendChild(older);
-        } else {   // first run / everything forgotten — the calm empty state, mirrors Snooze
-          recentWrap.appendChild(panelEmpty(recallPuffSvg(),
-            'Nothing let go yet. Let a tab go with ⌘⇧L — its content stays findable.',
-            'Then find it again by what the page said — not just its title.'));
-        }
-      });
+          if (puffArmed) puffArmed = false;
+          if (had) {   // a quiet route into search for anything older than the peek
+            const older = document.createElement('button');
+            older.type = 'button';
+            older.className = 'shelf-older';
+            older.textContent = 'Search all let-go pages…';
+            older.addEventListener('click', () => search.focus());
+            recentWrap.appendChild(older);
+          } else {   // first run / everything forgotten — the calm empty state, mirrors Snooze
+            recentWrap.appendChild(panelEmpty(recallPuffSvg(),
+              'Nothing let go yet. Let a tab go with ⌘⇧L — its content stays findable.',
+              'Then find it again by what the page said — not just its title.'));
+          }
+        });
+      }
+      loadProactive(++seq);
 
       // While a query is active, collapse the panel to JUST the matches. The relief/digest
       // lines hide immediately; the proactive block stays as a DIMMED placeholder through the
@@ -2085,7 +2090,12 @@
         searchMode(!!q);                 // toggle immediately so the recent list hides as you type
         clearKbdCursor();                // a changed query resets selection → Enter opens the top match, not a stale row
         clearTimeout(timer);
-        if (!q) { results.textContent = ''; renderChips(null); return; }   // empty → restore the full panel
+        if (!q) {   // empty → restore the full panel (re-fetch proactive if a prior keystroke dropped it)
+          results.textContent = '';
+          renderChips(null);
+          if (!recentWrap.firstChild) loadProactive(mine);
+          return;
+        }
         timer = setTimeout(() => {
           // oneBox: fold currently-open tabs + snoozed into the query, with adaptive
           // actions. The ⌘⇧K overlay omits this flag, so it never gets open-tab rows.

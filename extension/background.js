@@ -350,6 +350,7 @@ async function snoozeStartup() {
 const RETENTION_MAX_AGE_MS = 180 * 86400000; // 180 days
 async function maybePrune() {
   try {
+    await pruneStaleSignal(Date.now()); // bound signal growth on the let-go cadence too, not only cold start
     if (!(await store.shouldPrune({ threshold: 0.75 }))) return;
     const { quota = 0 } = (await navigator.storage.estimate()) || {};
     const maxBytes = quota ? Math.floor(quota * 0.6) : undefined;
@@ -394,7 +395,7 @@ const saveDurable = (durable) => local.set(SIGNAL_KEY, durable);
 // Bound signal-map growth (U8): age out URLs not foregrounded within the window —
 // forget alone never fires for visited-but-kept URLs, so the map would grow forever.
 // Runs on cold start (initIndex) and at storage pressure (maybePrune); both recur.
-const SIGNAL_RETENTION_MAX_AGE_MS = 180 * 86400000; // mirrors the store's 180-day retention
+const SIGNAL_RETENTION_MAX_AGE_MS = RETENTION_MAX_AGE_MS; // same 180-day window as the store
 async function pruneStaleSignal(now) {
   const durable = await loadDurable();
   if (signal.pruneStale(durable, now, SIGNAL_RETENTION_MAX_AGE_MS)) await saveDurable(durable);
@@ -935,7 +936,7 @@ async function getRecallResults(q, opts = {}) {
   }
   // "Why this" (U10): a quiet rationale on every row (search, pivot, and proactive),
   // suppressed to '' when there's no signal beyond what the meta line already shows.
-  for (const r of results) r.reason = rationale.compose(r, durable);
+  for (const r of results) r.reason = rationale.compose(r);
   return { results, total, pivots: parsed };
 }
 

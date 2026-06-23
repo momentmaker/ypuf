@@ -5,47 +5,35 @@ const assert = require('node:assert/strict');
 
 const rationale = require('../extension/lib/rationale.js');
 
-const DAY = 86400000;
-// A born-equal record (Pattern 19): lastAccessed === timestamp, i.e. never recalled.
-function rec(over) {
-  const base = { id: 'r', url: 'https://e.com/a', host: 'e.com', timestamp: 500 * DAY, siblings: [] };
-  const r = Object.assign(base, over);
-  if (r.lastAccessed === undefined) r.lastAccessed = r.timestamp;
-  return r;
-}
-const sig = (over) => Object.assign({ revisits: {}, dwell: {}, lastActiveAt: {} }, over);
+// A recall row as the SW projects it: `frequent` is the revisit flag, `siblings` the
+// session. A born-equal/no-signal row (Pattern 19) is { frequent: false, siblings: [] }.
+function row(over) { return Object.assign({ frequent: false, siblings: [] }, over); }
 
-test('U10: a frequently-revisited page reads "often revisited"', () => {
-  const r = rec({ url: 'https://e.com/pr' });
-  assert.equal(rationale.compose(r, sig({ revisits: { 'https://e.com/pr': 7 } })), 'often revisited');
+test('U10: a frequently-revisited row reads "often revisited"', () => {
+  assert.equal(rationale.compose(row({ frequent: true })), 'often revisited');
 });
 
-test('U10: a session-bearing page reads "same session as <host>"', () => {
-  const r = rec({ siblings: [{ url: 'https://github.com/o/r', host: 'github.com' }] });
-  assert.equal(rationale.compose(r, sig()), 'same session as github.com');
+test('U10: a session-bearing row reads "same session as <host>"', () => {
+  assert.equal(rationale.compose(row({ siblings: [{ url: 'https://github.com/o/r', host: 'github.com' }] })), 'same session as github.com');
 });
 
 test('U10: frequency takes priority over session', () => {
-  const r = rec({ url: 'https://e.com/x', siblings: [{ host: 'x.com' }] });
-  assert.equal(rationale.compose(r, sig({ revisits: { 'https://e.com/x': 9 } })), 'often revisited');
+  assert.equal(rationale.compose(row({ frequent: true, siblings: [{ host: 'x.com' }] })), 'often revisited');
 });
 
 test('U10: a sibling with only a URL derives the host', () => {
-  const r = rec({ siblings: [{ url: 'https://docs.site.org/a' }] });
-  assert.equal(rationale.compose(r, sig()), 'same session as docs.site.org');
+  assert.equal(rationale.compose(row({ siblings: [{ url: 'https://docs.site.org/a' }] })), 'same session as docs.site.org');
 });
 
 test('U10/Pattern 19: a born-equal, no-signal row composes nothing (no false "recalled" claim, suppressed)', () => {
-  const r = rec(); // never recalled, no revisits, no siblings
-  assert.equal(rationale.compose(r, sig()), '');
+  assert.equal(rationale.compose(row()), '');
 });
 
-test('U10: below the frequency bar AND no session -> suppressed (the meta line already shows recency)', () => {
-  const r = rec({ url: 'https://e.com/y' });
-  assert.equal(rationale.compose(r, sig({ revisits: { 'https://e.com/y': 1 } })), '');
+test('U10: a null / hostless sibling is inert (no crash, no "same session as " stub)', () => {
+  assert.equal(rationale.compose(row({ siblings: [null] })), '');
+  assert.equal(rationale.compose(row({ siblings: [{ host: null, url: null }] })), '');
 });
 
-test('U10: missing record / signal is inert', () => {
-  assert.equal(rationale.compose(null, sig()), '');
-  assert.equal(rationale.compose(rec(), null), '');
+test('U10: missing row is inert', () => {
+  assert.equal(rationale.compose(null), '');
 });

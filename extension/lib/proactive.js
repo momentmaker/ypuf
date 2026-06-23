@@ -16,7 +16,7 @@
 (function (root) {
   'use strict';
 
-  const DEFAULT_CAP = 6;            // matches the panel's RECENT_GROUP_CAP — a glanceable peek
+  const DEFAULT_CAP = 6;            // a calm, glanceable peek — enough to scan without scrolling
   const K_REVISIT = 5;             // revisits saturate: 5 ~= half weight
   const HALFLIFE = 3 * 86400000;   // recency half-life ~3 days
   const W = { freq: 0.5, recency: 0.5 };

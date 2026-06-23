@@ -54,6 +54,16 @@ test('U9: rank is pure — input array and order are untouched', () => {
   assert.equal(JSON.stringify(records), snap);
 });
 
+test('U9: two records with identical nonzero scores keep their input order (stable tie-break)', () => {
+  const records = [rec('a', 'https://e.com/a'), rec('b', 'https://e.com/b')];
+  const signal = {
+    revisits: { 'https://e.com/a': 5, 'https://e.com/b': 5 },
+    lastActiveAt: { 'https://e.com/a': NOW - 2 * DAY, 'https://e.com/b': NOW - 2 * DAY },
+  };
+  assert.equal(proactive.scoreOf(records[0], signal, NOW), proactive.scoreOf(records[1], signal, NOW));
+  assert.deepEqual(proactive.rank(records, signal, NOW).map((r) => r.id), ['a', 'b']);
+});
+
 test('U9: empty / missing inputs return empty', () => {
   assert.deepEqual(proactive.rank([], {}, NOW), []);
   assert.deepEqual(proactive.rank(null, null, NOW), []);
