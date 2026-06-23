@@ -36,12 +36,14 @@
     for (const r of rows) {
       if ((PRECEDENCE[r.kind] || 0) > (PRECEDENCE[action.kind] || 0)) action = r;
     }
-    // Display source: the first index-backed row (has a record id + content);
-    // falls back to the action row for a pure open tab with no twin.
-    const indexRow = rows.find((r) => r.id != null) || action;
-    return Object.assign({}, indexRow, {
+    // Display source: when the winning action is itself index-backed (a snoozed or
+    // let-go twin), its OWN record supplies the display fields — so a snoozed twin
+    // keeps its snoozeState/returnAt instead of inheriting a let-go twin's nulls.
+    // A pure open tab (no id) falls back to any index twin, then to itself.
+    const base = (action.id != null) ? action : (rows.find((r) => r.id != null) || action);
+    return Object.assign({}, base, {
       kind: action.kind,
-      tabId: action.tabId != null ? action.tabId : indexRow.tabId,
+      tabId: action.tabId != null ? action.tabId : base.tabId,
     });
   }
 

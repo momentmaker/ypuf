@@ -100,8 +100,8 @@
     return clean;
   }
 
-  // hits: [{ id, score }]; records: store records parallel to hits (may contain
-  // nulls for evicted ids); openTabs: raw chrome.tabs (only used when oneBox).
+  // `records` is parallel to `hits` and may contain nulls (ids evicted between
+  // the text search and store.get) — those rows are skipped.
   function assemble(input) {
     const { hits = [], records = [], openTabs = [], durable = {}, q = '', now = 0, oneBox = false } = input || {};
     const sigByKey = aggregateSignal(durable);

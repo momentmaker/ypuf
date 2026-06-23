@@ -56,6 +56,21 @@ test('U2: precedence open > snoozed > let-go for the action kind', () => {
   assert.equal(out[0].returnAt, 999, 'snoozed metadata still carried for display');
 });
 
+test('U2: a let-go twin and a snoozed twin on one key collapse coherently — snooze metadata survives', () => {
+  // Two DISTINCT index records sharing a canonical key (different query strings),
+  // one let-go and one snoozed. The survivor must read as snoozed (its returnAt +
+  // snoozeState), not silently drop them by inheriting the let-go twin's nulls.
+  const out = merge.merge([
+    letgo({ id: 'lg', url: 'https://e.com/a?ref=1' }),
+    snoozed({ id: 'sn', url: 'https://e.com/a?ref=2', returnAt: 777 }),
+  ]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'snoozed');
+  assert.equal(out[0].snoozeState, 'snoozed');
+  assert.equal(out[0].returnAt, 777);
+  assert.equal(out[0].id, 'sn', 'the winning snoozed record supplies the display fields');
+});
+
 test('U2: a pure open tab with no index twin passes through as kind:open (no content)', () => {
   const out = merge.merge([open({ url: 'https://only-open.com/x', tabId: 7 })]);
   assert.equal(out.length, 1);
@@ -180,4 +195,23 @@ test('U3: assemble output carries no internal score/signal fields', () => {
   assert.equal(out[0].score, undefined);
   assert.equal(out[0].signal, undefined);
   assert.equal(out[0]._blended, undefined);
+});
+
+test('U3: a record evicted between search and store.get (null) is skipped; survivors still rank', () => {
+  const alive = record({ id: 'alive', url: 'https://e.com/alive', content: 'alive body' });
+  const out = recallrank.assemble({
+    hits: [{ id: 'evicted', score: 50 }, hitFor(alive, 5)],
+    records: [null, alive], // the high-scoring hit was evicted from the store
+    q: 'body', now: NOW,
+  });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].id, 'alive');
+});
+
+test('U3: a snoozed record flows through assemble as kind:snoozed with its return metadata', () => {
+  const rec = record({ id: 'sn', url: 'https://e.com/s', content: 'snooze body', snoozeState: 'snoozed', returnAt: 4242 });
+  const out = recallrank.assemble({ hits: [hitFor(rec, 8)], records: [rec], q: 'body', now: NOW });
+  assert.equal(out[0].kind, 'snoozed');
+  assert.equal(out[0].snoozeState, 'snoozed');
+  assert.equal(out[0].returnAt, 4242);
 });

@@ -6,7 +6,6 @@ const assert = require('node:assert/strict');
 const rank = require('../extension/lib/rank.js');
 
 const DAY = 86400000;
-const NOW = 1_000 * DAY; // a fixed, large "now" so ageMs math is deterministic
 
 // A hit as it arrives from a text search: { id, score (text relevance), signal }.
 function hit(id, score, signal) {
@@ -14,7 +13,7 @@ function hit(id, score, signal) {
 }
 
 function order(hits) {
-  return rank.rerank(hits, { now: NOW }).map((h) => h.id);
+  return rank.rerank(hits).map((h) => h.id);
 }
 
 test('AE2: with equal text scores, the more-revisited page ranks first', () => {
@@ -41,8 +40,18 @@ test('intent cannot push even a floor-edge page above the strongest zero-signal 
   const out = rank.rerank([
     hit('top', top, { revisits: 0 }),
     hit('edge', Math.ceil(top * 0.6), { revisits: 9999, dwell: 30 * DAY }),
-  ], { now: NOW });
+  ]);
   assert.equal(out[0].id, 'top');
+});
+
+test('a row BELOW the relevance floor receives no lift, however strong its signal', () => {
+  // The core cross-document dominance guard (rank.js: `score < FLOOR*topScore`):
+  // a sub-floor row keeps its raw text score, so intent can never climb it.
+  const out = rank.rerank([
+    hit('top', 20, { revisits: 0 }),
+    hit('sub', 11, { revisits: 9999, dwell: 30 * DAY }), // 11 < 0.6*20 = 12 -> below floor
+  ]);
+  assert.equal(out.find((h) => h.id === 'sub')._blended, 11, 'sub-floor row keeps its raw score, no lift');
 });
 
 test('zero signal yields the text-only baseline (no lift, deterministic order)', () => {
@@ -57,9 +66,9 @@ test('born-equal recency (ageMs null/0) contributes no recency lift', () => {
   // Two equally-weak-text rows; the only difference is recency. A born-equal
   // record (never recalled -> ageMs null) must not be lifted over a genuinely
   // recently-touched one.
-  const recent = rank.rerank([hit('r', 10, { ageMs: 1 * DAY })], { now: NOW })[0]._blended;
-  const bornEqual = rank.rerank([hit('be', 10, { ageMs: null })], { now: NOW })[0]._blended;
-  const bornZero = rank.rerank([hit('bz', 10, { ageMs: 0 })], { now: NOW })[0]._blended;
+  const recent = rank.rerank([hit('r', 10, { ageMs: 1 * DAY })])[0]._blended;
+  const bornEqual = rank.rerank([hit('be', 10, { ageMs: null })])[0]._blended;
+  const bornZero = rank.rerank([hit('bz', 10, { ageMs: 0 })])[0]._blended;
   assert.ok(recent > bornEqual, 'a recently-touched page outscores a never-recalled one');
   assert.equal(bornEqual, bornZero, 'ageMs 0 and null are both "never recalled"');
   assert.equal(bornEqual, 10, 'no recency signal -> pure text score');
@@ -76,10 +85,10 @@ test('a large revisit count does not swamp a much stronger text score', () => {
 test('rerank is pure: it does not mutate the input order or scores', () => {
   const hits = [hit('a', 5, { revisits: 1 }), hit('b', 9, {})];
   const snapshot = JSON.stringify(hits);
-  rank.rerank(hits, { now: NOW });
+  rank.rerank(hits);
   assert.equal(JSON.stringify(hits), snapshot, 'input array is untouched');
 });
 
 test('empty input returns empty', () => {
-  assert.deepEqual(rank.rerank([], { now: NOW }), []);
+  assert.deepEqual(rank.rerank([]), []);
 });

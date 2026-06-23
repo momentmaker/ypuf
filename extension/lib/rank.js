@@ -32,7 +32,6 @@
   const HALFLIFE = 3 * 86400000;    // recency half-life ~3 days
   const W = { revisit: 0.4, dwell: 0.26, recency: 0.34 }; // sum to 1
 
-  // x / (x + k): a saturating 0..1 curve for unbounded counts/durations.
   function saturate(x, k) {
     const v = x > 0 ? x : 0;
     return v / (v + k);
@@ -43,7 +42,6 @@
     return HALFLIFE / (HALFLIFE + ageMs);
   }
 
-  // 0..1 strength of the behavioral signal for one row.
   function intentStrength(signal) {
     const s = signal || {};
     const r = saturate(s.revisits, K_REVISIT);
