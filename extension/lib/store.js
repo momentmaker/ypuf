@@ -65,8 +65,10 @@
           db.createObjectStore(VECTOR_STORE, { keyPath: 'key' });
           // The records store already exists (created above for a fresh install,
           // or carried over from v1) — reach it via the upgrade transaction to
-          // add the canonical-key index without rewriting any rows. Records
-          // written before this index existed are back-filled by IndexedDB.
+          // add the canonical-key index without rewriting any rows. IndexedDB does
+          // NOT retro-populate an index: a pre-U3 record has no canonicalKey
+          // property, so it stays ABSENT from this index until backfillCanonicalKeys()
+          // re-puts it (normalize() then stamps the key). initIndex() runs that once.
           const entries = req.transaction.objectStore(STORE);
           if (!entries.indexNames.contains('canonicalKey')) {
             entries.createIndex('canonicalKey', 'canonicalKey', { unique: false });

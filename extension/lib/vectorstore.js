@@ -104,13 +104,16 @@
   //     a page concurrently forgotten between snapshot and embed can't get a
   //     re-created vector (the load-bearing privacy guard);
   //   - persists the cursor after each batch.
-  // `deps.listKeys()` returns the ordered [{ key, url, text }] to embed (the SW
-  // derives these from store.getAll). Returns { embedded, scanned, done }.
+  // The ordered [{ key, url, text }] to embed (the SW derives these from
+  // store.getAll). Callers SHOULD pass `opts.pages` — a snapshot taken ONCE per
+  // multi-batch pass — so the cursor walks a stable list without a getAll() per
+  // batch; when omitted we fall back to `deps.listKeys()` per call (back-compat).
+  // Returns { embedded, scanned, done }.
   async function backfill(deps, opts = {}) {
     if (typeof deps.embed !== 'function') return { embedded: 0, scanned: 0, done: true };
     const modelVersion = opts.modelVersion;
     const batchSize = opts.batchSize || 25;
-    const pages = await deps.listKeys();           // ordered, stable across resumes
+    const pages = opts.pages || await deps.listKeys();  // ordered, stable across resumes
     let cursor = (typeof deps.loadCursor === 'function' ? await deps.loadCursor() : 0) || 0;
     if (cursor < 0 || cursor > pages.length) cursor = 0; // a stale cursor (index shrank) restarts safely
 
@@ -148,6 +151,14 @@
     return { embedded, scanned, done };
   }
 
+  // Minimum cosine a hit must clear to count as a meaning-match. Without it, a
+  // vague/stopword query (whose embedding is near-orthogonal to everything) would
+  // still return up to K weak rows and flood the calm empty-state with noise. The
+  // floor lets a genuinely-empty semantic result fall through to the no-results
+  // state. Dogfood-tunable — raise if weak matches still leak, lower if real
+  // matches get dropped.
+  const MIN_COSINE = 0.15;
+
   // Cosine top-K over every stored vector (semantic recall U5). One pass: read
   // all rows, cosine each against the query vector (via the injected
   // deps.cosine — vectorstore never imports lib/embed.js), keep the K highest.
@@ -155,8 +166,9 @@
   // — a few thousand), so a per-query linear scan stays well inside the latency
   // bar. Rows tagged a DIFFERENT modelVersion than the query's are skipped: a
   // half-finished model bump must never cosine query vectors against stale ones
-  // (mismatched spaces). A non-positive K, an empty store, or no cosine fn -> [].
-  // Returns [{ key, score }] sorted by score desc, length <= K.
+  // (mismatched spaces). Hits below MIN_COSINE are dropped (a vague query yields
+  // the calm no-results state, not K weak rows). A non-positive K, an empty
+  // store, or no cosine fn -> []. Returns [{ key, score }] sorted desc, len <= K.
   async function topK(deps, queryVec, k, modelVersion) {
     if (typeof deps.cosine !== 'function' || !queryVec || !(k > 0)) return [];
     const rows = await deps.withVectorStore('readonly',
@@ -165,7 +177,9 @@
     for (const r of rows || []) {
       if (!r || !r.vector) continue;
       if (modelVersion != null && r.modelVersion !== modelVersion) continue;
-      scored.push({ key: r.key, score: deps.cosine(queryVec, r.vector) });
+      const score = deps.cosine(queryVec, r.vector);
+      if (score < MIN_COSINE) continue; // below the meaning-match floor — drop
+      scored.push({ key: r.key, score });
     }
     scored.sort((a, b) => b.score - a.score);
     return scored.slice(0, k);
@@ -173,7 +187,7 @@
 
   const api = {
     get, has, put, deleteKey, deleteByDomain, clear,
-    embedAndPut, backfill, topK, hostOfKey,
+    embedAndPut, backfill, topK, hostOfKey, MIN_COSINE,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

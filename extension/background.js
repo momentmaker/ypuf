@@ -163,7 +163,12 @@ async function buildDeps() {
     now: () => Date.now(),
     makeId: () => crypto.randomUUID(),
     inFlight,
-    store,
+    // The capture put MUST drop the vectors of any record a quota-pressure
+    // eviction sheds at write time — without onEvict, a QuotaExceededError
+    // retry evicts records but orphans their paired vectors (§7: no scrubbed
+    // content stays searchable; the cold-start maybePrune never re-sees an
+    // already-evicted record, so the orphan would be permanent).
+    store: storeWithEvict,
     search,
     canonicalKey: cluster.originPathKey,
   };
@@ -294,7 +299,7 @@ function flipBackNow(ids) {
     let flipped = 0;
     for (const id of ids) {
       const rec = await store.get(id);
-      if (rec && rec.snoozeState === 'snoozed') { await store.put(snooze.mark(rec, 'back-now')); flipped += 1; }
+      if (rec && rec.snoozeState === 'snoozed') { await store.put(snooze.mark(rec, 'back-now'), { onEvict: dropEvictedVectors }); flipped += 1; }
     }
     if (flipped) { await persistSnapshot(); await bumpBadge(flipped); }
   });
@@ -331,7 +336,7 @@ async function autoReopenDue(now) {
           if (fresh && fresh.snoozeState === 'snoozed') {
             const updated = snooze.mark(fresh, null);
             updated.lastAccessed = now;
-            await store.put(updated);
+            await store.put(updated, { onEvict: dropEvictedVectors });
             await persistSnapshot();
           }
         });
@@ -451,8 +456,20 @@ async function embedOnCapture(record) {
   if (!record || !record.url) return;
   if (!(await isSemanticReady())) return;
   try {
+    const key = cluster.originPathKey(record.url);
     if (record.contentLess || !record.content) {
-      const key = cluster.originPathKey(record.url);
+      if (key) await vectorstore.deleteKey(dropVectorDeps(), key);
+      return;
+    }
+    // capture.letGo ran its blocklist check at let-go START; a host blocklisted
+    // (or this page forgotten) DURING the capture would otherwise get a fresh
+    // searchable vector here, AFTER retroactivePurge/forget already ran (§7). So
+    // re-check the CURRENT blocklist and that the record still exists right now:
+    // if the host is now blocklisted or the record is gone, drop any vector and
+    // skip embedding rather than re-creating searchable content.
+    const cls = exclusion.classify({ url: record.url, incognito: false }, await getUserBlocklist());
+    const stillIndexed = cls.kind === 'extractable' && (key ? (await store.getByCanonicalKey(key)) != null : false);
+    if (!stillIndexed) {
       if (key) await vectorstore.deleteKey(dropVectorDeps(), key);
       return;
     }
@@ -476,22 +493,45 @@ async function dropEvictedVectors(records) {
   }
 }
 
+// The record-bearing store wrapper every let-go / snooze-state put goes through:
+// its put carries onEvict so a quota-pressure eviction during the write drops the
+// evicted pages' vectors too (no orphan vector survives the in-put() quota path).
+// Delegates every other store method untouched.
+const storeWithEvict = Object.assign(Object.create(store), {
+  put: (record) => store.put(record, { onEvict: dropEvictedVectors }),
+});
+
 // Resumable, idempotent backfill (opt-in): embed every indexed page lacking a
 // current-version vector, advancing a persisted cursor so an SW kill resumes
 // rather than restarts. Serialized behind one chain so a coincident re-trigger
 // (cold start + a settings re-enable) can't run two passes over the same cursor.
 // Loops batch-by-batch to completion; each batch re-checks record existence at
 // embed time (a concurrently-forgotten page gets no re-created vector).
+//
+// A generation token, bumped by semanticPurge, fences a concurrent opt-out: the
+// in-flight pass snapshots the token (and the modelVersion) BEFORE the loop and
+// re-checks at the TOP of each batch — a purge mid-pass breaks the loop so no
+// batch re-writes vectors AFTER clear() (R8 residue) and the next iteration can't
+// throw on a now-null _semantic.modelVersion.
 let _backfillChain = Promise.resolve();
+let _semanticGeneration = 0;
 function runVectorBackfill() {
   _backfillChain = _backfillChain.then(async () => {
     if (!(await isSemanticReady())) return;
+    const gen = _semanticGeneration;            // snapshot: a purge bumps this
+    const modelVersion = _semantic.modelVersion; // snapshot: a purge nulls _semantic
     const deps = vectorDeps(true);
+    // Snapshot the page list ONCE per pass (not a getAll() per batch); the cursor
+    // design already assumes a stable list across resumes.
+    const pages = await deps.listKeys();
     let guard = 0; // bound the loop defensively; one batch advances the cursor each pass
     let res;
     do {
+      // A concurrent semanticPurge (opt-out) bumped the generation or cleared the
+      // model — stop before this batch re-populates the just-cleared store.
+      if (_semanticGeneration !== gen || _semantic == null) break;
       res = await vectorstore.backfill(deps, {
-        modelVersion: _semantic.modelVersion, batchSize: VECTOR_BACKFILL_BATCH,
+        modelVersion, batchSize: VECTOR_BACKFILL_BATCH, pages,
       });
       guard += 1;
     } while (res && !res.done && guard < 100000);
@@ -527,11 +567,16 @@ async function semanticCandidates(queryText) {
       cosine: _semantic.cosine,
     };
     const hits = await vectorstore.topK(deps, queryVec, SEMANTIC_TOPK, _semantic.modelVersion);
+    // Resolve every hit's key->record in PARALLEL (independent readonly txns) —
+    // 30 serial IDB gets per keystroke was the per-query cost; Promise.all collapses
+    // it to one round of concurrent reads. A candidate whose record was evicted
+    // between embed and resolve resolves to null and is dropped silently.
+    const recs = await Promise.all(hits.map((h) => store.getByCanonicalKey(h.key)));
     const rows = [];
-    for (const h of hits) {
-      const rec = await store.getByCanonicalKey(h.key);
-      if (!rec) continue; // evicted between embed and resolve — drop silently
-      rows.push(recallrank.semanticRow(rec, h.score));
+    for (let i = 0; i < hits.length; i++) {
+      const rec = recs[i];
+      if (!rec) continue;
+      rows.push(recallrank.semanticRow(rec, hits[i].score));
     }
     return rows;
   } catch (e) {
@@ -543,10 +588,17 @@ async function semanticCandidates(queryText) {
 // Opt-out (U6 confirms the destructive intent first): clear the persisted enable
 // flag, drop EVERY vector + the backfill cursor, and forget the loaded model. The
 // cached model asset itself is U4's to remove. Leaves no semantic residue (R8).
+//
+// Fences a concurrent backfill: bump the generation token FIRST (so an in-flight
+// pass breaks at its next batch boundary instead of re-writing vectors), then
+// drain the backfill chain before clear() so no batch can re-populate the store
+// AFTER it's been cleared.
 async function semanticPurge() {
+  _semanticGeneration += 1;                 // signal any in-flight backfill to stop
+  setSemanticModel(null);                   // its top-of-batch gate also sees this
+  try { await _backfillChain; } catch { /* a failed pass still drained */ }
   try { await vectorstore.clear(dropVectorDeps()); } catch (e) { logErr(e); }
   await local.set(VECTOR_CURSOR_KEY, 0);
-  setSemanticModel(null);
 }
 
 // The page polls this to drive its settings state machine (U6):
@@ -555,11 +607,18 @@ async function semanticPurge() {
 //   cached  — the verified asset is present in Cache Storage (re-loadable on wake)
 // The EVICTED state is `enabled && !cached`: the user opted in but the browser
 // dropped the bucket, so the page offers a re-download. `enabled && cached && !ready`
-// is the cold-wake window before loadSemanticModel runs — the page re-asks shortly.
+// is the cold-wake window — and a bare NTP open (no recall query) never triggers
+// the lazy load semanticCandidates does, so without help this read would report
+// "preparing" forever and the page's poll would spin. Opportunistically load the
+// cached model here (idempotent) so the poll converges to ready on its own.
 async function semanticState() {
   let cached = false;
   try { cached = await modelasset.isCached(); } catch (e) { logErr(e); }
-  return { enabled: await isSemanticEnabled(), ready: await isSemanticReady(), cached };
+  const enabled = await isSemanticEnabled();
+  if (enabled && cached && _semantic == null) {
+    if (await loadSemanticModel() && await isSemanticReady()) runVectorBackfill();
+  }
+  return { enabled, ready: await isSemanticReady(), cached };
 }
 
 // Persist opt-in intent. The model DOWNLOAD runs in the new-tab PAGE (U4); the
@@ -1137,7 +1196,7 @@ async function snoozeResnooze(recordId, preset, custom) {
     const rec = await store.get(recordId);
     if (!rec) return;
     const updated = Object.assign(snooze.mark(rec, null), { snoozeState: 'snoozed' }, schedule);
-    await store.put(updated);
+    await store.put(updated, { onEvict: dropEvictedVectors });
     await persistSnapshot();
     if (typeof updated.returnAt === 'number') createSnoozeAlarm(recordId, updated.returnAt);
   });
@@ -1293,7 +1352,7 @@ async function reopenRecord(recordId) {
     await clearSnoozeAlarm(recordId);
     await mutateSnooze(async () => {
       const fresh = await store.get(recordId);
-      if (fresh) { await store.put(snooze.mark(fresh, null)); await persistSnapshot(); }
+      if (fresh) { await store.put(snooze.mark(fresh, null), { onEvict: dropEvictedVectors }); await persistSnapshot(); }
     });
   }
   // The v1 learning (R14/F2): reopening a tab ypuf auto-let-go is the strongest

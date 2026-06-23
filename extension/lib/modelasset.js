@@ -100,37 +100,50 @@
 
   // --- impure shell --------------------------------------------------------
 
+  // A stalled CDN must surface as the 'failed' UI state, not hang the download
+  // forever. One AbortController fences the WHOLE operation — the fetch AND the
+  // stream loop (a CDN can hang mid-body, between reads) — so a stuck connection
+  // aborts and ensureModel rejects into the calm "try again?" path.
+  const FETCH_TIMEOUT_MS = 5 * 60 * 1000;
+
   // Fetch a URL to an ArrayBuffer, reporting byte progress when the host sends a
   // Content-Length. default redirect:'follow' — GitHub 302s release-download URLs
   // to objects.githubusercontent.com, so we must NOT set redirect:'error' and must
   // NOT run the RSS broker's sourceurl SSRF validator (either would hard-fail the
   // legitimate redirect). credentials:'omit' + no-referrer keep the request clean.
   async function fetchBuffer(url, onChunk) {
-    const res = await fetch(url, {
-      credentials: 'omit',
-      referrerPolicy: 'no-referrer',
-      // redirect defaults to 'follow' — intentional (GitHub's 302 to the CDN).
-    });
-    if (!res.ok) throw new Error('http-' + res.status);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, {
+        credentials: 'omit',
+        referrerPolicy: 'no-referrer',
+        signal: controller.signal,
+        // redirect defaults to 'follow' — intentional (GitHub's 302 to the CDN).
+      });
+      if (!res.ok) throw new Error('http-' + res.status);
 
-    const total = Number(res.headers.get('content-length')) || 0;
-    // No stream / no progress callback → the simple path (still verified later).
-    if (!res.body || typeof onChunk !== 'function') return res.arrayBuffer();
+      const total = Number(res.headers.get('content-length')) || 0;
+      // No stream / no progress callback → the simple path (still verified later).
+      if (!res.body || typeof onChunk !== 'function') return await res.arrayBuffer();
 
-    const reader = res.body.getReader();
-    const chunks = [];
-    let loaded = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      loaded += value.length;
-      onChunk(loaded, total);
+      const reader = res.body.getReader();
+      const chunks = [];
+      let loaded = 0;
+      for (;;) {
+        const { done, value } = await reader.read(); // a stalled read aborts via the timer
+        if (done) break;
+        chunks.push(value);
+        loaded += value.length;
+        onChunk(loaded, total);
+      }
+      const out = new Uint8Array(loaded);
+      let off = 0;
+      for (const c of chunks) { out.set(c, off); off += c.length; }
+      return out.buffer;
+    } finally {
+      clearTimeout(timer);
     }
-    const out = new Uint8Array(loaded);
-    let off = 0;
-    for (const c of chunks) { out.set(c, off); off += c.length; }
-    return out.buffer;
   }
 
   // Verify the safetensors bytes against the pinned hash, then derive the

@@ -10,6 +10,8 @@ const privacy = require('../extension/lib/blocklist.js');
 const search = require('../extension/lib/search.js');
 const signal = require('../extension/lib/signal.js');
 const cluster = require('../extension/lib/cluster.js');
+const capture = require('../extension/lib/capture.js');
+const exclusion = require('../extension/lib/exclusion.js');
 
 const DIM = 8;
 
@@ -404,4 +406,171 @@ test('topK no-ops gracefully: no cosine fn, no query vec, or K<=0 -> []', async 
 test('topK over an empty store returns []', async () => {
   const q = Float32Array.from([1, 0, 0, 0, 0, 0, 0, 0]);
   assert.deepEqual(await vectorstore.topK(queryDeps(), q, 5, MODEL_V), []);
+});
+
+test('topK drops hits below the MIN_COSINE floor (a vague query yields the calm empty state)', async () => {
+  // 'strong' is a near-perfect match; 'weak' is near-orthogonal (cosine ~0.1,
+  // below the 0.15 floor). The floor must drop 'weak' so a vague/stopword query
+  // can't flood the empty state with near-zero-similarity rows.
+  await seedVector('https://e.com/strong', [1, 0, 0, 0, 0, 0, 0, 0]);
+  await seedVector('https://e.com/weak', [0.1, 0.995, 0, 0, 0, 0, 0, 0]); // cosine ~0.1 to q
+  const q = Float32Array.from([1, 0, 0, 0, 0, 0, 0, 0]);
+
+  const out = await vectorstore.topK(queryDeps(), q, 10, MODEL_V);
+  assert.deepEqual(out.map((r) => r.key), ['https://e.com/strong'], 'only the above-floor hit survives');
+  assert.ok(out.every((r) => r.score >= vectorstore.MIN_COSINE), 'every returned hit clears the floor');
+
+  // A query that matches NOTHING above the floor returns [] (the no-results path).
+  const orthogonal = Float32Array.from([0, 0, 0, 0, 0, 0, 0, 1]);
+  assert.deepEqual(await vectorstore.topK(queryDeps(), orthogonal, 10, MODEL_V), [], 'all-weak query → calm empty result');
+});
+
+// --- §7: a quota-pressure eviction at CAPTURE drops the evicted record's vector
+// (no orphan vector survives the in-put() quota path) -------------------------
+//
+// Regression for the bug where capture.letGo's `deps.store.put(record)` carried
+// NO onEvict, so a QuotaExceededError eviction during a let-go evicted records
+// but orphaned their paired vectors permanently (the cold-start maybePrune that
+// wires dropEvictedVectors never re-sees an already-evicted record).
+
+// The same onEvict callback background.js wires into prune/quotaPrune.
+function dropEvictedVectors(records) {
+  return Promise.all((records || [])
+    .filter((r) => r && r.url)
+    .map((r) => vectorstore.deleteKey(vdeps(), cluster.originPathKey(r.url))));
+}
+
+// The record-bearing store wrapper background.js (storeWithEvict) hands capture:
+// its put threads onEvict so a quota eviction during the write drops the evicted
+// pages' vectors too. Mirrors background.js's storeWithEvict exactly: it is the
+// SAME quota-retry + onEvict pipeline (store.withQuotaRetry → store.quotaPrune →
+// prune), with the first underlying write fault-injected to throw Quota once so
+// the retry path actually runs (fake-indexeddb won't raise QuotaExceededError on
+// its own). store.put(record,{onEvict}) is exactly this composition.
+function quotaFaultingStore(fault) {
+  return Object.assign(Object.create(store), {
+    put: (record) => store.withQuotaRetry(
+      () => fault.armed ? (fault.armed = false, Promise.reject(quotaErr())) : store.put(record),
+      () => store.quotaPrune(dropEvictedVectors),
+    ),
+  });
+}
+function quotaErr() { const e = new Error('quota'); e.name = 'QuotaExceededError'; return e; }
+
+function captureDeps(over, faultingStore) {
+  let counter = 0;
+  return Object.assign({
+    classify: exclusion.classify,
+    userBlocklist: [],
+    inject: async () => ({ title: 'New', textContent: 'fresh body content for the new page', excerpt: 'fresh' }),
+    closeTab: async () => {},
+    openTab: async () => {},
+    session: (() => { const bag = {}; return { get: async (k) => bag[k], set: async (k, v) => { bag[k] = v; } }; })(),
+    now: () => 1000,
+    makeId: () => 'new-' + (++counter),
+    inFlight: new Set(),
+    store: faultingStore,
+    search,
+    canonicalKey: cluster.originPathKey,
+  }, over);
+}
+
+test('§7: a quota-eviction during a capture put drops the evicted record vector (no orphan)', async () => {
+  // Seed an OLD, least-recently-accessed page + its vector. It's the eviction
+  // victim when the new capture put hits quota pressure.
+  await store.put({ id: 'old', url: 'https://e.com/old', host: 'e.com', title: 'Old', content: 'old body', timestamp: 1, lastAccessed: 1, byteSize: 1000 });
+  await vectorstore.embedAndPut(vdeps(), 'https://e.com/old', 'old body', MODEL_V);
+  const oldKey = cluster.originPathKey('https://e.com/old');
+  assert.equal(await vectorstore.has(vdeps(), oldKey), true, 'old vector present before the squeeze');
+
+  // Make quotaPrune derive a byte budget small enough that the LRU 'old' record
+  // is evicted (quota * 0.6 = 900 < old's 1000 bytes).
+  const origStorage = Object.getOwnPropertyDescriptor(navigator, 'storage');
+  Object.defineProperty(navigator, 'storage', {
+    value: { estimate: async () => ({ quota: 1500 }) },
+    configurable: true,
+  });
+
+  try {
+    const fault = { armed: true };
+    const tab = { id: 9, url: 'https://e.com/new', title: 'New', incognito: false };
+    const res = await capture.letGo(tab, captureDeps(undefined, quotaFaultingStore(fault)));
+    assert.ok(res.record, 'the new page was captured despite quota pressure');
+    assert.equal(fault.armed, false, 'the quota fault fired (the retry path ran)');
+    assert.ok(await store.get(res.record.id), 'new record stored on retry');
+  } finally {
+    if (origStorage) Object.defineProperty(navigator, 'storage', origStorage);
+    else delete navigator.storage;
+  }
+
+  // The eviction shed 'old'; onEvict must have dropped its vector — no orphan.
+  assert.equal(await store.get('old'), undefined, 'LRU record was evicted under quota pressure');
+  assert.equal(await vectorstore.has(vdeps(), oldKey), false, 'evicted record vector dropped — no orphan vector survives the quota path');
+});
+
+// --- R8: an opt-out purge mid-backfill leaves NO vector residue ---------------
+//
+// Regression for the race where runVectorBackfill checked isSemanticReady() once
+// before the loop and read modelVersion every iteration, so a concurrent
+// semanticDisable→semanticPurge (clear + model null) let the in-flight batch
+// re-write vectors AFTER clear(). This driver mirrors runVectorBackfill's fenced
+// loop exactly: snapshot a generation token + modelVersion before the loop, and
+// re-check the token at the TOP of each batch (break if a purge bumped it). The
+// purge bumps the token, then awaits the backfill chain before clear().
+
+// A backfill loop with the fence runVectorBackfill uses, parameterized by the
+// generation getter so the test can bump it mid-pass.
+function fencedBackfillPass(deps, modelVersion, pages, getGen) {
+  const gen = getGen();
+  return (async () => {
+    let res, guard = 0;
+    do {
+      if (getGen() !== gen) break; // a purge bumped the token — stop before re-writing
+      res = await vectorstore.backfill(deps, { modelVersion, batchSize: 1, pages });
+      guard += 1;
+    } while (res && !res.done && guard < 1000);
+  })();
+}
+
+test('R8: a semanticPurge mid-backfill ends with an EMPTY vector store and cursor 0 (no residue)', async () => {
+  for (let i = 0; i < 6; i++) await seedRecord('r' + i, `https://e.com/p${i}`, `content ${i}`);
+
+  let generation = 0;
+  const getGen = () => generation;
+  const deps = vdeps();
+  const pages = await deps.listKeys();
+
+  // Kick off the fenced pass (batchSize 1 → page-by-page), let some batches land,
+  // then opt out: bump the generation token (which fences the loop) and DRAIN the
+  // in-flight pass BEFORE clearing — exactly semanticPurge's order. The fence
+  // guarantees no batch re-populates the store after clear() runs.
+  const pass = fencedBackfillPass(deps, MODEL_V, pages, getGen);
+  await new Promise((r) => setImmediate(r));
+  generation += 1;            // semanticPurge bumps the token first
+  await pass;                 // drain the in-flight backfill (it breaks at the gate)
+  await vectorstore.clear(deps); // then clear — no batch can re-populate after this
+  cursorBox.value = 0;        // semanticPurge resets the cursor
+
+  const keys = await store.withVectorStore('readonly', (s) => store.reqToPromise(s.getAllKeys()));
+  assert.equal(keys.length, 0, 'vector store empty after a mid-backfill purge (no residue)');
+  assert.equal(cursorBox.value, 0, 'cursor reset to 0 after purge');
+});
+
+test('R8: the fence stops the loop the moment the generation token changes', async () => {
+  for (let i = 0; i < 8; i++) await seedRecord('r' + i, `https://e.com/p${i}`, `content ${i}`);
+
+  let generation = 0;
+  const getGen = () => generation;
+  const deps = vdeps();
+  const pages = await deps.listKeys();
+
+  // Bump the token after the 3rd batch: the loop must break at the next gate
+  // check, so strictly fewer than all 8 pages embed before the fence trips.
+  let batches = 0;
+  const countingDeps = vdeps({
+    embed: (t) => { batches += 1; if (batches === 3) generation += 1; return stubEmbed(t); },
+  });
+  await fencedBackfillPass(countingDeps, MODEL_V, pages, getGen);
+
+  assert.ok(batches < 8, `fence tripped early: only ${batches} of 8 pages embedded before the generation bump`);
 });
