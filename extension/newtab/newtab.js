@@ -1820,6 +1820,21 @@
         syncProtectMarks();
       }).catch(() => {});
 
+      // The "recall by what it said" line: the page-text excerpt where the query hit,
+      // with the matched term highlighted. Built text-only — page-derived content never
+      // touches innerHTML; highlighted runs are <mark> text nodes (lib/highlight.js).
+      const HL = (window.ypuf && window.ypuf.highlight) || null;
+      function snippetNode(text, terms) {
+        const div = document.createElement('div');
+        div.className = 'recall-snippet';
+        const segs = HL ? HL.segments(text, (terms || []).join(' ')) : [{ text, hl: false }];
+        for (const seg of segs) {
+          if (seg.hl) { const m = document.createElement('mark'); m.textContent = seg.text; div.appendChild(m); }
+          else div.appendChild(document.createTextNode(seg.text));
+        }
+        return div;
+      }
+
       function row(it, tags, action) {
         // Resolve the favicon (local _favicon, no network) without mutating the SW response object.
         const r = (it.faviconUrl || !it.url) ? it : Object.assign({}, it, { faviconUrl: faviconUrl(it.url) });
@@ -1855,6 +1870,10 @@
           tag.append(icon('clock'));
           if (meta) meta.prepend(tag); else li.appendChild(tag);
         }
+
+        // Recall by content: the matched line of page text, highlighted. Omitted for
+        // content-less / open-tab rows (no excerpt to show).
+        if (it.snippet) li.appendChild(snippetNode(it.snippet, it.matchTerms));
 
         // Set-bearing recall items offer a one-tap "bring back the set" (the
         // granular checkbox restore stays in the popup); restore-set intersects
@@ -2032,6 +2051,7 @@
       };
 
       let seq = 0;
+      let renderedSeq = -1;   // the seq of the batch currently painted — Enter is inert until it catches up to seq
       let timer = null;
       // The pivot chips (with: / time) the SW parsed out of the query. Dismissing a
       // chip collapses that pivot back to plain text — drop its phrase, keep the rest
@@ -2076,6 +2096,7 @@
           // actions. The ⌘⇧K overlay omits this flag, so it never gets open-tab rows.
           send('recall-search', { q, oneBox: true }).then((resp) => {
             if (destroyed || mine !== seq) return;
+            renderedSeq = mine;             // this batch is now the painted one — Enter may act on it
             renderChips(resp && resp.pivots);
             const items = (resp && resp.results) || [];
             renderList(results, items, { action: 'open' });
@@ -2109,6 +2130,10 @@
         if (e.key === 'ArrowDown') { e.preventDefault(); moveKbd(1); return; }
         if (e.key === 'ArrowUp') { e.preventDefault(); moveKbd(-1); return; }
         if (e.key === 'Enter') {
+          // Inert while a newer query is still debouncing / in-flight, so a fast typist's
+          // Enter can't fire on a stale batch — this guards the cursorless top-hit
+          // fallback (recallRows()[0]), not just the cursored path.
+          if (search.value.trim() && renderedSeq !== seq) { e.preventDefault(); return; }
           const target = cursorRow() || recallRows()[0];
           if (target) { e.preventDefault(); clickIn(target, '.title.clickable'); reanchorCursor(); }
         }

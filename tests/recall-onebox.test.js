@@ -216,6 +216,18 @@ test('U3: a snoozed record flows through assemble as kind:snoozed with its retur
   assert.equal(out[0].returnAt, 4242);
 });
 
+test('U7: the excerpt + matchTerms come from the term MiniSearch matched, not the raw typo', () => {
+  // A fuzzy/prefix hit: the user typed 'googl' but the index matched 'google'. The
+  // excerpt must center on 'google' (which is in the content) — the raw query is not.
+  const rec = record({ id: 'g', url: 'https://e.com/g', content: 'the google cloud platform writeup' });
+  const out = recallrank.assemble({
+    hits: [{ id: 'g', score: 9, terms: ['google'] }],
+    records: [rec], q: 'googl', now: NOW,
+  });
+  assert.ok(out[0].snippet.toLowerCase().includes('google'), 'excerpt centers on the matched term');
+  assert.deepEqual(out[0].matchTerms, ['google']);
+});
+
 // --- U6: episodic pivot filtering -----------------------------------------
 
 function frow(over) {

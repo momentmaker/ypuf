@@ -235,7 +235,9 @@
       li.append(t, m);
       if (r.snippet) {   // recall by content: the line of page text where the query hit
         const s = document.createElement('div'); s.className = 'snippet';
-        fillHighlighted(s, r.snippet, q);
+        // Highlight the term MiniSearch actually matched (fuzzy: 'googl' → 'google'),
+        // falling back to the raw query for the instant-recent view.
+        fillHighlighted(s, r.snippet, (r.matchTerms && r.matchTerms.length) ? r.matchTerms.join(' ') : q);
         li.appendChild(s);
       }
       li.addEventListener('click', () => choose(i));

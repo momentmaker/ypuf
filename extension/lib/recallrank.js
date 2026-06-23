@@ -61,7 +61,13 @@
   function hostOf(url) { try { return new URL(url).hostname; } catch { return ''; } }
   const isWeb = (url) => /^https?:\/\//i.test(url || '');
 
-  function indexRow(rec, score, sig, ageMs, q) {
+  function indexRow(rec, hit, sig, ageMs, q) {
+    // Center the excerpt + highlight on the term MiniSearch ACTUALLY matched (a
+    // fuzzy/prefix hit on 'googl' matches the index term 'google', which is what
+    // appears in the content — the raw query would find nothing and show no excerpt).
+    const terms = (hit && Array.isArray(hit.terms) && hit.terms.length)
+      ? hit.terms
+      : (q ? q.toLowerCase().split(/\s+/).filter(Boolean) : []);
     return {
       kind: rec.snoozeState ? 'snoozed' : 'let-go',
       id: rec.id, url: rec.url, host: rec.host, title: rec.title,
@@ -71,8 +77,9 @@
       snoozeState: rec.snoozeState || null,
       returnAt: typeof rec.returnAt === 'number' ? rec.returnAt : null,
       untilStartup: !!rec.untilStartup,
-      snippet: search.excerptAround((rec.content || '').slice(0, EXCERPT_SCAN), q, EXCERPT_RADIUS) || '',
-      score, signal: { revisits: sig.revisits || 0, dwell: sig.dwell || 0, ageMs },
+      snippet: search.excerptAround((rec.content || '').slice(0, EXCERPT_SCAN), terms.join(' '), EXCERPT_RADIUS) || '',
+      matchTerms: terms,
+      score: hit ? hit.score : 0, signal: { revisits: sig.revisits || 0, dwell: sig.dwell || 0, ageMs },
     };
   }
 
@@ -134,7 +141,7 @@
     for (let i = 0; i < hits.length; i++) {
       const rec = records[i];
       if (!rec) continue;
-      rows.push(indexRow(rec, hits[i].score, signalFor(rec.url), ageMsOf(rec, now), q));
+      rows.push(indexRow(rec, hits[i], signalFor(rec.url), ageMsOf(rec, now), q));
     }
     if (oneBox) {
       for (const t of openTabs) { const r = openRow(t, q); if (r) rows.push(r); }
