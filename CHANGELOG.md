@@ -7,6 +7,20 @@ All notable changes to ypuf are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Recall by meaning (opt-in).** A new Settings toggle lets recall find a page by what
+  it was *about*, not just the words it used — type "the article about quitting tech to
+  farm" and it surfaces a page that never said any of those words. It's **off by default**;
+  turning it on downloads a small (~30&nbsp;MB) language model **once** and then runs
+  **entirely on your device** — your pages and searches never leave your machine, and
+  keyword recall keeps working throughout. Turn it off to delete the model and everything
+  it built. *(An experiment — see if you reach for it.)*
+
+### Fixed
+- **The recall (`⌘⇧K`) and snooze (`⌘⇧S`) command bars now always sit on top.** On some
+  pages a high-stacking element could paint over the overlay; it now claims the top layer
+  so nothing covers it.
+
 ## [1.1.0] — 2026-06-23
 
 ### Added
