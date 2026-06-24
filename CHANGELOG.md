@@ -7,6 +7,8 @@ All notable changes to ypuf are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-06-24
+
 ### Added
 - **Recall by meaning (opt-in).** A new Settings toggle lets recall find a page by what
   it was *about*, not just the words it used — type "the article about quitting tech to
@@ -97,7 +99,8 @@ First public release — submitted to the Chrome Web Store.
   when you turn on content indexing or add a panel source — never by default.
 - No remote code; the extension is unminified vanilla JS bundled in the package.
 
-[Unreleased]: https://github.com/momentmaker/ypuf/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/momentmaker/ypuf/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/momentmaker/ypuf/releases/tag/v1.2.0
 [1.1.0]: https://github.com/momentmaker/ypuf/releases/tag/v1.1.0
 [1.0.2]: https://github.com/momentmaker/ypuf/releases/tag/v1.0.2
 [1.0.1]: https://github.com/momentmaker/ypuf/releases/tag/v1.0.1
