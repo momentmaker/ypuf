@@ -2292,6 +2292,9 @@
       // (Today / Yesterday / This week / Earlier), reusing the highlight group labels the
       // ⌘⇧K overlay uses. Each bucket opens a new <ul> so headers interleave cleanly.
       function renderChronoPage(target, items) {
+        // Items must arrive reverse-chronological (the SW's paged blank-query contract):
+        // a new <ul> opens only when the bucket label changes, so out-of-order input
+        // would emit duplicate headers.
         target.textContent = '';
         const now = Date.now();
         let ul = null;
@@ -2345,7 +2348,8 @@
         older.textContent = 'Search all let-go pages…';
         older.addEventListener('click', () => search.focus());
 
-        foot.append(nav, count, older);
+        if (nav.childNodes.length) foot.append(nav);
+        foot.append(count, older);
         target.appendChild(foot);
       }
 

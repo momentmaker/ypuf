@@ -178,8 +178,9 @@
   }
 
   // Lightweight recency-ordered projection for the recall panel pager: id + url +
-  // timestamp + snoozeState only, via a cursor so page CONTENT is never materialised
-  // for the whole store (a getAll() would deserialise every ~200 KB body). Newest-first.
+  // timestamp + snoozeState only. A cursor keeps just one record in memory at a time
+  // (getAll() would hold every ~200 KB body at once); each body is deserialised
+  // transiently into cur.value, then projected out and discarded. Newest-first.
   async function listMetaRecent() {
     const out = await withStore('readonly', (s) => new Promise((resolve, reject) => {
       const acc = [];

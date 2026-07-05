@@ -1283,8 +1283,9 @@ async function getRecallResults(q, opts = {}) {
       (await store.listMetaRecent())
         .filter((m) => m.url && !m.snoozeState && !openKeys.has(cluster.originPathKey(m.url)))
     );
-    // Page 0 = the proactive peek, ranked over the recent window (unchanged behaviour, just
-    // cap 6→7 when the board asks). proactive.rank scores by url only, so metas rank exactly
+    // Page 0 = the proactive peek, ranked over the recent window (same peek (recency+frequency-dominated);
+    // the candidate set is just filtered/deduped before the rank window, and cap is 6→7 when the board asks).
+    // proactive.rank scores by url only, so metas rank exactly
     // as full records did. The same ids are excluded from the chronological tail on pages 1+.
     const page0Ids = proactive.rank(archive.slice(0, PIVOT_SCAN_LIMIT), durable, now, { cap: pageSize }).map((m) => m.id);
     const sel = recallpage.pageIds({ archive, page0Ids, page, pageSize });
