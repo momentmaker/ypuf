@@ -143,3 +143,18 @@ test('contentLess record stores and lists like any other, never holding content'
   assert.equal(got.content, '');
   assert.equal((await store.listRecent()).length, 1);
 });
+
+test('listMetaRecent returns lightweight, reverse-chronological projections (no content)', async () => {
+  await store.put(rec({ id: 'a', timestamp: 100, content: 'AAAA' }));
+  await store.put(rec({ id: 'b', timestamp: 300, content: 'BBBB' }));
+  await store.put(rec({ id: 'c', timestamp: 200, content: 'CCCC', snoozeState: 'sleeping' }));
+
+  const metas = await store.listMetaRecent();
+
+  assert.deepEqual(metas.map((m) => m.id), ['b', 'c', 'a']); // newest-first by timestamp
+  assert.equal(metas[0].content, undefined);                 // page content is NOT carried
+  assert.equal(typeof metas[0].url, 'string');
+  assert.equal(typeof metas[0].timestamp, 'number');
+  assert.equal(metas[1].snoozeState, 'sleeping');            // preserved for filtering
+  assert.equal(metas[2].snoozeState, null);                  // absent snoozeState → null
+});

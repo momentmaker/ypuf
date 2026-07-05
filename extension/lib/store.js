@@ -177,6 +177,26 @@
     return Number.isFinite(limit) ? all.slice(0, limit) : all;
   }
 
+  // Lightweight recency-ordered projection for the recall panel pager: id + url +
+  // timestamp + snoozeState only, via a cursor so page CONTENT is never materialised
+  // for the whole store (a getAll() would deserialise every ~200 KB body). Newest-first.
+  async function listMetaRecent() {
+    const out = await withStore('readonly', (s) => new Promise((resolve, reject) => {
+      const acc = [];
+      const req = s.openCursor();
+      req.onsuccess = () => {
+        const cur = req.result;
+        if (!cur) { resolve(acc); return; }
+        const v = cur.value;
+        acc.push({ id: v.id, url: v.url, timestamp: v.timestamp, snoozeState: v.snoozeState || null });
+        cur.continue();
+      };
+      req.onerror = () => reject(req.error);
+    }));
+    out.sort((a, b) => b.timestamp - a.timestamp);
+    return out;
+  }
+
   function getByDomain(host) {
     return withStore('readonly', (s) => reqToPromise(s.index('host').getAll(host)));
   }
@@ -335,7 +355,7 @@
   }
 
   const api = {
-    reset, openDB, put, get, getAll, listRecent, getByDomain, getByCanonicalKey,
+    reset, openDB, put, get, getAll, listRecent, listMetaRecent, getByDomain, getByCanonicalKey,
     remove, deleteByDomain, touch, allIds, totalBytes, prune, quotaPrune, shouldPrune,
     withQuotaRetry, count, scrubSibling, scrubSiblings, backfillCanonicalKeys,
     withVectorStore, reqToPromise, canonicalKeyOf,
