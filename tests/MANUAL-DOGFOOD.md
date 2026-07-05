@@ -742,3 +742,18 @@ Storage, and the settings DOM, so it is verified by hand.
 - [ ] After a **confirmed off**, `chrome.storage.local.get('semanticEnabled')` is false,
       the `ypuf-semantic-v1` Cache bucket is gone, and a gist query returns keyword-only —
       no semantic residue.
+
+---
+
+## Recall panel paging
+
+Prep: let go of >14 pages (⌘⇧L) so the archive spans several pages.
+
+- [ ] New tab → Recall panel shows exactly 7 rows under "Reaching for these" + a "N let go" count.
+- [ ] `›` (or `]`) pages to the next 7 under a recency header; no row repeats page 1.
+- [ ] `‹` (or `[`) pages back; on page 0 the `‹` arrow is dimmed.
+- [ ] `G` jumps to the oldest page (cursor last row); `g g` returns to page 0 (cursor first row).
+- [ ] Typing a query hides the pager; clearing it returns to page 0.
+- [ ] In the search box, `]` and `[` type literally (do not page).
+- [ ] ⌘⇧K overlay blank peek is unchanged (still ~6 rows, no pager).
+- [ ] Reduced-motion OS setting: paging has no jarring motion.

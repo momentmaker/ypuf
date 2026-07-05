@@ -7,6 +7,14 @@ All notable changes to ypuf are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Recall panel paging.** The new-tab Recall panel now walks the whole let-go archive in
+  calm pages of 7 — page 1 stays the "reaching for these" peek, later pages walk back
+  reverse-chronologically under Today / This week / Earlier headers. Flip with the subtle
+  `‹ ›` arrows beside "Search all let-go pages…", or `]` / `[` in the keyboard layer
+  (`g g` / `G` jump to the newest / oldest page). A quiet "N let go" count reassures that
+  nothing was lost. Still search-first and local-only; the ⌘⇧K overlay is unchanged.
+
 ## [1.2.0] — 2026-06-24
 
 ### Added
