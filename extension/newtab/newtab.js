@@ -1746,6 +1746,7 @@
   // it, and cleared on Escape (the U10 calm guarantee).
   let kbdCursor = -1;
   let pendingG = false;   // first 'g' of a 'gg' (jump-to-top) sequence
+  let recallPager = null;   // recall panel paging controller {next,prev,first,last}; set on mount, nulled on teardown
 
   const isField = (t) => !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'
     || t.tagName === 'SELECT' || t.isContentEditable);
@@ -2257,6 +2258,11 @@
       let renderedSeq = -1;   // the seq of the batch currently painted — Enter is inert until it catches up to seq
       let timer = null;
 
+      const PAGE_SIZE = 7;    // calm page (incl. the initial peek) for the recall panel
+      let currentPage = 0;
+      let lastTotal = 0;      // pageable let-go count from the last render (drives 'N let go' + gg/G)
+      let lastHasMore = false;
+
       // The proactive "reaching for these" block (U9): one quiet labelled group of the
       // let-go pages the engine thinks you want now (ranked SW-side by recency+frequency),
       // replacing the time-grouped recent shelf. Returns whether it rendered any rows.
@@ -2272,19 +2278,97 @@
         return true;
       }
 
-      // Load the proactive set under a seq token so a fast keystroke supersedes it.
-      // Called at mount AND when the query clears back to empty (so a type-before-reply
-      // can't leave the panel permanently blank).
-      function loadProactive(mySeq) {
-        send('recall-search', { q: '', oneBox: true }).then((resp) => {
-          if (destroyed || mySeq !== seq) return;   // a keystroke already superseded this load
+      // Pages 1+ walk the archive reverse-chronologically under quiet recency headers
+      // (Today / Yesterday / This week / Earlier), reusing the highlight group labels the
+      // ⌘⇧K overlay uses. Each bucket opens a new <ul> so headers interleave cleanly.
+      function renderChronoPage(target, items) {
+        target.textContent = '';
+        const now = Date.now();
+        let ul = null;
+        let lastLabel = null;
+        for (const it of items) {
+          const label = HL ? HL.groupLabel(it.timestamp, now) : 'Earlier';
+          if (label !== lastLabel) {
+            target.appendChild(group(label));
+            ul = document.createElement('ul');
+            ul.className = 'recent';
+            ul.setAttribute('role', 'list');
+            target.appendChild(ul);
+            lastLabel = label;
+          }
+          ul.appendChild(row(it, [T.timeAgo ? T.timeAgo(it.timestamp) : ''], { action: 'open' }));
+        }
+      }
+
+      // The calm pager footer: subtle ‹ › arrows (only when the archive is more than one
+      // page) + a muted "N let go" count, sharing the row with the existing search route.
+      function renderPager(target, info) {
+        const foot = document.createElement('div');
+        foot.className = 'recall-pager';
+
+        const nav = document.createElement('div');
+        nav.className = 'recall-pager-nav';
+        if (info.total > PAGE_SIZE) {
+          const prev = document.createElement('button');
+          prev.type = 'button'; prev.className = 'shelf-page shelf-page-prev';
+          prev.textContent = '‹'; prev.title = 'Newer ([)';
+          prev.setAttribute('aria-label', 'Newer let-go pages');
+          prev.disabled = info.page <= 0;
+          prev.addEventListener('click', () => { if (info.page > 0) goToPage(info.page - 1); });
+
+          const next = document.createElement('button');
+          next.type = 'button'; next.className = 'shelf-page shelf-page-next';
+          next.textContent = '›'; next.title = 'Older (])';
+          next.setAttribute('aria-label', 'Older let-go pages');
+          next.disabled = !info.hasMore;
+          next.addEventListener('click', () => { if (info.hasMore) goToPage(info.page + 1); });
+
+          nav.append(prev, next);
+        }
+
+        const count = document.createElement('span');
+        count.className = 'recall-count';
+        if (info.total) count.textContent = `${info.total} let go`;
+
+        const older = document.createElement('button');
+        older.type = 'button'; older.className = 'shelf-older';
+        older.textContent = 'Search all let-go pages…';
+        older.addEventListener('click', () => search.focus());
+
+        foot.append(nav, count, older);
+        target.appendChild(foot);
+      }
+
+      // Load a page under a seq token so a fast keystroke (which bumps seq) supersedes a slow
+      // page load (Pattern 17 — no late paint over live search results). Page 0 is the
+      // proactive peek; pages 1+ are the chronological remainder. Clears the keyboard cursor
+      // (the caller repaints it for keyboard paging; a mouse click leaves it clear = calm).
+      function goToPage(n) {
+        const mySeq = ++seq;
+        clearKbdCursor();
+        return send('recall-search', { q: '', oneBox: true, page: n, pageSize: PAGE_SIZE }).then((resp) => {
+          if (destroyed || mySeq !== seq) return;
           renderedSeq = mySeq;
           const items = (resp && resp.results) || [];
-          const had = renderProactive(recentWrap, items);
+          currentPage = (resp && typeof resp.page === 'number') ? resp.page : n;
+          lastTotal = (resp && resp.archiveTotal) || 0;
+          lastHasMore = !!(resp && resp.hasMore);
+          recentWrap.textContent = '';
+
+          if (!items.length && currentPage === 0) {   // first run / everything forgotten — calm empty state
+            recentWrap.appendChild(panelEmpty(recallPuffSvg(),
+              'Nothing let go yet. Let a tab go with ⌘⇧L — its content stays findable.',
+              'Then find it again by what the page said — not just its title.'));
+            return;
+          }
+
+          if (currentPage === 0) renderProactive(recentWrap, items);
+          else renderChronoPage(recentWrap, items);
           syncProtectMarks();   // protected-list may have resolved before any rows existed — re-mark now
+
           // The puff — rows let go since the last board open arrive with a soft settle.
-          // One-shot: disarm after the first paint. boardLastOpen === 0 means first-ever open.
-          if (puffArmed && boardLastOpen > 0) {
+          // Only meaningful on page 0 (the recent peek); one-shot, disarmed after first paint.
+          if (currentPage === 0 && puffArmed && boardLastOpen > 0) {
             for (const it of items) {
               if (it.autoClosed && it.timestamp > boardLastOpen) {
                 const r = recentWrap.querySelector('[data-id="' + cssEsc(it.id) + '"]');
@@ -2292,22 +2376,28 @@
               }
             }
           }
-          if (puffArmed) puffArmed = false;
-          if (had) {   // a quiet route into search for anything older than the peek
-            const older = document.createElement('button');
-            older.type = 'button';
-            older.className = 'shelf-older';
-            older.textContent = 'Search all let-go pages…';
-            older.addEventListener('click', () => search.focus());
-            recentWrap.appendChild(older);
-          } else {   // first run / everything forgotten — the calm empty state, mirrors Snooze
-            recentWrap.appendChild(panelEmpty(recallPuffSvg(),
-              'Nothing let go yet. Let a tab go with ⌘⇧L — its content stays findable.',
-              'Then find it again by what the page said — not just its title.'));
-          }
+          if (currentPage === 0 && puffArmed) puffArmed = false;
+
+          renderPager(recentWrap, { page: currentPage, total: lastTotal, hasMore: lastHasMore });
         });
       }
-      loadProactive(++seq);
+
+      // How many pages exist: page 0 (the peek) + ceil(remainder / PAGE_SIZE). Used by G.
+      function lastPageIndex() {
+        const remainder = Math.max(0, lastTotal - PAGE_SIZE);
+        return remainder > 0 ? Math.ceil(remainder / PAGE_SIZE) : 0;
+      }
+
+      // The controller the global keydown handler drives (]/[ and gg/G). Each returns the
+      // goToPage promise so the caller can place the cursor after the new page renders.
+      recallPager = {
+        next: () => (lastHasMore ? goToPage(currentPage + 1) : Promise.resolve()),
+        prev: () => (currentPage > 0 ? goToPage(currentPage - 1) : Promise.resolve()),
+        first: () => goToPage(0),
+        last: () => goToPage(lastPageIndex()),
+      };
+
+      goToPage(0);
 
       // While a query is active, collapse the panel to JUST the matches. The relief/digest
       // lines hide immediately; the proactive block stays as a DIMMED placeholder through the
@@ -2357,10 +2447,10 @@
         searchMode(!!q);                 // toggle immediately so the recent list hides as you type
         clearKbdCursor();                // a changed query resets selection → Enter opens the top match, not a stale row
         clearTimeout(timer);
-        if (!q) {   // empty → restore the full panel (re-fetch proactive if a prior keystroke dropped it)
+        if (!q) {   // empty → always return to page 0 of the archive (clearing a query resets paging)
           results.textContent = '';
           renderChips(null);
-          if (!recentWrap.firstChild) loadProactive(mine);
+          goToPage(0);
           return;
         }
         timer = setTimeout(() => {
@@ -2414,7 +2504,7 @@
       });
       search.addEventListener('focus', clearKbdCursor);   // entering search resets any j/k selection
 
-      return () => { destroyed = true; clearTimeout(timer); for (const t of undoTimers) clearTimeout(t); undoTimers.clear(); }; // cancel the debounce, late renders + pending undo timers
+      return () => { destroyed = true; recallPager = null; clearTimeout(timer); for (const t of undoTimers) clearTimeout(t); undoTimers.clear(); }; // cancel the debounce, late renders + pending undo timers
     },
   });
 

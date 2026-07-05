@@ -546,6 +546,20 @@ html:not([data-theme="dark"]):not([data-theme="star"]) body[data-mood="night"] {
 .shelf-more:focus-visible, .shelf-older:focus-visible { outline: 2px solid var(--accent-amber); outline-offset: 1px; }
 .shelf-older { margin-top: 9px; color: color-mix(in srgb, var(--ink) 55%, transparent); }
 
+/* Recall paging footer: subtle ‹ › arrows + a muted "N let go" count sharing the row with
+   the "Search all…" route. Arrows appear only when the archive is more than one page. */
+.recall-pager { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin-top: 9px; }
+.recall-pager-nav { display: inline-flex; gap: 2px; }
+.shelf-page {
+  font: inherit; font-size: 14px; line-height: 1; background: none; border: none; cursor: pointer;
+  color: var(--accent-slate); padding: 3px 8px; border-radius: 6px;
+}
+.shelf-page:hover:not(:disabled) { background: var(--warm-gray); }
+.shelf-page:focus-visible { outline: 2px solid var(--accent-amber); outline-offset: 1px; }
+.shelf-page:disabled { color: color-mix(in srgb, var(--ink) 26%, transparent); cursor: default; }
+.recall-count { font-size: 11px; color: var(--muted); }
+.recall-pager .shelf-older { margin: 0 0 0 auto; }   /* push the search route to the right edge */
+
 @media (prefers-reduced-motion: reduce) { .set-restore { transition: none; } }
 
 /* "Back now": pinned above the scroll, a quiet sage accent so a real return reads as
