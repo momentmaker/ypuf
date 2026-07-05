@@ -750,8 +750,9 @@ Storage, and the settings DOM, so it is verified by hand.
 Prep: let go of >14 pages (⌘⇧L) so the archive spans several pages.
 
 - [ ] New tab → Recall panel shows exactly 7 rows under "Reaching for these" + a "N let go" count.
-- [ ] `›` (or `]`) pages to the next 7 under a recency header; no row repeats page 1.
-- [ ] `‹` (or `[`) pages back; on page 0 the `‹` arrow is dimmed.
+- [ ] `›` (or `]`, or `→`) pages to the next 7 under a recency header; no row repeats page 1.
+- [ ] `‹` (or `[`, or `←`) pages back; on page 0 the `‹` arrow is dimmed.
+- [ ] `→` / `←` page only outside a field and outside edit mode (in the search box they move the caret; in edit mode they reorder lanes).
 - [ ] `G` jumps to the oldest page (cursor last row); `g g` returns to page 0 (cursor first row).
 - [ ] Typing a query hides the pager; clearing it returns to page 0.
 - [ ] In the search box, `]` and `[` type literally (do not page).

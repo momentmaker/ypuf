@@ -458,7 +458,7 @@
   // The keyboard layer's bindings, shared by the ? cheatsheet (U10).
   const CHEATSHEET = [
     ['j / k', 'Move the recall cursor'],
-    ['] / [', 'Next / previous page'],
+    ['] / [  ·  → / ←', 'Next / previous page'],
     ['g g / G', 'Jump to first / last page'],
     ['o / Enter', 'Open the cursored page'],
     ['r', 'Bring back the set (its companion tabs)'],
@@ -1921,6 +1921,14 @@
   document.addEventListener('keydown', (e) => {
     if (settingsOpen() || cheatsheetOpen()) return;   // overlays trap their own keys
     if (hintsActive) { handleHintKey(e); return; }     // f-hint mode owns letters (U9)
+    // Physical ←/→ page the recall archive (companions to ]/[): ← newer, → older. Only when
+    // NOT rearranging lanes (edit mode gives ◀▶ to the focused cell — makeDraggable) and NOT
+    // in a field (where ←/→ move the text caret). Held arrows don't repeat — no SW flood.
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !editing && !isField(e.target) && recallPager) {
+      e.preventDefault();
+      if (!e.repeat) (e.key === 'ArrowRight' ? recallPager.next() : recallPager.prev()).then(() => jumpKbd(false));
+      return;
+    }
     const it = boardkeys.intent(e.key, { fieldFocused: isField(e.target) });
     if (it === 'none') { pendingG = false; return; }   // any unmapped/field key resolves a pending 'gg'
     const wasPendingG = pendingG;
