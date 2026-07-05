@@ -458,7 +458,8 @@
   // The keyboard layer's bindings, shared by the ? cheatsheet (U10).
   const CHEATSHEET = [
     ['j / k', 'Move the recall cursor'],
-    ['g g / G', 'Jump to top / bottom'],
+    ['] / [', 'Next / previous page'],
+    ['g g / G', 'Jump to first / last page'],
     ['o / Enter', 'Open the cursored page'],
     ['r', 'Bring back the set (its companion tabs)'],
     ['d / u', 'Delete (forget) / undo'],
@@ -1806,7 +1807,7 @@
   let hintLabels = [];
   let hintTargets = [];
 
-  const hintTargetEls = () => [...document.querySelectorAll('.recent-item[data-id] .title.clickable, .topsite, .shelf-more, .shelf-older')]
+  const hintTargetEls = () => [...document.querySelectorAll('.recent-item[data-id] .title.clickable, .topsite, .shelf-more, .shelf-older, .shelf-page')]
     .filter((el) => el.offsetParent !== null);
 
   function enterHints() {
@@ -1930,10 +1931,19 @@
     switch (it) {
       case 'down': e.preventDefault(); moveKbd(1); break;
       case 'up': e.preventDefault(); moveKbd(-1); break;
-      case 'bottom': e.preventDefault(); jumpKbd(true); break;
+      case 'pageNext': e.preventDefault(); if (recallPager) recallPager.next().then(() => jumpKbd(false)); break;
+      case 'pagePrev': e.preventDefault(); if (recallPager) recallPager.prev().then(() => jumpKbd(false)); break;
+      case 'bottom':
+        e.preventDefault();
+        if (recallPager) recallPager.last().then(() => jumpKbd(true));   // oldest page, cursor on its last row
+        else jumpKbd(true);
+        break;
       case 'g':
         e.preventDefault();
-        if (wasPendingG) jumpKbd(false); else pendingG = true;
+        if (wasPendingG) {
+          if (recallPager) recallPager.first().then(() => jumpKbd(false));   // newest page, cursor on its first row
+          else jumpKbd(false);
+        } else pendingG = true;
         break;
       case 'open': e.preventDefault(); clickIn(cursorRow(), '.title.clickable'); reanchorCursor(); break;
       case 'restoreSet': e.preventDefault(); clickIn(cursorRow(), '.set-restore'); break;
