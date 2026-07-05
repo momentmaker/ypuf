@@ -28,6 +28,7 @@ importScripts(
   'lib/recallrank.js',
   'lib/recallquery.js',
   'lib/proactive.js',
+  'lib/recallpage.js',
   'lib/rationale.js',
   'lib/signal.js',
   'lib/tabstate.js',
@@ -39,7 +40,7 @@ importScripts(
   'lib/blocklist.js',
 );
 
-const { store, vectorstore, embed, modelasset, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank, recallmerge, recallquery, proactive, rationale } = self.ypuf;
+const { store, vectorstore, embed, modelasset, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank, recallmerge, recallquery, proactive, recallpage, rationale } = self.ypuf;
 
 const logErr = (e) => console.error('[ypuf]', e);
 
