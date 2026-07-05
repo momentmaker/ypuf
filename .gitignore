@@ -4,6 +4,9 @@
 # Claude Code per-subagent worktrees
 .claude/worktrees/
 
+# Subagent-driven-development scratch (progress ledger, task briefs, review packages)
+.superpowers/
+
 # Dependencies / build output
 node_modules/
 dist/
