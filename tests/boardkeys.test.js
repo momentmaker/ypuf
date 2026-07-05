@@ -57,6 +57,7 @@ test('intent maps the vim normal-mode keys', () => {
   assert.equal(m('d'), 'forget'); assert.equal(m('u'), 'undo');
   assert.equal(m('p'), 'protect'); assert.equal(m('/'), 'search');
   assert.equal(m('g'), 'g'); assert.equal(m('G'), 'bottom');
+  assert.equal(m(']'), 'pageNext'); assert.equal(m('['), 'pagePrev');
   assert.equal(m('e'), 'edit'); assert.equal(m('f'), 'hints');
   assert.equal(m(','), 'settings');
   assert.equal(m('?'), 'help'); assert.equal(m('Escape'), 'escape');
@@ -79,4 +80,10 @@ test('intent yields to a focused field — only Escape passes through', () => {
   assert.equal(bk.intent('d', ctx), 'none');
   assert.equal(bk.intent('r', ctx), 'none');
   assert.equal(bk.intent('Escape', ctx), 'escape'); // Esc still blurs the field
+});
+
+test('intent yields ]/[ to a focused field (they must type literally in search)', () => {
+  const ctx = { fieldFocused: true };
+  assert.equal(bk.intent(']', ctx), 'none');
+  assert.equal(bk.intent('[', ctx), 'none');
 });

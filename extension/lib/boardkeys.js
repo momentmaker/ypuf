@@ -32,10 +32,12 @@
 
   // Arrows are deliberately NOT mapped: board cells own ◀▶▲▼ for lane reorder
   // (newtab.js makeDraggable), so the recall cursor stays on j/k to avoid a collision.
+  // Paging uses ]/[ (vim-idiomatic next/prev) — NOT n/p, since p is already 'protect'.
   const MAP = {
     j: 'down', k: 'up',
     o: 'open', Enter: 'open', r: 'restoreSet',
     d: 'forget', u: 'undo', p: 'protect',
+    ']': 'pageNext', '[': 'pagePrev',
     '/': 'search', g: 'g', G: 'bottom',
     e: 'edit', f: 'hints', ',': 'settings', '?': 'help', Escape: 'escape',
   };
