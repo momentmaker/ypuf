@@ -1241,6 +1241,7 @@ async function getRecallResults(q, opts = {}) {
   const parsed = opts.oneBox ? recallquery.parse(q || '', now)
     : { text: (q || '').trim(), withTerm: null, timeRange: null, chips: [] };
   let results = [];
+  let pageInfo = null;
   if (parsed.text) {
     const hits = search.search(parsed.text).slice(0, 20);
     const records = await Promise.all(hits.map((h) => store.get(h.id)));
@@ -1269,25 +1270,32 @@ async function getRecallResults(q, opts = {}) {
     const rows = recallmerge.merge(recs.map((r) => projectStored(r, durable)));
     results = recallrank.filterPivots(rows, parsed).slice(0, 20);
   } else {
-    // Proactive "reaching for these" (U9): before any query, surface the let-go pages
-    // you're most likely reaching for now — ranked by recency-of-activity + frequency
-    // (lib/proactive.js), capped to a calm peek. A page you currently have OPEN is no
-    // longer "let go", so omit it. Over-fetch a wide window before ranking.
+    // Proactive "reaching for these" (U9) + calm paging past the peek (recall panel paging).
+    // Page 0 stays the intent-ranked peek; pages 1+ walk the REST of the let-go archive
+    // reverse-chronologically. A content-free meta read builds the deduped archive; only the
+    // visible page's records are hydrated. A page you have OPEN now, or a snoozed page, is
+    // not a pageable let-go — omit both (mirrors the pre-paging proactive filter).
+    const pageSize = (opts.pageSize > 0) ? opts.pageSize : proactive.DEFAULT_CAP;
+    const page = (opts.page > 0) ? opts.page : 0;
     const openTabs = await chrome.tabs.query({}).catch(() => []);
     const openKeys = new Set(openTabs.map((t) => (t.url ? cluster.originPathKey(t.url) : null)).filter(Boolean));
-    // dedupeRecords collapses repeat let-gos of the same page to one (newest wins) — the
-    // blank-q path doesn't run through merge(), so without it a page let go more than once
-    // would surface as duplicate "reaching for these" rows.
-    const recs = recallmerge.dedupeRecords(
-      (await store.listRecent(PIVOT_SCAN_LIMIT))
-        .filter((r) => !r.snoozeState && r.url && !openKeys.has(cluster.originPathKey(r.url)))
+    const archive = recallmerge.dedupeRecords(
+      (await store.listMetaRecent())
+        .filter((m) => m.url && !m.snoozeState && !openKeys.has(cluster.originPathKey(m.url)))
     );
-    results = proactive.rank(recs, durable, now).map((r) => projectStored(r, durable));
+    // Page 0 = the proactive peek, ranked over the recent window (unchanged behaviour, just
+    // cap 6→7 when the board asks). proactive.rank scores by url only, so metas rank exactly
+    // as full records did. The same ids are excluded from the chronological tail on pages 1+.
+    const page0Ids = proactive.rank(archive.slice(0, PIVOT_SCAN_LIMIT), durable, now, { cap: pageSize }).map((m) => m.id);
+    const sel = recallpage.pageIds({ archive, page0Ids, page, pageSize });
+    const records = (await Promise.all(sel.ids.map((id) => store.get(id)))).filter(Boolean);
+    results = records.map((r) => projectStored(r, durable));
+    pageInfo = { page: sel.page, pageSize: sel.pageSize, hasMore: sel.hasMore, archiveTotal: sel.total };
   }
   // "Why this" (U10): a quiet rationale on every row (search, pivot, and proactive),
   // suppressed to '' when there's no signal beyond what the meta line already shows.
   for (const r of results) r.reason = rationale.compose(r);
-  return { results, total, pivots: parsed };
+  return Object.assign({ results, total, pivots: parsed }, pageInfo || {});
 }
 
 // Jump to an already-open tab (the one-box kind:'open' action). Resolve the
@@ -1496,7 +1504,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // sendResponse would hang the overlay/popup until Chrome times out the channel.
   const respond = (p) => { p.then(sendResponse).catch((e) => sendResponse({ error: String(e) })); return true; };
   if (msg.type === 'list-recent') return respond(listRecent(msg.limit || 15));
-  if (msg.type === 'recall-search') return respond(getRecallResults(msg.q, { oneBox: !!msg.oneBox }));
+  if (msg.type === 'recall-search') return respond(getRecallResults(msg.q, { oneBox: !!msg.oneBox, page: msg.page, pageSize: msg.pageSize }));
   if (msg.type === 'recall-open' && msg.recordId) return respond(reopenRecord(msg.recordId).then(() => ({ ok: true })));
   if (msg.type === 'focus-tab' && msg.tabId != null) return respond(focusTab(msg.tabId));
   if (msg.type === 'restore-set' && msg.recordId) return respond(restoreSet(msg.recordId, msg.urls));
