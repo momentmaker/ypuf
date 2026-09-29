@@ -7,6 +7,8 @@ All notable changes to ypuf are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.3.1] — 2026-09-29
+
 ### Changed
 - **Crypto prices now come from DefiLlama instead of CoinGecko.** CoinGecko's free
   price API began blocking some connections outright — for hours, even when asked only
@@ -134,7 +136,8 @@ First public release — submitted to the Chrome Web Store.
   when you turn on content indexing or add a panel source — never by default.
 - No remote code; the extension is unminified vanilla JS bundled in the package.
 
-[Unreleased]: https://github.com/momentmaker/ypuf/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/momentmaker/ypuf/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/momentmaker/ypuf/releases/tag/v1.3.1
 [1.3.0]: https://github.com/momentmaker/ypuf/releases/tag/v1.3.0
 [1.2.0]: https://github.com/momentmaker/ypuf/releases/tag/v1.2.0
 [1.1.0]: https://github.com/momentmaker/ypuf/releases/tag/v1.1.0
