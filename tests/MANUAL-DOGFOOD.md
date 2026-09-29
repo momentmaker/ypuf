@@ -446,7 +446,10 @@ boundary, and the host-permission grants — is verified by hand.
 - [ ] **Add → Crypto price**, enter `bitcoin, ethereum` (CoinGecko ids) → a glanceable
       price + 24h change appears with an **"as of HH:MM"** stamp; footer names
       **DefiLlama (ypuf-chosen)**. The Network tab shows one `coins.llama.fi/chart/…`
-      request for all tokens.
+      request for all tokens, ending `&end=<this minute>`.
+- [ ] **The stamp tells the truth:** "as of" reads DefiLlama's observation time — a
+      couple of minutes *before* now, never later than the fetch — and it moves forward
+      across refreshes (prices are not one CDN-cached answer for an hour).
 - [ ] **Upgrade from a CoinGecko-era panel:** an existing panel keeps its tokens and
       shows DefiLlama prices — no re-adding. Without an all-sites grant it shows the
       calm **"needs access"** + **Grant access** once (for `coins.llama.fi`).

@@ -2620,7 +2620,8 @@
   // nothing: DefiLlama publishes a new price only about every 3 min (measured), and
   // keyless price APIs rate-limit per IP. The tick is shorter than the TTL so a single
   // board refetches at ~60–75s, not at the second tick after expiry. An "as of HH:MM"
-  // stamp keeps a left-open board honest; failures keep last-known + "unavailable" (R11).
+  // stamp — the provider's own observation time, so no cache can flatter it — keeps a
+  // left-open board honest; failures keep last-known + "unavailable" (R11).
 
   registerPanelType('crypto', {
     label: 'Crypto price',
@@ -2654,7 +2655,7 @@
 
       const source = {
         cacheKey: 'panel:crypto:' + CP.label + ':' + tokens.join(','),   // per provider: one host's backoff never delays another
-        url: CP.buildUrl(tokens),
+        get url() { return CP.buildUrl(tokens, Date.now()); },   // read per fetch: a fresh minute-stamped URL each time
         ttlMs: 60 * 1000,
         parse: (text) => CP.parse(text, tokens),
       };
@@ -2668,8 +2669,11 @@
         const up = p.change24h >= 0;
         return { text, tail: `${up ? '▲' : '▼'} ${Math.abs(p.change24h).toFixed(2)}%`, tone: up ? 'pos' : 'neg' };
       };
-      const draw = (prices, ts) => {
+      // Stamp with when the prices were TRUE (the provider's own observation time); fall
+      // back to when ypuf fetched them only for a value cached before prices carried it.
+      const draw = (prices, fetchedAt) => {
         const lines = (prices || []).map(lineOf);
+        const ts = CP.observedAt(prices) || fetchedAt;
         panel.render({ lines: lines.length ? lines : [{ text: 'price unavailable' }], note: ts ? asOf(ts) : 'price unavailable', foot });
       };
 

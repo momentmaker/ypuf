@@ -13,7 +13,9 @@ All notable changes to ypuf are documented here. The format follows
   every 15 minutes — leaving the panel dark. DefiLlama is free, needs no account, and
   understands the same coin ids (`bitcoin`, `ethereum`, …), so your existing panels
   keep working as they are. If you haven't given ypuf access to all sites, the panel
-  asks once for access to DefiLlama.
+  asks once for access to DefiLlama. Prices refresh about once a minute, and the
+  panel's "as of" time now shows when the price was actually observed, not just when
+  ypuf last fetched it.
 
 ### Fixed
 - **The crypto price panel no longer multiplies its requests.** Free price APIs limit

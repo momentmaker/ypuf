@@ -26,10 +26,13 @@
     origin: DEFILLAMA_ORIGIN,
 
     // /chart with span=2 & period=1d answers, per coin, [price ~24h ago, latest
-    // price] — the price AND its 24h change in one request.
-    buildUrl(tokens) {
+    // price] — the price AND its 24h change in one request. Its responses are
+    // CDN-cached for an HOUR per URL, so `end` pins the current minute: each
+    // minute is a new URL (fresh prices), shared by every fetch within it.
+    buildUrl(tokens, now) {
       const ids = normalize(tokens).filter((t) => ID_SHAPE.test(t)).map((t) => 'coingecko:' + t);
-      return DEFILLAMA_ORIGIN + '/chart/' + ids.join(',') + '?span=2&period=1d';
+      const minute = Math.floor(now / 60000) * 60;
+      return DEFILLAMA_ORIGIN + '/chart/' + ids.join(',') + '?span=2&period=1d&end=' + minute;
     },
 
     parse(text, tokens) {
@@ -46,18 +49,27 @@
         if (!latest || typeof latest.price !== 'number') return unavailable(t);
         const dayAgo = points.length > 1 ? points[0].price : null;
         const change24h = typeof dayAgo === 'number' && dayAgo > 0 ? ((latest.price - dayAgo) / dayAgo) * 100 : null;
-        return { token: t, price: latest.price, change24h };
+        return { token: t, price: latest.price, change24h, at: latest.timestamp * 1000 };
       });
     },
   };
 
   const provider = defillama; // ← swap here to change vendor (R6); panel is unaffected
 
+  // When the shown prices were true: the OLDEST provider observation among them, so
+  // the panel's "as of" stamp can't look fresher than its stalest price — whatever
+  // the provider or a CDN cached. null when no price carries an observation time.
+  function observedAt(prices) {
+    const times = (Array.isArray(prices) ? prices : []).map((p) => p && p.at).filter((t) => typeof t === 'number');
+    return times.length ? Math.min(...times) : null;
+  }
+
   const api = {
     label: provider.label,
     origin: provider.origin,
-    buildUrl: (tokens) => provider.buildUrl(tokens),
+    buildUrl: (tokens, now) => provider.buildUrl(tokens, now),
     parse: (text, tokens) => provider.parse(text, tokens),
+    observedAt,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ypuf = Object.assign(root.ypuf || {}, { cryptoProvider: api });
