@@ -15,6 +15,12 @@ All notable changes to ypuf are documented here. The format follows
 - **A failing feed or price source now waits before retrying.** Instead of trying
   again on every new tab, ypuf backs off — 1, 2, 4, 8, then 15 minutes (longer if the
   source asks) — and shows the last prices or headlines it has in the meantime.
+- **Switching tabs is much lighter.** ypuf kept how long and how often you visit
+  pages in one big record that it rewrote — and sent to every open new tab — each
+  time you switched tabs, changed pages, or moved between windows; after a few months
+  of browsing that was megabytes per switch. It now keeps one small entry per page
+  and updates only the pages involved. Your existing history moves over by itself
+  the first time the new version runs, and still never leaves your device.
 
 ## [1.3.0] — 2026-07-05
 

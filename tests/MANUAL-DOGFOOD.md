@@ -104,15 +104,21 @@ math) is covered by `node --test`. The behavior below depends on real
 
 ## Passive dwell/revisit signal (U9 — invisible)
 
-No UI in slice 1. In the SW console, after browsing a few normal pages:
+No UI in slice 1. In the SW DevTools → **Application → IndexedDB → ypuf → signal**
+(one row per URL), after browsing a few normal pages:
 
-- [ ] `chrome.storage.local.get('signal')` shows accumulating `dwell` (ms) and
-      `revisits` (counts) keyed by URL.
-- [ ] After sitting on **`chrome://`** or a **blocklisted** page, no key for it
-      appears in `signal`. Visiting in a way that involves incognito leaves no
-      trace (extension is `not_allowed` there anyway).
+- [ ] Rows show accumulating `dwell` (ms), `revisits` (count) and `lastActiveAt`.
+- [ ] After sitting on **`chrome://`** or a **blocklisted** page, no row for it
+      appears. Visiting in a way that involves incognito leaves no trace
+      (extension is `not_allowed` there anyway).
 - [ ] Switching away from a tab and back increments its revisit count; dwell
       only grows while the tab is the focused foreground tab.
+- [ ] **Upgrade from ≤1.3:** after the update, `chrome.storage.local.get('signal')`
+      is **empty** (the old blob was imported, then removed) and the `signal` store
+      holds the same URLs — "often revisited" markers in recall are unchanged.
+- [ ] **A tab switch is cheap:** with a board open, switching tabs writes **no**
+      `signal` key to `chrome.storage.local` (the board's `storage.onChanged` stays
+      quiet) — only the one or two affected rows change in IndexedDB.
 
 ## Crash-consistency (U3/U4/U5)
 
