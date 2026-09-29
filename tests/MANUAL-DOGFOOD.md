@@ -440,17 +440,24 @@ boundary, and the host-permission grants — is verified by hand.
 - [ ] **Add → Crypto price**, enter `bitcoin, ethereum` → a glanceable price + 24h
       change appears with an **"as of HH:MM"** stamp; footer names **CoinGecko
       (ypuf-chosen)**.
-- [ ] **Swap-on-refocus:** leave the board open, switch to another tab for >60s,
+- [ ] **Swap-on-refocus:** leave the board open, switch to another tab for >6 min,
       switch back → the price **updates on refocus** (not while you were staring at
       it). It does **not** flicker/update in place while continuously viewed.
 - [ ] Provider down / rate-limited (e.g. add a bogus token id) → the panel keeps
       **last-known** + "price unavailable", **no error badge**.
+- [ ] **Shared cadence:** open the crypto panel on two boards and leave both ~10 min →
+      their Network tabs **together** show ~2 CoinGecko requests (one per 5 min across
+      all boards), not one per board per minute.
+- [ ] **Backs off when refused:** while CoinGecko answers 429/403 (or offline), retries
+      space out **1 → 2 → 4 → 8 → 15 min** (a longer `Retry-After` wins) across every
+      board — new tabs opened meanwhile make **no** request. The first success resets
+      it. (Ladder automated in `tests/backoff.test.js`.)
 
 ## Cache, cold-start, calm (U4, U7 / R11)
 
 - [ ] First add of a panel shows a calm **"Loading…"** placeholder, never a blank
       or a blocked board.
-- [ ] Reopen a new tab **within the TTL** (RSS ~30 min, crypto ~60s) → the panel
+- [ ] Reopen a new tab **within the TTL** (RSS ~30 min, crypto ~5 min) → the panel
       serves from cache with **no new network request** (check the Network tab).
 - [ ] No animation / auto-play anywhere; the board is quiet at rest.
 

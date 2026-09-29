@@ -7,6 +7,15 @@ All notable changes to ypuf are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **The crypto price panel no longer gets your connection rate-limited.** CoinGecko's
+  free price API limits requests per network address, and every open new tab asked
+  for prices once a minute — then kept asking every minute after CoinGecko said no,
+  which kept it saying no. All open boards now share one price check every 5 minutes.
+- **A failing feed or price source now waits before retrying.** Instead of trying
+  again on every new tab, ypuf backs off — 1, 2, 4, 8, then 15 minutes (longer if the
+  source asks) — and shows the last prices or headlines it has in the meantime.
+
 ## [1.3.0] — 2026-07-05
 
 ### Added
