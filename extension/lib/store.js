@@ -20,6 +20,11 @@
  *   - a `canonicalKey` index on the RECORD store so a vector's key resolves to
  *     its record in O(1) (the key->record read path semantic recall needs;
  *     records are keyed by `id`, which a cosine result never carries).
+ *
+ * VERSION 3 adds a `signal` object store — one dwell/revisit row per URL
+ * (keyPath `url`, indexed by `lastActiveAt` for the retention prune) — owned by
+ * lib/signalstore.js through `withSignalStore`. It replaced a single
+ * chrome.storage blob that every tab switch rewrote whole.
  */
 (function (root) {
   'use strict';
@@ -27,7 +32,8 @@
   const DB_NAME = 'ypuf';
   const STORE = 'entries';
   const VECTOR_STORE = 'vectors';
-  const VERSION = 2;
+  const SIGNAL_STORE = 'signal';
+  const VERSION = 3;
 
   // origin+pathname canonical key — the SAME normalization cluster.originPathKey
   // and the working-set siblings use (drops ?query/#hash). The `canonicalKey`
@@ -73,6 +79,10 @@
           if (!entries.indexNames.contains('canonicalKey')) {
             entries.createIndex('canonicalKey', 'canonicalKey', { unique: false });
           }
+        }
+        if (oldVersion < 3) {
+          const sig = db.createObjectStore(SIGNAL_STORE, { keyPath: 'url' });
+          sig.createIndex('lastActiveAt', 'lastActiveAt', { unique: false });
         }
       };
       req.onsuccess = () => resolve(req.result);
@@ -342,25 +352,31 @@
   // and never opens its own connection (which would race the migration). This
   // is the injected accessor vectorstore.js receives; it stays the only store.js
   // knowledge of the vector store's existence beyond the migration.
-  async function withVectorStore(mode, fn) {
+  async function withNamedStore(name, mode, fn) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(VECTOR_STORE, mode);
-      const vs = tx.objectStore(VECTOR_STORE);
+      const tx = db.transaction(name, mode);
+      const os = tx.objectStore(name);
       let result;
-      Promise.resolve(fn(vs)).then((r) => { result = r; }).catch(reject);
+      Promise.resolve(fn(os)).then((r) => { result = r; }).catch(reject);
       tx.oncomplete = () => resolve(result);
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error);
     });
   }
 
+  const withVectorStore = (mode, fn) => withNamedStore(VECTOR_STORE, mode, fn);
+
+  // The v3 per-URL signal store, on the same memoized DB handle — the injected
+  // accessor lib/signalstore.js receives (as withVectorStore is for vectorstore).
+  const withSignalStore = (mode, fn) => withNamedStore(SIGNAL_STORE, mode, fn);
+
   const api = {
     reset, openDB, put, get, getAll, listRecent, listMetaRecent, getByDomain, getByCanonicalKey,
     remove, deleteByDomain, touch, allIds, totalBytes, prune, quotaPrune, shouldPrune,
     withQuotaRetry, count, scrubSibling, scrubSiblings, backfillCanonicalKeys,
-    withVectorStore, reqToPromise, canonicalKeyOf,
-    STORE, VECTOR_STORE, VERSION,
+    withVectorStore, withSignalStore, reqToPromise, canonicalKeyOf,
+    STORE, VECTOR_STORE, SIGNAL_STORE, VERSION,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

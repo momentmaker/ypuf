@@ -104,15 +104,21 @@ math) is covered by `node --test`. The behavior below depends on real
 
 ## Passive dwell/revisit signal (U9 — invisible)
 
-No UI in slice 1. In the SW console, after browsing a few normal pages:
+No UI in slice 1. In the SW DevTools → **Application → IndexedDB → ypuf → signal**
+(one row per URL), after browsing a few normal pages:
 
-- [ ] `chrome.storage.local.get('signal')` shows accumulating `dwell` (ms) and
-      `revisits` (counts) keyed by URL.
-- [ ] After sitting on **`chrome://`** or a **blocklisted** page, no key for it
-      appears in `signal`. Visiting in a way that involves incognito leaves no
-      trace (extension is `not_allowed` there anyway).
+- [ ] Rows show accumulating `dwell` (ms), `revisits` (count) and `lastActiveAt`.
+- [ ] After sitting on **`chrome://`** or a **blocklisted** page, no row for it
+      appears. Visiting in a way that involves incognito leaves no trace
+      (extension is `not_allowed` there anyway).
 - [ ] Switching away from a tab and back increments its revisit count; dwell
       only grows while the tab is the focused foreground tab.
+- [ ] **Upgrade from ≤1.3:** after the update, `chrome.storage.local.get('signal')`
+      is **empty** (the old blob was imported, then removed) and the `signal` store
+      holds the same URLs — "often revisited" markers in recall are unchanged.
+- [ ] **A tab switch is cheap:** with a board open, switching tabs writes **no**
+      `signal` key to `chrome.storage.local` (the board's `storage.onChanged` stays
+      quiet) — only the one or two affected rows change in IndexedDB.
 
 ## Crash-consistency (U3/U4/U5)
 
@@ -440,17 +446,24 @@ boundary, and the host-permission grants — is verified by hand.
 - [ ] **Add → Crypto price**, enter `bitcoin, ethereum` → a glanceable price + 24h
       change appears with an **"as of HH:MM"** stamp; footer names **CoinGecko
       (ypuf-chosen)**.
-- [ ] **Swap-on-refocus:** leave the board open, switch to another tab for >60s,
+- [ ] **Swap-on-refocus:** leave the board open, switch to another tab for >6 min,
       switch back → the price **updates on refocus** (not while you were staring at
       it). It does **not** flicker/update in place while continuously viewed.
 - [ ] Provider down / rate-limited (e.g. add a bogus token id) → the panel keeps
       **last-known** + "price unavailable", **no error badge**.
+- [ ] **Shared cadence:** open the crypto panel on two boards and leave both ~10 min →
+      their Network tabs **together** show ~2 CoinGecko requests (one per 5 min across
+      all boards), not one per board per minute.
+- [ ] **Backs off when refused:** while CoinGecko answers 429/403 (or offline), retries
+      space out **1 → 2 → 4 → 8 → 15 min** (a longer `Retry-After` wins) across every
+      board — new tabs opened meanwhile make **no** request. The first success resets
+      it. (Ladder automated in `tests/backoff.test.js`.)
 
 ## Cache, cold-start, calm (U4, U7 / R11)
 
 - [ ] First add of a panel shows a calm **"Loading…"** placeholder, never a blank
       or a blocked board.
-- [ ] Reopen a new tab **within the TTL** (RSS ~30 min, crypto ~60s) → the panel
+- [ ] Reopen a new tab **within the TTL** (RSS ~30 min, crypto ~5 min) → the panel
       serves from cache with **no new network request** (check the Network tab).
 - [ ] No animation / auto-play anywhere; the board is quiet at rest.
 

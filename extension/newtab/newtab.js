@@ -1046,7 +1046,7 @@
   // The single fetch/validate/parse/cache path for network panels. A panel NEVER
   // fetches — it hands the broker a source and gets back parsed text-only data.
   //   source: { cacheKey, url, ttlMs, parse(rawText) -> value }
-  // Cache entry: { value, fetchedAt, fetchingAt? } in chrome.storage.local.
+  // Cache entry: { value, fetchedAt, fetchingAt?, failures?, retryAt? } in chrome.storage.local.
 
   const FETCH_LOCK_MS = 20000;   // cross-tab single-flight window
   const FETCH_TIMEOUT_MS = 15000; // a hung host must not hold the lock indefinitely
@@ -1054,6 +1054,9 @@
   async function brokerRefresh(source) {
     const entry = (await local.get(source.cacheKey)) || {};
     const now = Date.now();
+    // A failing host waits out its shared retryAt — no tab fetches before it. Resolve
+    // null (no new value) so a caller never re-stamps the stale value as fresh.
+    if (window.ypuf.backoff.inBackoff(entry, now)) return null;
     // Cross-tab single-flight: skip only when another tab is mid-fetch AND we already
     // have a value to serve. On a COLD cache we fetch anyway — a stale lock left by a
     // tab that closed mid-fetch must not wedge a fresh open at "couldn't load".
@@ -1061,6 +1064,7 @@
     await local.set(source.cacheKey, Object.assign({}, entry, { fetchingAt: now }));
     const ctl = new AbortController();
     const tid = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
+    let retryAfter = null;
     try {
       const v = window.ypuf.sourceurl.validate(source.url);
       if (!v.ok) throw new Error('invalid-source:' + v.reason);
@@ -1070,14 +1074,17 @@
         redirect: 'error',              // a validated public host can't 302 to a private IP
         signal: ctl.signal,             // a slow/hung host aborts at FETCH_TIMEOUT_MS
       });
-      if (!res.ok) throw new Error('http-' + res.status);
+      if (!res.ok) {
+        retryAfter = res.headers.get('retry-after');
+        throw new Error('http-' + res.status);
+      }
       const value = source.parse(await res.text());   // text-only struct
-      await local.set(source.cacheKey, { value, fetchedAt: Date.now() }); // success-only; drop the lock
+      await local.set(source.cacheKey, { value, fetchedAt: Date.now() }); // success-only; drops the lock + any backoff
       return value;
     } catch (e) {
-      // Failure: keep last-known value, drop the lock so a later open can retry.
+      // Failure: keep last-known value, drop the lock, and back off before any tab retries.
       const keep = (await local.get(source.cacheKey)) || {};
-      await local.set(source.cacheKey, { value: keep.value, fetchedAt: keep.fetchedAt });
+      await local.set(source.cacheKey, window.ypuf.backoff.afterFailure(keep, retryAfter, Date.now()));
       throw e;
     } finally {
       clearTimeout(tid);
@@ -1098,7 +1105,7 @@
     return { value: value == null ? null : value, fetchedAt: value == null ? null : Date.now(), stale: false, cold: value == null };
   }
 
-  const broker = { load: brokerLoad, refresh: brokerRefresh };
+  const broker = { load: brokerLoad };
 
   // --- panel type registry (ypuf U3, rss U5, crypto U6) -------------------
   // A type def: { label, addable, network, buildForm(formEl)->readConfig(),
@@ -2605,10 +2612,13 @@
 
   // --- Crypto price panel (U6) ---------------------------------------------
   // Glanceable price + 24h change via a swappable provider (CoinGecko v1). Refresh
-  // is swap-on-refocus: a 60s in-page interval STAGES a new value without redrawing;
+  // is swap-on-refocus: a 60s in-page tick STAGES a new value without redrawing;
   // it is flushed only on the next refocus (visibilitychange→visible / window focus)
-  // — the one moment the user is provably not mid-glance. An "as of HH:MM" stamp
-  // keeps a left-open board honest; failures keep last-known + "unavailable" (R11).
+  // — the one moment the user is provably not mid-glance. The tick reads the shared
+  // cache and fetches only once it is 5 min stale, so every open board together
+  // makes ~one request per 5 min — CoinGecko's keyless tier rate-limits per IP, and
+  // its prices are server-cached for minutes anyway. An "as of HH:MM" stamp keeps a
+  // left-open board honest; failures keep last-known + "unavailable" (R11).
 
   registerPanelType('crypto', {
     label: 'Crypto price',
@@ -2643,9 +2653,10 @@
       const source = {
         cacheKey: 'panel:crypto:' + tokens.join(','),
         url: CP.buildUrl(tokens),
-        ttlMs: 60 * 1000,
+        ttlMs: 5 * 60 * 1000,
         parse: (text) => CP.parse(text, tokens),
       };
+      const TICK_MS = 60 * 1000;
 
       const asOf = (ts) => { try { return 'as of ' + new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } };
       const lineOf = (p) => {
@@ -2667,6 +2678,7 @@
       let staged = null;
       let timer = null;
       let alive = true;   // armed false by teardown; a late access resolve must not install the interval/listeners
+      const stage = (value, ts) => { if (value) staged = { value, ts }; };
       const flush = () => { if (staged) { draw(staged.value, staged.ts); staged = null; } };
       const onVis = () => { if (document.visibilityState === 'visible') flush(); };
 
@@ -2683,8 +2695,11 @@
           if (r.refresh) r.refresh.then((v) => { if (v) draw(v, Date.now()); }).catch(() => {});
         }).catch(() => draw(null, null));
         timer = setInterval(() => {
-          ctx.broker.refresh(source).then((v) => { if (v) staged = { value: v, ts: Date.now() }; }).catch(() => {});
-        }, source.ttlMs);
+          ctx.broker.load(source).then((r) => {
+            stage(r.value, r.fetchedAt);   // picks up another board's fetch without a request of our own
+            if (r.refresh) r.refresh.then((v) => stage(v, Date.now())).catch(() => {});
+          }).catch(() => {});
+        }, TICK_MS);
         document.addEventListener('visibilitychange', onVis);
         window.addEventListener('focus', flush);
       });

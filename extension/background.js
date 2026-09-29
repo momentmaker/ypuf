@@ -31,6 +31,7 @@ importScripts(
   'lib/recallpage.js',
   'lib/rationale.js',
   'lib/signal.js',
+  'lib/signalstore.js',
   'lib/tabstate.js',
   'lib/eligibility.js',
   'lib/protection.js',
@@ -40,7 +41,7 @@ importScripts(
   'lib/blocklist.js',
 );
 
-const { store, vectorstore, embed, modelasset, search, capture, cluster, exclusion, signal, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank, recallmerge, recallquery, proactive, recallpage, rationale } = self.ypuf;
+const { store, vectorstore, embed, modelasset, search, capture, cluster, exclusion, signal, signalstore, tabstate, eligibility, protection, eagerness, digest, snooze, privacy, titles, recallrank, recallmerge, recallquery, proactive, recallpage, rationale } = self.ypuf;
 
 const logErr = (e) => console.error('[ypuf]', e);
 
@@ -702,41 +703,90 @@ async function handleUndo(recordId) {
 // --- passive dwell/revisit signal (U9) -----------------------------------
 // Consumed by nothing in slice 1; banks data for slice 2. Gate-before-write.
 
-const SIGNAL_KEY = 'signal';
 // Revisits that mark a load-bearing, often-returned page — the strong intent signal (§4):
 // frequency, not duration. Surfaced as the "often revisited" marker in recall.
 const FREQUENT_REVISITS = 3;
 
-const loadDurable = async () => (await local.get(SIGNAL_KEY)) || signal.emptyState();
-const saveDurable = (durable) => local.set(SIGNAL_KEY, durable);
+// The signal lives one row per URL in IndexedDB (lib/signalstore.js). It used to be
+// ONE chrome.storage.local blob, rewritten whole — and broadcast to every open board
+// via storage.onChanged — on every tab switch; that blob is imported once, then removed.
+const LEGACY_SIGNAL_KEY = 'signal';
+const signalDeps = { withSignalStore: store.withSignalStore, reqToPromise: store.reqToPromise };
 
-// Bound signal-map growth (U8): age out URLs not foregrounded within the window —
-// forget alone never fires for visited-but-kept URLs, so the map would grow forever.
-// Runs on cold start (initIndex) and at storage pressure (maybePrune); both recur.
-const SIGNAL_RETENTION_MAX_AGE_MS = RETENTION_MAX_AGE_MS; // same 180-day window as the store
-async function pruneStaleSignal(now) {
-  const durable = await loadDurable();
-  if (signal.pruneStale(durable, now, SIGNAL_RETENTION_MAX_AGE_MS)) await saveDurable(durable);
+let _signalReady = null;
+function signalReady() {
+  if (_signalReady) return _signalReady;
+  const p = signalstore.migrateLegacy(signalDeps, {
+    getLegacy: () => local.get(LEGACY_SIGNAL_KEY),
+    removeLegacy: () => chrome.storage.local.remove(LEGACY_SIGNAL_KEY),
+  });
+  // Don't memoize a rejection — the legacy blob is kept, so the next caller retries.
+  p.catch(() => { if (_signalReady === p) _signalReady = null; });
+  _signalReady = p;
+  return p;
 }
 
+// Serialize every signal read-modify-write (tab switches, forget/undo/purge, prune):
+// focus and activation events fire together, and an interleaved save would drop
+// one of them — or resurrect a row another path just deleted.
+let _signalChain = Promise.resolve();
+function withSignal(fn) {
+  const run = _signalChain.then(signalReady).then(fn);
+  _signalChain = run.catch(() => {});
+  return run;
+}
+
+// The whole map, for recall, sweeps and forget/undo/purge. saveAll writes only the diff.
+const loadDurable = async () => { await signalReady(); return signalstore.loadAll(signalDeps); };
+const saveDurable = (durable) => signalstore.saveAll(signalDeps, durable);
+
+// Load → mutate → save the whole map on the signal chain (forget/undo/purge).
+function withDurable(mutate) {
+  return withSignal(async () => {
+    const durable = await loadDurable();
+    const result = await mutate(durable);
+    await saveDurable(durable);
+    return result;
+  });
+}
+
+// Bound signal growth (U8): age out URLs not foregrounded within the window —
+// forget alone never fires for visited-but-kept URLs, so the rows would grow forever.
+// Runs on cold start (initIndex) and at storage pressure (maybePrune); both recur.
+const SIGNAL_RETENTION_MAX_AGE_MS = RETENTION_MAX_AGE_MS; // same 180-day window as the store
+function pruneStaleSignal(now) {
+  return withSignal(() => signalstore.pruneStale(signalDeps, now, SIGNAL_RETENTION_MAX_AGE_MS));
+}
+
+// The hot path touches only the rows this event can change: the page losing focus
+// (its dwell is flushed) and the page gaining it. An untrackable page (incognito,
+// blocklisted, restricted) is never even looked up — gate before any read or write.
 async function applyForeground(tab) {
   if (!tab) return;
-  const durable = await loadDurable();
-  const active = await session.get('signalActive');
-  const next = signal.activate(
-    { url: tab.url, incognito: tab.incognito }, Date.now(),
-    { classify: exclusion.classify, userBlocklist: await getUserBlocklist(), active, durable },
-  );
-  await saveDurable(next.durable);
-  await session.set('signalActive', next.active);
+  await withSignal(async () => {
+    const active = await session.get('signalActive');
+    const userBlocklist = await getUserBlocklist();
+    const tracked = signal.trackable(tab, exclusion.classify, userBlocklist);
+    const urls = [active && active.url, tracked ? tab.url : null];
+    const durable = await signalstore.load(signalDeps, urls);
+    const next = signal.activate(
+      { url: tab.url, incognito: tab.incognito }, Date.now(),
+      { classify: exclusion.classify, userBlocklist, active, durable },
+    );
+    await signalstore.save(signalDeps, next.durable, urls);
+    await session.set('signalActive', next.active);
+  });
 }
 
 async function applyBlur() {
-  const durable = await loadDurable();
-  const active = await session.get('signalActive');
-  const next = signal.blur(Date.now(), { active, durable });
-  await saveDurable(next.durable);
-  await session.set('signalActive', next.active);
+  await withSignal(async () => {
+    const active = await session.get('signalActive');
+    const urls = [active && active.url];
+    const durable = await signalstore.load(signalDeps, urls);
+    const next = signal.blur(Date.now(), { active, durable });
+    await signalstore.save(signalDeps, next.durable, urls);
+    await session.set('signalActive', next.active);
+  });
 }
 
 // --- per-tab state (U1) --------------------------------------------------
@@ -876,8 +926,8 @@ const loadProtection = async () => (await local.get(PROTECTION_KEY)) || protecti
 const saveProtection = (s) => local.set(PROTECTION_KEY, s);
 
 async function meetsObservationBar() {
-  const durable = await loadDurable();
-  return Object.keys(durable.revisits || {}).length >= MIN_OBSERVED_URLS;
+  await signalReady();
+  return (await signalstore.count(signalDeps)) >= MIN_OBSERVED_URLS;
 }
 
 function projectTab(t) {
@@ -1083,9 +1133,7 @@ async function whatsIndexed() {
 }
 
 async function forgetPage(recordId) {
-  const durable = await loadDurable();
-  const bundle = await privacy.forgetPage(recordId, await privacyDeps(durable));
-  await saveDurable(durable);
+  const bundle = await withDurable(async (durable) => privacy.forgetPage(recordId, await privacyDeps(durable)));
   await clearSnoozeAlarm(recordId); // cancel any pending return
   await persistSnapshot();
   if (bundle) {
@@ -1102,9 +1150,7 @@ async function forgetPageUndo(recordId) {
   const pending = (await session.get('pendingForget')) || [];
   const entry = pending.find((p) => p.recordId === recordId);
   if (!entry || entry.expiry <= Date.now()) return { ok: false };
-  const durable = await loadDurable();
-  await privacy.restorePage(entry.bundle, await privacyDeps(durable));
-  await saveDurable(durable);
+  await withDurable(async (durable) => privacy.restorePage(entry.bundle, await privacyDeps(durable)));
   await persistSnapshot();
   await session.set('pendingForget', pending.filter((p) => p.recordId !== recordId));
   return { ok: true };
@@ -1129,9 +1175,7 @@ async function forgetDomain(host) {
   const gone = await store.getByDomain(host);
   const ids = gone.map((r) => r.id);
   const urls = gone.map((r) => r.url);
-  const durable = await loadDurable();
-  const n = await privacy.forgetDomain(host, await privacyDeps(durable));
-  await saveDurable(durable);
+  const n = await withDurable(async (durable) => privacy.forgetDomain(host, await privacyDeps(durable)));
   await purgeDomainStores(host);
   for (const id of ids) clearSnoozeAlarm(id);
   try { await store.scrubSiblings(urls); } catch (e) { logErr(e); } // one scan for the whole domain
@@ -1142,9 +1186,7 @@ async function forgetDomain(host) {
 async function blocklistAdd(host) {
   const list = await getUserBlocklist();
   if (!list.includes(host)) { list.push(host); await local.set(BLOCKLIST_KEY, list); }
-  const durable = await loadDurable();
-  const n = await privacy.retroactivePurge(host, await privacyDeps(durable));
-  await saveDurable(durable);
+  const n = await withDurable(async (durable) => privacy.retroactivePurge(host, await privacyDeps(durable)));
   await purgeDomainStores(host);
   await persistSnapshot();
   return { count: n };
