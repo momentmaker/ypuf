@@ -158,3 +158,52 @@ test('listMetaRecent returns lightweight, reverse-chronological projections (no 
   assert.equal(metas[1].snoozeState, 'sleeping');            // preserved for filtering
   assert.equal(metas[2].snoozeState, null);                  // absent snoozeState → null
 });
+
+// --- v3: the per-URL signal store -------------------------------------------
+
+// A real v2 database, built the way v2 shipped — so the v3 upgrade runs over it.
+async function seedV2Database() {
+  const db = await new Promise((resolve, reject) => {
+    const req = indexedDB.open('ypuf', 2);
+    req.onupgradeneeded = () => {
+      const entries = req.result.createObjectStore(store.STORE, { keyPath: 'id' });
+      for (const ix of ['host', 'lastAccessed', 'byteSize', 'timestamp', 'canonicalKey']) entries.createIndex(ix, ix, { unique: false });
+      req.result.createObjectStore(store.VECTOR_STORE, { keyPath: 'key' });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction([store.STORE, store.VECTOR_STORE], 'readwrite');
+    tx.objectStore(store.STORE).put(rec({ id: 'kept', canonicalKey: 'https://e.com/a' }));
+    tx.objectStore(store.VECTOR_STORE).put({ key: 'https://e.com/a', vector: new Float32Array([1, 0]), modelVersion: 'm1' });
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+test('the v2→v3 upgrade keeps every record and vector', async () => {
+  await seedV2Database();
+  assert.equal((await store.get('kept')).title, 'A');
+  const vec = await store.withVectorStore('readonly', (s) => store.reqToPromise(s.get('https://e.com/a')));
+  assert.equal(vec.modelVersion, 'm1');
+});
+
+test('the v3 signal store round-trips a per-URL row keyed by url', async () => {
+  await seedV2Database();
+  const row = { url: 'https://e.com/a', dwell: 5000, revisits: 2, lastActiveAt: 1700 };
+  await store.withSignalStore('readwrite', (s) => store.reqToPromise(s.put(row)));
+  const got = await store.withSignalStore('readonly', (s) => store.reqToPromise(s.get('https://e.com/a')));
+  assert.deepEqual(got, row);
+});
+
+test('the v3 signal store indexes lastActiveAt, so stale rows can be range-deleted', async () => {
+  await store.withSignalStore('readwrite', (s) => Promise.all([
+    store.reqToPromise(s.put({ url: 'https://e.com/old', lastActiveAt: 10 })),
+    store.reqToPromise(s.put({ url: 'https://e.com/new', lastActiveAt: 99 })),
+  ]));
+  const older = await store.withSignalStore('readonly',
+    (s) => store.reqToPromise(s.index('lastActiveAt').getAllKeys(IDBKeyRange.upperBound(50))));
+  assert.deepEqual(older, ['https://e.com/old']);
+});
