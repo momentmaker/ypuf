@@ -96,9 +96,10 @@
     });
   }
 
-  // Same rule as signal.pruneStale: drop a URL whose lastActiveAt is strictly
-  // before now - maxAgeMs. A row with no lastActiveAt (pre-U8) isn't in the index,
-  // so it is kept — it has no age to judge. O(removed), via the lastActiveAt index.
+  // Bound growth (U8): rows are keyed by every URL ever foregrounded and forget alone
+  // never removes a visited-but-kept one, so drop any URL whose lastActiveAt is
+  // strictly before now - maxAgeMs. A row with no lastActiveAt (pre-U8) isn't in the
+  // index, so it is kept — it has no age to judge. O(removed), via the index.
   function pruneStale(deps, now, maxAgeMs) {
     const stale = IDBKeyRange.upperBound(now - maxAgeMs, true);
     return deps.withSignalStore('readwrite', (s) => new Promise((resolve, reject) => {

@@ -72,24 +72,7 @@
     return durable;
   }
 
-  // Bound growth (the signal map is keyed by every URL ever foregrounded and is
-  // never pruned by forget alone): drop dwell/revisits/lastActiveAt for any URL not
-  // foregrounded within maxAgeMs. Run on the recurring prune trigger, not just forget,
-  // so visited-but-never-forgotten URLs age out instead of accumulating forever.
-  function pruneStale(durable, now, maxAgeMs) {
-    const la = durable.lastActiveAt || {};
-    const cutoff = now - maxAgeMs;
-    let removed = 0;
-    for (const url of Object.keys(la)) {
-      if (la[url] < cutoff) {
-        delete durable.dwell[url]; delete durable.revisits[url]; delete la[url];
-        removed += 1;
-      }
-    }
-    return removed;
-  }
-
-  const api = { emptyState, trackable, flush, activate, blur, deleteByUrl, deleteByDomain, pruneStale, hostOf };
+  const api = { emptyState, trackable, flush, activate, blur, deleteByUrl, deleteByDomain, hostOf };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.ypuf = Object.assign(root.ypuf || {}, { signal: api });

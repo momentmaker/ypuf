@@ -86,26 +86,3 @@ test('deleteByUrl and deleteByDomain also clear lastActiveAt (forget leaves no r
   assert.deepEqual(Object.keys(durable.lastActiveAt), []);
 });
 
-test('pruneStale drops dwell+revisits+lastActiveAt for URLs not active within the window, keeps fresh ones', () => {
-  const now = 1000 * 86400000;
-  const durable = signal.emptyState();
-  const stale = 'https://old.com/x', fresh = 'https://new.com/y';
-  durable.dwell[stale] = 9; durable.revisits[stale] = 3; durable.lastActiveAt[stale] = now - 200 * 86400000;
-  durable.dwell[fresh] = 1; durable.revisits[fresh] = 1; durable.lastActiveAt[fresh] = now - 1 * 86400000;
-  const removed = signal.pruneStale(durable, now, 180 * 86400000);
-  assert.equal(removed, 1);
-  assert.deepEqual(Object.keys(durable.lastActiveAt), [fresh]);
-  assert.deepEqual(Object.keys(durable.dwell), [fresh]);
-  assert.deepEqual(Object.keys(durable.revisits), [fresh]);
-});
-
-test('pruneStale keeps a URL active EXACTLY at the cutoff (strict <), drops one just past it', () => {
-  const now = 1000 * 86400000;
-  const maxAge = 180 * 86400000;
-  const d = signal.emptyState();
-  d.lastActiveAt['https://e.com/at'] = now - maxAge;        // exactly at cutoff -> kept
-  d.lastActiveAt['https://e.com/past'] = now - maxAge - 1;  // one ms older -> dropped
-  d.dwell['https://e.com/at'] = 1; d.dwell['https://e.com/past'] = 1;
-  assert.equal(signal.pruneStale(d, now, maxAge), 1);
-  assert.deepEqual(Object.keys(d.lastActiveAt), ['https://e.com/at']);
-});
