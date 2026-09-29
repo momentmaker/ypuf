@@ -2615,11 +2615,13 @@
   // DefiLlama; tokens are CoinGecko ids). Refresh is swap-on-refocus: a 15s in-page
   // tick STAGES a new value without redrawing; it is flushed only on the next refocus
   // (visibilitychange→visible / window focus) — the one moment the user is provably
-  // not mid-glance. The tick only reads the shared cache and fetches once it is 1 min
+  // not mid-glance. The tick only reads the shared cache and fetches once it is ~1 min
   // stale, so every open board together makes ~one request a minute. Faster buys
   // nothing: DefiLlama publishes a new price only about every 3 min (measured), and
-  // keyless price APIs rate-limit per IP. The tick is shorter than the TTL so a single
-  // board refetches at ~60–75s, not at the second tick after expiry. An "as of HH:MM"
+  // keyless price APIs rate-limit per IP. Both the 15s tick and the 50s TTL sit under
+  // a minute on purpose — a visible board refetches at ~60s, and so does a hidden one
+  // whose timers the browser wakes only once a minute (measured: 120s at tick 15s /
+  // TTL 60s, since each minute's wake found a ~59s-old price "fresh"). An "as of HH:MM"
   // stamp — the provider's own observation time, so no cache can flatter it — keeps a
   // left-open board honest; failures keep last-known + "unavailable" (R11).
 
@@ -2656,7 +2658,9 @@
       const source = {
         cacheKey: 'panel:crypto:' + CP.label + ':' + tokens.join(','),   // per provider: one host's backoff never delays another
         get url() { return CP.buildUrl(tokens, Date.now()); },   // read per fetch: a fresh minute-stamped URL each time
-        ttlMs: 60 * 1000,
+        // Just under a minute: a hidden board's timers wake only once a minute, so at
+        // a 60s TTL the price is ~59s old at the next wake and waits one more.
+        ttlMs: 50 * 1000,
         parse: (text) => CP.parse(text, tokens),
       };
       const TICK_MS = 15 * 1000;
