@@ -2612,14 +2612,15 @@
 
   // --- Crypto price panel (U6) ---------------------------------------------
   // Glanceable price + 24h change via a swappable provider (lib/cryptoProvider.js —
-  // DefiLlama; tokens are CoinGecko ids). Refresh is swap-on-refocus: a 60s in-page
+  // DefiLlama; tokens are CoinGecko ids). Refresh is swap-on-refocus: a 15s in-page
   // tick STAGES a new value without redrawing; it is flushed only on the next refocus
   // (visibilitychange→visible / window focus) — the one moment the user is provably
-  // not mid-glance. The tick reads the shared cache and fetches only once it is 5 min
-  // stale, so every open board together makes ~one request per 5 min — keyless price
-  // APIs rate-limit per IP, and serve prices cached for minutes anyway. An "as of
-  // HH:MM" stamp keeps a left-open board honest; failures keep last-known +
-  // "unavailable" (R11).
+  // not mid-glance. The tick only reads the shared cache and fetches once it is 1 min
+  // stale, so every open board together makes ~one request a minute. Faster buys
+  // nothing: DefiLlama publishes a new price only about every 3 min (measured), and
+  // keyless price APIs rate-limit per IP. The tick is shorter than the TTL so a single
+  // board refetches at ~60–75s, not at the second tick after expiry. An "as of HH:MM"
+  // stamp keeps a left-open board honest; failures keep last-known + "unavailable" (R11).
 
   registerPanelType('crypto', {
     label: 'Crypto price',
@@ -2654,10 +2655,10 @@
       const source = {
         cacheKey: 'panel:crypto:' + CP.label + ':' + tokens.join(','),   // per provider: one host's backoff never delays another
         url: CP.buildUrl(tokens),
-        ttlMs: 5 * 60 * 1000,
+        ttlMs: 60 * 1000,
         parse: (text) => CP.parse(text, tokens),
       };
-      const TICK_MS = 60 * 1000;
+      const TICK_MS = 15 * 1000;
 
       const asOf = (ts) => { try { return 'as of ' + new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } };
       const lineOf = (p) => {

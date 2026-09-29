@@ -16,10 +16,10 @@ All notable changes to ypuf are documented here. The format follows
   asks once for access to DefiLlama.
 
 ### Fixed
-- **The crypto price panel asks for prices far less often.** Free price APIs limit
-  requests per network address, and every open new tab asked once a minute — then
-  kept asking every minute after being refused, which kept it refused. All open
-  boards now share one price check every 5 minutes.
+- **The crypto price panel no longer multiplies its requests.** Free price APIs limit
+  requests per network address, and every open new tab fetched prices on its own once
+  a minute — then kept asking after being refused, which kept it refused. All open
+  boards now share a single price check about once a minute.
 - **A failing feed or price source now waits before retrying.** Instead of trying
   again on every new tab, ypuf backs off — 1, 2, 4, 8, then 15 minutes (longer if the
   source asks) — and shows the last prices or headlines it has in the meantime.
