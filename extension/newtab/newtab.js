@@ -2612,14 +2612,18 @@
 
   // --- Crypto price panel (U6) ---------------------------------------------
   // Glanceable price + 24h change via a swappable provider (lib/cryptoProvider.js —
-  // DefiLlama; tokens are CoinGecko ids). Refresh is swap-on-refocus: a 60s in-page
+  // DefiLlama; tokens are CoinGecko ids). Refresh is swap-on-refocus: a 15s in-page
   // tick STAGES a new value without redrawing; it is flushed only on the next refocus
   // (visibilitychange→visible / window focus) — the one moment the user is provably
-  // not mid-glance. The tick reads the shared cache and fetches only once it is 5 min
-  // stale, so every open board together makes ~one request per 5 min — keyless price
-  // APIs rate-limit per IP, and serve prices cached for minutes anyway. An "as of
-  // HH:MM" stamp keeps a left-open board honest; failures keep last-known +
-  // "unavailable" (R11).
+  // not mid-glance. The tick only reads the shared cache and fetches once it is ~1 min
+  // stale, so every open board together makes ~one request a minute. Faster buys
+  // nothing: DefiLlama publishes a new price only about every 3 min (measured), and
+  // keyless price APIs rate-limit per IP. Both the 15s tick and the 50s TTL sit under
+  // a minute on purpose — a visible board refetches at ~60s, and so does a hidden one
+  // whose timers the browser wakes only once a minute (measured: 120s at tick 15s /
+  // TTL 60s, since each minute's wake found a ~59s-old price "fresh"). An "as of HH:MM"
+  // stamp — the provider's own observation time, so no cache can flatter it — keeps a
+  // left-open board honest; failures keep last-known + "unavailable" (R11).
 
   registerPanelType('crypto', {
     label: 'Crypto price',
@@ -2653,11 +2657,13 @@
 
       const source = {
         cacheKey: 'panel:crypto:' + CP.label + ':' + tokens.join(','),   // per provider: one host's backoff never delays another
-        url: CP.buildUrl(tokens),
-        ttlMs: 5 * 60 * 1000,
+        get url() { return CP.buildUrl(tokens, Date.now()); },   // read per fetch: a fresh minute-stamped URL each time
+        // Just under a minute: a hidden board's timers wake only once a minute, so at
+        // a 60s TTL the price is ~59s old at the next wake and waits one more.
+        ttlMs: 50 * 1000,
         parse: (text) => CP.parse(text, tokens),
       };
-      const TICK_MS = 60 * 1000;
+      const TICK_MS = 15 * 1000;
 
       const asOf = (ts) => { try { return 'as of ' + new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } };
       const lineOf = (p) => {
@@ -2667,8 +2673,11 @@
         const up = p.change24h >= 0;
         return { text, tail: `${up ? '▲' : '▼'} ${Math.abs(p.change24h).toFixed(2)}%`, tone: up ? 'pos' : 'neg' };
       };
-      const draw = (prices, ts) => {
+      // Stamp with when the prices were TRUE (the provider's own observation time); fall
+      // back to when ypuf fetched them only for a value cached before prices carried it.
+      const draw = (prices, fetchedAt) => {
         const lines = (prices || []).map(lineOf);
+        const ts = CP.observedAt(prices) || fetchedAt;
         panel.render({ lines: lines.length ? lines : [{ text: 'price unavailable' }], note: ts ? asOf(ts) : 'price unavailable', foot });
       };
 

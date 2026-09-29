@@ -13,13 +13,15 @@ All notable changes to ypuf are documented here. The format follows
   every 15 minutes — leaving the panel dark. DefiLlama is free, needs no account, and
   understands the same coin ids (`bitcoin`, `ethereum`, …), so your existing panels
   keep working as they are. If you haven't given ypuf access to all sites, the panel
-  asks once for access to DefiLlama.
+  asks once for access to DefiLlama. Prices refresh about once a minute, and the
+  panel's "as of" time now shows when the price was actually observed, not just when
+  ypuf last fetched it.
 
 ### Fixed
-- **The crypto price panel asks for prices far less often.** Free price APIs limit
-  requests per network address, and every open new tab asked once a minute — then
-  kept asking every minute after being refused, which kept it refused. All open
-  boards now share one price check every 5 minutes.
+- **The crypto price panel no longer multiplies its requests.** Free price APIs limit
+  requests per network address, and every open new tab fetched prices on its own once
+  a minute — then kept asking after being refused, which kept it refused. All open
+  boards now share a single price check about once a minute.
 - **A failing feed or price source now waits before retrying.** Instead of trying
   again on every new tab, ypuf backs off — 1, 2, 4, 8, then 15 minutes (longer if the
   source asks) — and shows the last prices or headlines it has in the meantime.
