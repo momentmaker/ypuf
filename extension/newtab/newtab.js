@@ -2611,14 +2611,15 @@
   });
 
   // --- Crypto price panel (U6) ---------------------------------------------
-  // Glanceable price + 24h change via a swappable provider (CoinGecko v1). Refresh
-  // is swap-on-refocus: a 60s in-page tick STAGES a new value without redrawing;
-  // it is flushed only on the next refocus (visibilitychange→visible / window focus)
-  // — the one moment the user is provably not mid-glance. The tick reads the shared
-  // cache and fetches only once it is 5 min stale, so every open board together
-  // makes ~one request per 5 min — CoinGecko's keyless tier rate-limits per IP, and
-  // its prices are server-cached for minutes anyway. An "as of HH:MM" stamp keeps a
-  // left-open board honest; failures keep last-known + "unavailable" (R11).
+  // Glanceable price + 24h change via a swappable provider (lib/cryptoProvider.js —
+  // DefiLlama; tokens are CoinGecko ids). Refresh is swap-on-refocus: a 60s in-page
+  // tick STAGES a new value without redrawing; it is flushed only on the next refocus
+  // (visibilitychange→visible / window focus) — the one moment the user is provably
+  // not mid-glance. The tick reads the shared cache and fetches only once it is 5 min
+  // stale, so every open board together makes ~one request per 5 min — keyless price
+  // APIs rate-limit per IP, and serve prices cached for minutes anyway. An "as of
+  // HH:MM" stamp keeps a left-open board honest; failures keep last-known +
+  // "unavailable" (R11).
 
   registerPanelType('crypto', {
     label: 'Crypto price',
@@ -2641,7 +2642,7 @@
         return tokens.length ? { tokens } : null;
       };
     },
-    originOf() { return 'https://api.coingecko.com'; }, // ypuf-chosen infra, not a user source
+    originOf() { return window.ypuf.cryptoProvider.origin; }, // ypuf-chosen infra, not a user source
     mount(ctx) {
       const cfg = ctx.spec.config || {};
       const tokens = Array.isArray(cfg.tokens) ? cfg.tokens : [];
@@ -2651,7 +2652,7 @@
       const panel = ctx.mountSandbox(ctx.body, () => {}); // glance only — no intents
 
       const source = {
-        cacheKey: 'panel:crypto:' + tokens.join(','),
+        cacheKey: 'panel:crypto:' + CP.label + ':' + tokens.join(','),   // per provider: one host's backoff never delays another
         url: CP.buildUrl(tokens),
         ttlMs: 5 * 60 * 1000,
         parse: (text) => CP.parse(text, tokens),
@@ -2682,7 +2683,7 @@
       const flush = () => { if (staged) { draw(staged.value, staged.ts); staged = null; } };
       const onVis = () => { if (document.visibilityState === 'visible') flush(); };
 
-      panelHasAccess('https://api.coingecko.com').then((ok) => {
+      panelHasAccess(CP.origin).then((ok) => {
         if (!alive) return;   // torn down before access resolved → install nothing (no leaked interval/fetch)
         if (!ok) {
           panel.render({ lines: [{ text: 'ypuf needs access to fetch prices.' }], foot });

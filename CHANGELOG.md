@@ -7,11 +7,19 @@ All notable changes to ypuf are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Crypto prices now come from DefiLlama instead of CoinGecko.** CoinGecko's free
+  price API began blocking some connections outright — for hours, even when asked only
+  every 15 minutes — leaving the panel dark. DefiLlama is free, needs no account, and
+  understands the same coin ids (`bitcoin`, `ethereum`, …), so your existing panels
+  keep working as they are. If you haven't given ypuf access to all sites, the panel
+  asks once for access to DefiLlama.
+
 ### Fixed
-- **The crypto price panel no longer gets your connection rate-limited.** CoinGecko's
-  free price API limits requests per network address, and every open new tab asked
-  for prices once a minute — then kept asking every minute after CoinGecko said no,
-  which kept it saying no. All open boards now share one price check every 5 minutes.
+- **The crypto price panel asks for prices far less often.** Free price APIs limit
+  requests per network address, and every open new tab asked once a minute — then
+  kept asking every minute after being refused, which kept it refused. All open
+  boards now share one price check every 5 minutes.
 - **A failing feed or price source now waits before retrying.** Instead of trying
   again on every new tab, ypuf backs off — 1, 2, 4, 8, then 15 minutes (longer if the
   source asks) — and shows the last prices or headlines it has in the meantime.
